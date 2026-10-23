@@ -36,6 +36,9 @@ REACT_RE = re.compile(r"[\[【]\s*回应\s*[:：]\s*([^\]】]{1,8})[\]】]")
 EMOJI_ONLY_RE = re.compile(r"^(\s|\[(图片|表情|表情包|动画表情)[^\]]*\]|[\U0001F000-\U0001FAFF\u2600-\u27BF])*$")
 
 
+PHOTO_RE = re.compile(r"\[图片")
+
+
 # 名字后面紧跟这些字，多半是别的词（小满足、小满意、小满月……），不算叫她
 NAME_TAIL = "足意月载贯盈"
 
@@ -84,7 +87,9 @@ def batch_features(texts: list, *, now: float, last_reply_ts: float, prev_msg_ts
         "at_other": 1.0 if any(m.get("at_other") for m in metas) else 0.0,
         "reply_other": 1.0 if any(m.get("reply_other") for m in metas) else 0.0,
         "question": 1.0 if QUESTION_RE.search(joined) or "?" in joined or "？" in joined else 0.0,
-        "emoji_only": 1.0 if texts and all(EMOJI_ONLY_RE.match(t[2] or "") for t in texts) else 0.0,
+        # 23.0 只有表情 / 表情包才算；晒照片、截图（[图片…]）是在分享东西，不当成“没内容”
+        "emoji_only": 1.0 if texts and all(EMOJI_ONLY_RE.match(t[2] or "") and not PHOTO_RE.search(t[2] or "")
+                                           for t in texts) else 0.0,
         "self_share": her5 / n5 if n5 else 0.0,
         "n5m": float(n5),
         "ln_gap": math.log1p(max(0.0, gap)),

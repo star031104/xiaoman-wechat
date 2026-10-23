@@ -207,7 +207,7 @@ def test_s2_skip_only_for_replies(cfg, brain):
 
 
 def test_latency_and_human_delay(cfg, brain):
-    gc, ob = _gc(cfg, brain, pace=1.0)
+    gc, ob = _gc(cfg, brain, pace=1.0, instant=False)
     t = time.time() - 10000
     for i in range(80):
         brain.db.conn.execute("INSERT INTO qq_group_messages(ts, group_id, user_id, name, role, content) VALUES (?,?,?,?,?,?)",

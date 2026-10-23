@@ -269,6 +269,8 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Li
 
     def secs(self, key: str, gid: int | None = None) -> float:
         g = self.gk(gid)
+        if g.get("instant", True) and key in ("read_delay", "notice_delay", "busy_delay_minutes"):
+            return 0.0                                   # 23.0 看到就处理，不装作没看到
         v = g.get(key) or [0, 0]
         lo, hi = (float(v[0]), float(v[1])) if isinstance(v, (list, tuple)) else (float(v), float(v))
         return random.uniform(lo, max(lo, hi)) * float(g.get("pace", 1.0))

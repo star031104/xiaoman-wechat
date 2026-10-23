@@ -9,7 +9,8 @@
 from __future__ import annotations
 
 DEFAULTS = {
-    "merge_wait_seconds": 3,       # 等连发说完再判断
+    "merge_wait_seconds": 2,       # 等连发说完再判断（同一个人还在发会自动顺延）
+    "instant": True,               # 23.0 看到就处理：不装作没看到、不模拟打字（多条之间留 0.5~1 秒）；False 回到按 read_delay / notice_delay / 打字速度等
     "context_messages": 30,        # 带给模型的最近群消息条数
     "talkativeness": 0.3,          # 话痨度 0~1：最近 1 小时里，把最想说的这么多“份额”留给她（chat/gate.py）
     "cold_minutes": 15,            # 群里沉默超过这么久后的第一句：不太想接
@@ -104,10 +105,10 @@ DEFAULTS = {
     "pending_reply_minutes": 20,   # 重启前有人 @ 她还没回：重启后这么多分钟以内的补回
     # —— 13.0 开口更像人 ——
     "gate_judge": True,            # 本地门控拿不准（差一点到阈值）时，问一下便宜模型“说 / 等 / 不”（只回一个字）
-    "gate_judge_band": 0.15,       # 离阈值这么近算“拿不准”
+    "gate_judge_band": 0.25,       # 离阈值这么近算“拿不准”
     "gate_judge_per_hour": 20,     # 每个群每小时最多问几次
     "unprompted_per_day": 40,      # 每个群每天主动开口（插话、冒泡、分享，不算被叫到）最多几次；0 = 不限
-    "rethink_max": 2,              # 想好要说的话、还没发出去时群里又来了新消息：重新想（最多几次）
+    "rethink_max": 0,              # 想好要说的话、还没发出去时群里又来了新消息：重新想（最多几次）
     "rethink_min_new": 2,          # 新来了这么多条（或者有人叫她）才重新想
     "hear_voice": True,            # 群友发的语音转成文字（带情绪、笑声）再给她看（QQ；默认用硅基流动免费的 SenseVoice）
     "voice_reply": True,           # 有人让她“发语音 / 说句话听听”时发一条语音（要配 net.tts，QQ 才能发）
@@ -138,7 +139,7 @@ DEFAULTS = {
     "pitch_max_seconds": 240,      # 最多等这么久，过了就丢
     "pitch_quiet_seconds": 40,     # 群里这么久没人说话算“停下来了”
     "pitch_max_new": 8,            # 等的时候群里又说了这么多句：话题已经走了，丢掉
-    "borderline_judge": True,      # 21.0 门控刚过阈值一点点、没人叫她：再问一下便宜模型
+    "borderline_judge": False,     # 21.0 门控刚过阈值一点点、没人叫她：再问一下便宜模型
     "borderline_band": 0.1,        # 离阈值多近算“擦边过”
     "person_card": True,           # 21.0 在聊的人合成一张人卡（≤120 字），代替“今天状态 / 刚回来 / 相处经验 / 相处说明书”四段
     "listener_mode": "auto",       # 21.1 听者：auto 先只记、和你的标注一致率够了自动接管；on 直接管；shadow 只记；off 不用
@@ -233,6 +234,7 @@ KNOBS = {
     "max_bubbles": ("一次最多几条", "int", 1, 5, 1, "一轮回复最多拆成几条消息"),
     "cooldown_seconds": ("两次插话最短间隔（秒）", "int", 0, 1800, 10, "没被叫到时"),
     "pace": ("回复节奏倍数", "float", 0, 3, 0.1, "看到消息、打字的等待时间都乘它；0 = 秒回"),
+    "instant": ("看到就回", "bool", None, None, None, "不装作没看到、不模拟打字；关掉才按“回复节奏倍数”等"),
     "typing_chars_per_sec": ("打字速度（字/秒）", "float", 1, 30, 1, "越大越快"),
     "repeat_chance": ("跟着复读的概率", "float", 0, 1, 0.05, "群里有人在复读时"),
     "welcome_chance": ("欢迎新人的概率", "float", 0, 1, 0.05, ""),

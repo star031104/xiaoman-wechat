@@ -175,7 +175,7 @@ def test_rethink_when_new_messages_arrive(cfg, brain):
                 return as_plan("那就周六吧")
             return await super().chat(messages, **kw)
     brain.llm = D()
-    gc, ob = _gc(cfg, brain)
+    gc, ob = _gc(cfg, brain, rethink_max=2)          # 23.0 默认不重想了；开着时照旧
     gc._record(GROUP, 88888, "小王", "周六还是周日", 1)
     assert asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who="")) is True
     assert len(brain.llm.group_calls) == 2

@@ -37,7 +37,7 @@ SOFT_BLOCK = 6.0          # 5.0 罚分到这么多：没被叫到就不说了；
 
 # 20.0 拿不准时问出来的动作：名字 → (什么时候选, 对应 say / wait / skip, 给她的一句做法)
 JUDGE_ACTS = {
-    "不说": ("跟你无关、别人在互相聊、插进去突兀", "skip", ""),
+    "不说": ("两个人在说只跟他们有关的私事 / 正事（约时间、对工作），或者你确实没什么可接的", "skip", ""),
     "等": ("话还没说完、在等别人回", "wait", ""),
     "接住": ("有人在接你的话、损你、提到你", "say", "接住就好，一两句、可以就一个表情，别把刚才的话再说一遍"),
     "回答": ("有人在问、你知道答案", "say", "直接给具体答案，别反问回去"),
@@ -46,6 +46,7 @@ JUDGE_ACTS = {
     "纠错": ("有人说错了事实、你有把握", "say", "一句话指出哪里不对、给个台阶，别说教；没把握就别纠"),
     "补充": ("大家缺一个你知道的信息", "say", "只补最关键的一点，最多两句"),
     "关心": ("有人累了、难过、遇到事", "say", "先接住情绪，别急着给建议，也别连着追问"),
+    "捧场": ("有人在晒照片、截图、视频、成果，大家在起哄", "say", "跟着起哄、夸一句或吐槽一句，短一点，只说图上看得见的"),
 }
 
 
@@ -71,10 +72,10 @@ def parse_judge(out: str) -> tuple[str, str]:
 
 
 def judge_examples(db, gid: int, tz=None, k: int = 3) -> str:
-    """你在小屋判过的这个群的例子：该接、不该插各最多 k 条，每条只带那一刻的最后 3 句。"""
+    """你在小屋判过的这个群的例子：该接、可接可不接、不该插各最多 k 条，每条只带那一刻的最后 3 句。"""
     out = []
     try:
-        for lab, word in ((1, "该接"), (0, "不该插")):
+        for lab, word in ((1, "该接"), (2, "可以接（接了不突兀）"), (0, "不该插")):   # 23.0 “可接可不接”也给她看
             rows = db.conn.execute("SELECT ts, act FROM qq_gate_log WHERE group_id=? AND human=? AND mentioned=0 "
                                    "AND NOT (human=0 AND IFNULL(human_why,'')='说的不对') "
                                    "ORDER BY id DESC LIMIT ?", (gid, lab, k)).fetchall()
@@ -224,6 +225,8 @@ class SpeakMixin:
     def human_delay(self, gid: int, key: str, scale: float) -> float:
         """她“看到消息”要多久：有 50 个以上的样本时，从这个群群友自己的回复间隔里抽一个（乘 scale，限制在 2~90 秒）；
         不够就用配置里的区间。"""
+        if self.gk(gid).get("instant", True):
+            return 0.0                                   # 23.0 看到就处理
         lat = self.latency_stats(gid) if self.gk(gid).get("human_latency", True) else {}
         if lat.get("n", 0) >= 50 and lat.get("q"):
             v = random.choice(lat["q"]) * scale * random.uniform(0.8, 1.2)
@@ -546,6 +549,39 @@ class SpeakMixin:
         kind = ""
         fix_notes: list[str] = []          # 21.0 九问自评里要改的地方（说漏、伤面子、玩笑不合适、讨好）：交给重写
         far_dist, tgt_row = 0, None        # 22.0 回的是几条以前的话（微信不能引用时要点名）、回的那条
+        listen_task = None                 # 23.0 听者和发前检查同时跑
+
+        async def listener_verdict() -> str:
+            """等听者的结果、照它办：返回 "" 照常、"skip" 不说、"defer" 先放着；它挑的毛病并进 fix_notes。"""
+            nonlocal listen_task, fix_notes
+            if listen_task is None:
+                return ""
+            t, listen_task = listen_task, None
+            try:
+                res = await t
+            except Exception as e:  # noqa: BLE001
+                log.info("听者没判成：%s", e)
+                return ""
+            enforced = bool(res) and self.listener_enforced(gid)
+            self.listener_log(gate_id, res, enforced)
+            if res:
+                tlog.info("群 %s 听者：%s（%s）%s%s", gid, res["window"], res.get("why", ""),
+                          "；毛病：" + "、".join(res["issues"]) if res.get("issues") else "", "" if enforced else "【只记录】")
+            if enforced and res.get("window") == "never":
+                return "skip"
+            if enforced and res.get("window") == "early" and not pitch:
+                # 23.0 只有“太早”才先放着；“可以”就说。放着的那句再判时只要不是“别说”就发（以前再判成“可以”会被丢掉）
+                if not self.gk(gid).get("pitch_queue", True):
+                    return "skip"
+                st.pitch = {"say": list(plan["say"])[:3], "ts": time.time(), "last_id": last_id,
+                            "think": plan.get("think", ""), "why": res.get("why", ""), "until": res.get("until", ""),
+                            "gate_id": gate_id}
+                log.info("群 %s：听者说太早（等到：%s），先放着", gid, res.get("until") or "群里停一下")
+                self._pitch_outcome(gid, "queued", plan["say"])
+                return "defer"
+            if enforced and res.get("issues"):
+                fix_notes = list(dict.fromkeys([*fix_notes, *res["issues"]]))
+            return ""
 
         def done(outcome: str, sent: list | None = None, quality: str = ""):
             if self.gk(gid).get("trace", True):
@@ -558,6 +594,8 @@ class SpeakMixin:
                     log.debug("存回放失败：%s", e)
 
         def skip(outcome: str = "skip", quality: str = "") -> bool:
+            if listen_task is not None:
+                listen_task.cancel()
             self.gate.mark(gate_id, spoke=False, llm_skip=True, kind=kind)
             if replying:
                 st.backoff.skipped()
@@ -640,27 +678,8 @@ class SpeakMixin:
             if (plan["act"] == "say" and not mentioned and not must and not bid and (replying or pitch)
                     and hasattr(self, "listen") and str(self.gk(gid).get("listener_mode", "auto")) != "off"):
                 # 21.1 独立的听者判时机（她自己的自评不可信）；影子模式只记不拦
-                res = await self.listen(gid, plan["say"])
-                enforced = bool(res) and self.listener_enforced(gid)
-                self.listener_log(gate_id, res, enforced)
-                if res:
-                    tlog.info("群 %s 听者：%s（%s）%s%s", gid, res["window"], res.get("why", ""),
-                              "；毛病：" + "、".join(res["issues"]) if res.get("issues") else "", "" if enforced else "【只记录】")
-                if enforced and res.get("window") == "never":
-                    plan["act"] = "skip"
-                elif enforced and res.get("window") in ("early", "ok"):
-                    # 21.1.1 “可以（不说也行）”也先放着：真人这时候多半不说；等一会儿再判还只是“可以”就算了
-                    if pitch or not self.gk(gid).get("pitch_queue", True):
-                        plan["act"] = "skip"
-                    else:
-                        st.pitch = {"say": list(plan["say"])[:3], "ts": time.time(), "last_id": last_id,
-                                    "think": plan.get("think", ""), "why": res.get("why", ""), "until": res.get("until", ""),
-                                    "gate_id": gate_id}
-                        log.info("群 %s：听者说太早（等到：%s），先放着", gid, res.get("until") or "群里停一下")
-                        self._pitch_outcome(gid, "queued", plan["say"])
-                        return skip("defer")
-                if enforced and res.get("issues") and plan["act"] == "say":
-                    fix_notes = list(dict.fromkeys([*fix_notes, *res["issues"]]))
+                # 23.0 先发出去问，和下面的发前检查同时跑，检查完再看听者怎么说
+                listen_task = asyncio.ensure_future(self.listen(gid, plan["say"]))
             if plan["act"] == "react" and not getattr(self.ob, "can_react", True):
                 plan["act"] = "say" if plan["cands"] else "skip"          # 微信点不了表情：有话就说，没话就算了
             if plan["act"] == "react":
@@ -746,6 +765,9 @@ class SpeakMixin:
                     c22 = []
                 if c22:
                     fix_notes = list(dict.fromkeys([*fix_notes, *c22]))
+            lv = await listener_verdict()
+            if lv:
+                return skip(lv if lv == "defer" else "skip")
             if fix_notes:
                 hits = list(dict.fromkeys([*hits, *fix_notes]))
             if cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan:
@@ -799,6 +821,9 @@ class SpeakMixin:
             if hits:
                 log.info("群 %s 质检：%s（%d 个候选，选了第 %d 个）", gid, qtxt, len(cands), i + 1)
         else:
+            lv = await listener_verdict()
+            if lv:
+                return skip(lv if lv == "defer" else "skip")
             bubbles = [x for x in (cands[0] if cands else []) if not self.too_similar(gid, x)]
         if bubbles and web and self.gk(gid).get("number_check", True):
             bubbles = await self._check_numbers(gid, bubbles, web, messages, raw, mentioned, use_plan)
@@ -839,8 +864,11 @@ class SpeakMixin:
         interrupted = False
         pace = float(self.gk(gid).get("pace", 1.0))
         for i, text in enumerate(bubbles):
-            await asyncio.sleep((min(6.0, len(text) / max(1.0, cps)) * random.uniform(0.6, 1.1) + (0.8 if i else 0))
-                                * min(1.0, pace) if pace else 0)
+            if self.gk(gid).get("instant", True):        # 23.0 不模拟打字；连着几条之间留一点，别一下全冒出来
+                await asyncio.sleep(random.uniform(0.5, 1.0) if i else 0)
+            else:
+                await asyncio.sleep((min(6.0, len(text) / max(1.0, cps)) * random.uniform(0.6, 1.1) + (0.8 if i else 0))
+                                    * min(1.0, pace) if pace else 0)
             if i and st.to_her_ts > start and not text.startswith("*"):
                 log.info("群 %s：说到一半有人找她，剩下的先不发", gid)
                 interrupted = True
@@ -1154,7 +1182,9 @@ class SpeakMixin:
         acts = "、".join(f"{k}（{v[0]}）" for k, v in JUDGE_ACTS.items())
         shots = judge_examples(self.db, gid, self.cfg.tz)
         prompt = (f"下面是{p.name}所在的群最近的聊天（“你”是{p.name}）。最后几句之后，{p.name}要不要接一句？\n"
-                  "像一个普通群友那样判断：真人在群里大多数时候是不说话的；只有这话冲你来、或者你接一句明显让聊天更好时才开口。\n"
+                  "站在群里其他人的角度想：你是这个群里的熟人，大家喜欢你接话。别人在闲聊、晒东西、起哄、吐槽、问问题，"
+                  "你有一句能接的（捧场、接梗、吐槽、问一句、补一句）就接；“别人在互相聊”不是不说的理由，群聊本来就是大家一起聊。"
+                  "只有两个人在说只跟他们有关的私事 / 正事、或者你确实没东西可接，才不说。\n"
                   f"动作只能选一个：{acts}。\n"
                   "先用一句话写理由（谁在跟谁说、你插进去会怎样），再选动作。只输出 JSON："
                   '{"why": "一句理由", "act": "动作"}\n'
