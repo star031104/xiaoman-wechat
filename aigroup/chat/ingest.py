@@ -22,6 +22,19 @@ log = logging.getLogger("aigroup.group")
 tlog = logging.getLogger("aigroup.text.group")
 
 
+def trim_desc(desc: str, limit: int = 180) -> str:
+    """看图结果压成一行、不超过 limit 字；截的话截在句号 / 分号 / 逗号 / 引号后面，别留半个「。"""
+    d = re.sub(r"\s*\n+\s*", " ", str(desc or "")).strip()
+    d = re.sub(r"(^|\s)[1-4][)）.、]\s*", r"\1", d).strip()          # 去掉“1)”“2)”这种序号
+    if len(d) > limit:
+        cut = d[:limit]
+        k = max(cut.rfind(x) for x in "。；;，,」")
+        d = cut[:k + 1] if k >= limit // 2 else cut
+    if d.count("「") > d.count("」"):
+        d = d[:d.rfind("「")].rstrip("，, ")
+    return d.replace("]", "）").replace("[", "（")
+
+
 class IngestMixin:
     def _record(self, gid: int, uid: int, name: str, text: str, mid=None, role: str = "user",
                 to_her: bool = False, reply_to: int | None = None, ts: float | None = None) -> int:
@@ -430,7 +443,8 @@ class IngestMixin:
         try:
             desc = (await self.brain.llm.describe_image(
                 base64.b64encode(data).decode(), "",
-                prompt=GROUP_IMAGE_PROMPT.format(who=who, names=names or "（不知道）")))[:100]
+                prompt=GROUP_IMAGE_PROMPT.format(who=who, names=names or "（不知道）")))
+            desc = trim_desc(desc, 180)          # 22.2 以前硬截 100 字，会截在引号中间（“電話「5478”）
             if desc:
                 self.db.set(key, desc)
             return desc

@@ -73,6 +73,8 @@ class HumaneMixin:
         g = self.gk(gid)
         if not g.get("bids", True) or at_other or reply_other or not text or not str(text).strip():
             return ""
+        if not re.sub(r"\[[^\]]*\]", "", str(text)).strip():
+            return ""          # 22.2 只发了一张图 / 一个表情包：不算在接她的话（10-23 一张价目表被当成接她，逼得她硬猜）
         now = now or time.time()
         hours = float(g.get("bid_hours", 3) or 3)
         hers = self.db.conn.execute(

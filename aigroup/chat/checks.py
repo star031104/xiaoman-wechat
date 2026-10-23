@@ -12,6 +12,7 @@
 - room_read       热聊别插：两个人正一来一回聊得快，跟她无关
 - other_claims    22.1 编别人的事：说某个群友“今天 emo / 又看哭了 / 在加班”，群里没人说过
 - disputed        22.1 被质疑还嘴硬：她说的时间 / 日期 / 数字刚被人指出不对，没有新来源还照说一遍
+- image_guess     22.2 替发图的人猜他在干嘛：刚有人只发了一张图，她张口就是“这是在看……”“是要去……”
 """
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("source_gate", "self_consistency", "ask_repeat", "template", "addressee", "time_sense", "tease_risk",
-          "responsive", "room_read", "other_claims", "disputed")
+          "responsive", "room_read", "other_claims", "disputed", "image_guess")
 
 # 这些词太常见，不算“说的是哪件事”
 STOP2 = COMMON2 | set("""我这 我那 这边 那边 一会 等会 今天 昨天 前天 这周 上周 最近 以前 之前 刚才 刚刚 上次 那天 周末 早上 晚上 中午
@@ -119,6 +120,8 @@ JUST_NOW = re.compile(r"刚(才|刚)?(说|问|讲|提|发)|你刚")
 OTHER_STATE = re.compile(r"(emo|难过|伤心|生气|气死|哭了|看哭|哭着|失恋|分手|生病|病了|感冒|发烧|加班|熬夜|通宵|迟到|翘课|挂科|睡过头|"
                          r"没睡|在忙|出差|搬家|喝多|喝醉|破防|心情不好|不开心|被骂|吵架|摆烂)", re.I)
 ASKING = re.compile(r"[？?]|吗|是不是|咋了|怎么了|还好吗|没事吧|有没有|会不会|要是|如果|万一")
+
+IMG_GUESS = re.compile(r"(这是|这是在|是在|在看|在找|在挑|准备|打算|要去|想去|又在|又要|这是要)")
 
 # ---- 22.1 被质疑 ----
 DISPUTE = re.compile(r"不是.{0,14}吗|不对|错了|记错|明明|上面(不是)?写着|写的是|你去看看|我看的是|哪看的|原文|官网|截图(上|里)")
@@ -493,6 +496,23 @@ class ChecksMixin:
                     "你手里没有新的来源，就别再坚持：认一下（“哦那我记错了”），或者说你去看看再说")
         return ""
 
+    def _image_guess(self, gid: int, text: str, now: float | None = None) -> str:
+        """刚有人只发了一张图（3 分钟内，后面没人解释），她却替他说他在干嘛 / 要干嘛（不是问句）。"""
+        now = now or time.time()
+        rows = [r for r in self._rows(gid, 4) if r["role"] == "user"]
+        if not rows or now - float(rows[-1]["ts"]) > 180:
+            return ""
+        last = str(rows[-1]["content"] or "")
+        if not last.startswith("[图片"):
+            return ""
+        t = TAG.sub("", text)
+        for clause in re.split(r"[，,。！!；;~～\n]", t):
+            c = clause.strip()
+            if c and IMG_GUESS.search(c) and not ASKING.search(c):
+                return (f"图你只看了个大概：别替发图的人说他在干嘛（「{c[:20]}」）。问一句（“这是要买球？”），"
+                        "或者只接图里看得见的东西")
+        return ""
+
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
                        mentioned: bool = False, gate_id=None, web: str = "") -> list[str]:
@@ -546,6 +566,10 @@ class ChecksMixin:
             w = self._disputed(gid, text, web, now)
             if w:
                 found.append(("disputed", w))
+        if mode["image_guess"] != "off":
+            w = self._image_guess(gid, text, now)
+            if w:
+                found.append(("image_guess", w))
         if mode["responsive"] != "off":
             w = self._responsive(text, target_row)
             if w:

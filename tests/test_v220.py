@@ -201,3 +201,21 @@ def test_kripp_alpha():
     assert kripp_alpha(h, h) == 1.0
     assert kripp_alpha(h, to_human_scale([10, 30, 50, 70, 90, 55, 25, 75], h)) == 1.0     # 名次一样 → 对到你的分布后完全一致
     assert kripp_alpha(h, [6 - x for x in h]) < 0
+
+
+# ---------------- 22.2 看图 ----------------
+def test_image_only_is_not_a_bid_and_no_guessing(cfg, brain):
+    gc, _ = _gc(cfg, brain)
+    gc._record(GROUP, 10001, "小满", "我宣布我已经学成了", 1, role="assistant")
+    assert gc.bid_from(GROUP, FRIEND, "[图片]") == ""
+    gc._record(GROUP, FRIEND, "小王", "[图片：照片，店里贴的羽毛球价目表，「羽毛球價目表」「RSL」]", 2)
+    assert "别替发图的人" in gc._image_guess(GROUP, "小王这是在看8号那场的场地啊")
+    assert gc._image_guess(GROUP, "这是要买球？") == ""
+    assert gc._image_guess(GROUP, "RSL 这么便宜") == ""
+
+
+def test_trim_desc():
+    from aigroup.chat.ingest import trim_desc
+    d = trim_desc("照片，羽毛球价目表。\n2) 图里的字：「羽毛球價目表」「RSL」，電話「54781148", 40)
+    assert "\n" not in d and d.count("「") == d.count("」") and "2)" not in d
+    assert len(trim_desc("一" * 300, 180)) <= 180
