@@ -99,8 +99,8 @@ def check(text: str, recent: list[str] | None = None, sim: float = 0.75, avoid: 
             pa = float(detector.prob(t))
         except Exception:  # noqa: BLE001
             pa = 0.0
-        if pa > 0.7:
-            score += round(4 * (pa - 0.5), 2)
+        if pa > 0.8:                                     # 22.3 校准过的概率：八成以上像 AI 才扣
+            score += round(4 * (pa - 0.6), 2)
             hits.append(f"像 AI（{pa:.2f}）")
     for name, rx, pen in RULES:
         if name in OFF:

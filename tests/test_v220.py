@@ -219,3 +219,28 @@ def test_trim_desc():
     d = trim_desc("照片，羽毛球价目表。\n2) 图里的字：「羽毛球價目表」「RSL」，電話「54781148", 40)
     assert "\n" not in d and d.count("「") == d.count("」") and "2)" not in d
     assert len(trim_desc("一" * 300, 180)) <= 180
+
+
+# ---------------- 22.3 AI 腔检测器 ----------------
+def test_detector_masks_names_and_needs_to_agree_with_you(cfg, brain):
+    from aigroup.chat.detector import Detector, normalize, train_from_db
+    assert normalize("小王这是在看8号那场 ok", ["小王"]) == "Ⓝ这是在看０号那场 ａ"
+    gc, _ = _gc(cfg, brain)
+    now = time.time()
+    human = ["笑死", "我也是哈哈", "今晚吃啥", "冲冲冲", "绝了", "6", "啊这", "谁懂啊", "我来了", "好耶"]
+    ai = ["这个问题很有意思，我们可以从几个方面来看", "希望对你有帮助！", "总的来说，这是一个不错的选择",
+          "我理解你的感受，不妨试试以下方法", "此外，保持良好的作息也至关重要"]
+    rows = [(now, GROUP, FRIEND, "x", "user", f"{h}{i}") for i in range(20) for h in human]
+    rows += [(now, GROUP, 10001, "小满", "assistant", f"{a}{i}") for i in range(40) for a in ai]
+    brain.db.conn.executemany("INSERT INTO qq_group_messages(ts, group_id, user_id, name, role, content) VALUES (?,?,?,?,?,?)", rows)
+    from aigroup.eval.calib import ensure
+    ensure(brain.db)
+    for i in range(30):                    # 你打的分和它反着来：它说像 AI 的你反而打高分 → 不用
+        brain.db.conn.execute("INSERT INTO qq_human_score(trace, group_id, said, context, score, ts) VALUES (?,?,?,?,?,?)",
+                              (f"t{i}", GROUP, ai[i % 5] if i % 2 else human[i % 10], "", 5 if i % 2 else 1, now))
+    brain.db.conn.commit()
+    assert train_from_db(brain.db) is None
+    info = brain.db.get("ai_detector_info")
+    assert not info["used"] and info["rho_vs_you"] > 0 and "对不上" in info["why"]
+    brain.db.set("ai_detector", {"logp": {"a": [0, 0]}, "prior": 0, "default": [0, 0], "n": [1, 1]})
+    assert Detector.load(brain.db) is None                                   # 旧版本的模型不再用

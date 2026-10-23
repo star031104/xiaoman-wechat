@@ -108,11 +108,26 @@ class FeedbackMixin:
 
     def train_detector(self):
         from aigroup.chat.detector import train_from_db
-        det = train_from_db(self.db)
+        det = train_from_db(self.db, mask=self.detector_mask())
         info = self.db.get("ai_detector_info") or {}
+        self.detector = det                      # 22.3 没过线就不用（以前过不了线时还留着旧模型）
         if det is not None:
-            self.detector = det
-            log.info("AI 腔检测器训练好了（留出准确率 %s）", info.get("acc"))
+            log.info("AI 腔检测器训练好了（留出 AUC %s，她的话 p10/p50/p90 = %s）", info.get("auc"), info.get("her_p"))
+        else:
+            log.info("AI 腔检测器这次没过线，先不用（%s）", info)
+
+    def detector_mask(self) -> list[str]:
+        """22.3 训练 / 打分前要换成占位符的词：群友的名字和外号、她的名字和口头禅（不然学成了“谁在说话”）。"""
+        out: list[str] = []
+        for gid in self.groups:
+            for uid in self.names(gid):
+                try:
+                    out += self.names_of(gid, int(uid)) if hasattr(self, "names_of") else [self.names(gid)[uid]]
+                except (ValueError, KeyError):
+                    continue
+        p = self.brain.persona
+        out += [p.name, getattr(p, "formal_name", "") or ""] + list(getattr(p, "catchphrases", None) or []) + list(self.aliases or [])
+        return sorted({str(w).strip() for w in out if w and len(str(w).strip()) >= 2})
 
     def auto_lore(self):
         if self.lore is None:
