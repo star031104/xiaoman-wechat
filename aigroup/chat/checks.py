@@ -13,6 +13,9 @@
 - other_claims    22.1 编别人的事：说某个群友“今天 emo / 又看哭了 / 在加班”，群里没人说过
 - disputed        22.1 被质疑还嘴硬：她说的时间 / 日期 / 数字刚被人指出不对，没有新来源还照说一遍
 - image_guess     22.2 替发图的人猜他在干嘛：刚有人只发了一张图，她张口就是“这是在看……”“是要去……”
+- answered        23.1 这条她已经回过了：没被叫到又回一遍
+- media_claim     23.1 装看过：群里的视频 / 语音她只看到 [视频]，却说“刚看你做视频”“前面那段可以砍一半”
+- catchphrase     23.1 她自己的一个说法今天已经用了两次
 """
 from __future__ import annotations
 
@@ -51,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("source_gate", "self_consistency", "ask_repeat", "template", "addressee", "time_sense", "tease_risk",
-          "responsive", "room_read", "other_claims", "disputed", "image_guess")
+          "responsive", "room_read", "other_claims", "disputed", "image_guess", "answered", "media_claim", "catchphrase")
 
 # 这些词太常见，不算“说的是哪件事”
 STOP2 = COMMON2 | set("""我这 我那 这边 那边 一会 等会 今天 昨天 前天 这周 上周 最近 以前 之前 刚才 刚刚 上次 那天 周末 早上 晚上 中午
@@ -106,9 +109,15 @@ def grounded(claim: str, sources: str) -> bool:
 
 
 # ---- 问 / 叮嘱 ----
-ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多少|咋样|怎么样|赢了没|打完了|结束了)$")
+ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多少|咋样|怎么样|赢了没|打完了|结束了)$|"
+                    r"(出了没|出来没|怎么样了|咋样了|后来呢|后来怎么|结果呢|赢没赢|发了没|弄完没|搞定没)")
 CARE_RX = re.compile(r"记得|别忘|注意|小心|多喝|早点睡|擦药|上药|别熬夜|好好休息|悠着点|慢点|别太累")
-CLOSE_RX = re.compile(r"别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了")
+CLOSE_RX = re.compile(r"别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了|"
+                      r"求你了|求求你|放过我|饶了我")
+# 23.1 视频 / 语音：她看不到内容时，这些说法等于装看过
+MEDIA_PH = re.compile(r"^\[(视频|语音|直播|音乐|文件)\]$")
+WATCH_RX = re.compile(r"(刚看|看了|看完|看过|我看看|我看着|我看到|听了|听完|前面那段|后面那段|开头那段|结尾那段|中间那段|这一段|那一段|"
+                      r"字幕这段|这段字幕|砍一半|剪得|画面|配乐|这条视频|成片(挺|很|真|不错|好看)|这片子)")
 
 # ---- 好事 ----
 GOOD_NEWS = re.compile(r"(过了|上岸|拿到|中了|考上|录取|offer|涨薪|升职|赢了|通过|发表|毕业了|领证|成功了|抢到|做完了|搞定了|好耶|终于)", re.I)
@@ -274,7 +283,7 @@ class ChecksMixin:
         if not terms:
             return ""
         hours = float(self.gk(gid).get("ask_repeat_hours", 24) or 24)
-        for r in self.recent_asks(gid, max(hours, 72), now):
+        for r in self.recent_asks(gid, max(hours, 72, float(self.gk(gid).get("ask_closed_days", 7) or 7) * 24), now):
             common = terms & r["terms"]
             if not common:
                 continue
@@ -285,6 +294,26 @@ class ChecksMixin:
                 ago = (now - r["ts"]) / 3600
                 why = "对方说过别再问了" if closed else (f"{int(ago)} 小时前" if ago >= 1 else "刚才") + "已经问过 / 叮嘱过"
                 return f"这件事{why}（你那句是「{r['text'][:24]}」）：别再问 / 再叮嘱，换个话题或者不说"
+        return self._plan_rebuffed(gid, terms, target_uid, now)
+
+    def _plan_rebuffed(self, gid: int, terms: set, target_uid, now: float) -> str:
+        """23.1 安排里记过、已经问过而且被回避的事：这几天别再问。"""
+        days = float(self.gk(gid).get("ask_closed_days", 7) or 7)
+        try:
+            rows = self.db.conn.execute("SELECT user_id, what, fired, created FROM qq_plans WHERE group_id=? AND kind='ask' "
+                                        "AND status='done' AND IFNULL(NULLIF(fired,0), created)>?", (gid, now - days * 86400)).fetchall()
+        except Exception:  # noqa: BLE001
+            return ""
+        for r in rows:
+            what = str(r["what"] or "")
+            if not (CLOSE_RX.search(what) or re.search(r"被回|没回|不理|岔开|躲", what)):
+                continue
+            if target_uid and r["user_id"] and int(r["user_id"]) != int(target_uid):
+                continue
+            pt = content_terms(what)
+            common = terms & pt
+            if common and (len(common) >= 2 or target_uid):
+                return f"这件事你问过、对方不想说（{what[:30]}）：这几天别再问，也别换个说法问"
         return ""
 
     # ================= 跨天套路 =================
@@ -488,8 +517,12 @@ class ChecksMixin:
             vals -= _values(str(dis["content"] or ""))      # 改成对方说的那个值 = 认了，不算嘴硬
             if not vals:
                 continue
-            if web and any(v in _values(web) for v in vals):
+            pic = bool(re.search(r"上面|截图|图上|图里|写着|写的", str(dis["content"] or "")))
+            if web and any(v in _values(web) for v in vals) and not pic:
                 return ""                                  # 她这次真查到了：可以照着来源说
+            if pic:                                        # 23.1 人家拿着截图 / 图上写的反驳：查到的不一样也别硬顶
+                return (f"对方是看着图说的（「{str(dis['content'])[:30]}」），你查到的「{sorted(vals)[0]}」和图上不一样："
+                        "别再坚持，最多说一句“我查到的不太一样，以店里 / 官方为准”，然后就收")
             v = sorted(vals)[0]
             from aigroup.core.safety import clean_name
             return (f"{clean_name(dis['name'])}刚指出你说的「{v}」不对（他说：「{str(dis['content'])[:30]}」）。"
@@ -514,6 +547,56 @@ class ChecksMixin:
             if c and IMG_GUESS.search(c) and not ASKING.search(c):
                 return (f"图你只看了个大概：别替发图的人说他在干嘛（「{c[:20]}」）。问一句（“这是要买球？”），"
                         "或者只接图里看得见的东西")
+        return ""
+
+    # ================= 23.1 回过了 / 装看过 / 口头禅 =================
+    def note_answered(self, gid: int, row_id, now: float | None = None):
+        if not row_id:
+            return
+        st = self._st(gid)
+        d = st.__dict__.setdefault("answered", {})
+        now = now or time.time()
+        d[int(row_id)] = now
+        for k in [k for k, t in d.items() if now - t > 3600]:
+            d.pop(k, None)
+
+    def _answered(self, gid: int, target_row: dict | None, now: float) -> str:
+        if not target_row or target_row.get("role") != "user" or not target_row.get("id"):
+            return ""
+        d = self._st(gid).__dict__.get("answered") or {}
+        t = d.get(int(target_row["id"]))
+        if t and now - t < 1800:
+            ago = int((now - t) / 60)
+            return (f"「{str(target_row.get('content') or '')[:20]}」这条你{ago if ago else '刚'}{'分钟前' if ago else ''}已经回过了："
+                    "别再回一遍（一样的意思换个说法也算），没别的要说就不说")
+        return ""
+
+    def _media_claim(self, gid: int, text: str, now: float) -> str:
+        rows = [r for r in self._rows(gid, 12) if r["role"] == "user" and now - float(r["ts"]) < 3600]
+        media = [r for r in rows if MEDIA_PH.match(str(r["content"] or "").strip())]
+        if not media:
+            return ""
+        t = TAG.sub("", text)
+        m = WATCH_RX.search(t)
+        if not m:
+            return ""
+        kind = MEDIA_PH.match(str(media[-1]["content"]).strip()).group(1)
+        return (f"{kind}你打不开，只看到一个「[{kind}]」，不知道里面是什么：别说「{m.group(0)}」这种像看过的话。"
+                f"可以说你打不开 / 让他说说讲了啥，或者只接别人说的")
+
+    def _catchphrase(self, gid: int, text: str) -> str:
+        from aigroup.chat.address import grams
+        if not hasattr(self, "today_lines"):
+            return ""
+        mine = {g for g in grams(text, 3) if not any(c in g for c in "的了是我你他她吗呢吧啊")}
+        if not mine:
+            return ""
+        lines = self.today_lines(gid)
+        users = " ".join(str(r["content"] or "") for r in self._rows(gid, 8) if r["role"] == "user")
+        for g in sorted(mine):
+            n = sum(1 for x in lines if g in x)
+            if n >= 2 and g not in users:
+                return f"「{g}」你今天已经说了 {n} 次了，再说就成口头禅了：换个说法，或者不说"
         return ""
 
     # ================= 汇总 =================
@@ -573,6 +656,18 @@ class ChecksMixin:
             w = self._image_guess(gid, text, now, image or {})
             if w:
                 found.append(("image_guess", w))
+        if mode["answered"] != "off" and not mentioned:
+            w = self._answered(gid, target_row, now)
+            if w:
+                found.append(("answered", w))
+        if mode["media_claim"] != "off":
+            w = self._media_claim(gid, text, now)
+            if w:
+                found.append(("media_claim", w))
+        if mode["catchphrase"] != "off":
+            w = self._catchphrase(gid, text)
+            if w:
+                found.append(("catchphrase", w))
         if mode["responsive"] != "off":
             w = self._responsive(text, target_row)
             if w:

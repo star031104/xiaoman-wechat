@@ -300,7 +300,41 @@ class SocialMixin:
         return any(len(b) > lim for b in bubbles)
 
     # ================= 21.1 群里一句话调她的话量（Koala：控制要能随时调、由程序执行） =================
-    QUIET = re.compile(r"(少说(点|几句|两句)|安静(点|会儿|一会)|闭嘴|别说了|别插嘴|话(好|太|真)多|太吵|消停|别刷屏)")
+    QUIET = re.compile(r"(少说(点|几句|两句)|安静(点|会儿|一会)|闭嘴|别说了|别插嘴|话(好|太|真)多|太吵|消停|别刷屏|"
+                       r"(回答|回|说)了?(两|三)(次|遍)|说两遍|又说一遍|别抢|别接话)")
+    # 23.1 嫌她 / 看不懂她：她说完 60 秒内有人回这些，10 分钟里两次就先安静会儿
+    HUH = re.compile(r"^[？?]{1,4}$|^何意味|^啥意思|^什么鬼|你为什么|你在说啥|你在干嘛|答非所问|我求你了|求求你")
+    SELF_HUSH = re.compile(r"闭嘴|闭麦|不说了|少说两句|我先不说|潜水了|安静了")
+
+    def hush(self, gid: int, why: str, minutes: float | None = None, now: float | None = None):
+        now = now or time.time()
+        m = float(self.gk(gid).get("hush_minutes", 10) if minutes is None else minutes)
+        if m <= 0:
+            return
+        self.db.set(f"qq_hush_{gid}", {"until": now + m * 60, "why": why[:30], "ts": now})
+        log.info("群 %s：先安静 %d 分钟（%s），只回叫到她的", gid, m, why)
+
+    def hushed(self, gid: int, now: float | None = None) -> str:
+        d = self.db.get(f"qq_hush_{gid}") or {}
+        return str(d.get("why") or "有人嫌话多") if float(d.get("until") or 0) > (now or time.time()) else ""
+
+    def huh_signal(self, gid: int, uid: int, text: str, now: float | None = None) -> bool:
+        """群友在她说完 60 秒内回了“？”“你为什么……”：记一次；10 分钟里两次（或者一句就是“你为什么要回答两次”这种）→ 安静。"""
+        if not self.gk(gid).get("hush_minutes", 10):
+            return False
+        t = re.sub(r"\[[^\]]*\]\s*", "", str(text or "")).strip()
+        if not t or not self.HUH.search(t):
+            return False
+        now = now or time.time()
+        st = self._st(gid)
+        if not st.last_reply_ts or now - st.last_reply_ts > 60:
+            return False
+        sig = [x for x in st.__dict__.setdefault("huh", []) if now - x < 600] + [now]
+        st.huh = sig
+        if len(sig) >= 2 or self.QUIET.search(t):
+            self.hush(gid, f"{t[:12]}", now=now)
+            return True
+        return False
     MORE = re.compile(r"(多说(点|几句|两句)|怎么不说话|出来说(句)?话|冒个泡|别潜水|活跃(点|一下))")
 
     def talk_control(self, gid: int, uid: int, text: str, to_her: bool, now: float | None = None) -> str:

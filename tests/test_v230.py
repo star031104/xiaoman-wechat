@@ -56,7 +56,7 @@ def test_listener_ok_says_and_early_queues(cfg, brain):
 
 def test_pitch_retry_not_dropped_when_ok(cfg, brain):
     brain.llm = ListenLLM("early")
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, listener_mode="on", self_score=False)
+    gc, ob = _gc(cfg, brain, cooldown_seconds=0, listener_mode="on", self_score=False, check_answered="off")
     gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
     for k, w in enumerate(("early", "ok")):                               # 再判是“太早”或“可以”都发（只有“别说”才不发）
         ob.sent.clear()

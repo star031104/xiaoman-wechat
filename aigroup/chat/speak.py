@@ -289,9 +289,11 @@ class SpeakMixin:
         if hasattr(self, "talk_mult"):                    # 21.1 群里有人让她少说 / 多说；份额超了收紧
             talk *= self.talk_mult(gid, now) * self.share_factor(gid)
         thr, keep, tie = threshold_ex(probs, min(1.0, talk), spoke)
+        burst = sum(1 for r in recent if r[1] == "assistant")      # 23.1 她最近 5 分钟发了几条
+        hush = self.hushed(gid, now) if hasattr(self, "hushed") else ""
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
-                         rand=random.random(), waited=waited)
+                         rand=random.random(), waited=waited, burst=burst, hush=hush)
         explore = False
         if (not ok and not mentioned and not quiet and why.startswith("不太想插话") and talk > 0
                 and random.random() < float(self.gk(gid).get("explore_rate", 0.02))):
@@ -939,6 +941,10 @@ class SpeakMixin:
             now = time.time()
             st.last_reply_ts = now
             st.replies.append(now)
+            if hasattr(self, "note_answered") and tgt_row:
+                self.note_answered(gid, tgt_row.get("id"), now)           # 23.1 这条回过了
+            if hasattr(self, "hush") and self.SELF_HUSH.search(" ".join(sent_txt)):
+                self.hush(gid, "她自己说了先不说", now=now)
             st.last_msg_ts = now
             st.backoff.spoke()
             if not mentioned:

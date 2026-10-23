@@ -153,9 +153,11 @@ class IngestMixin:
                     self.learn_link(gid, desc)
         mentioned = f.mentioned or reply_to_her or called or bool(ev.get("_poke"))
         if hasattr(self, "talk_control"):
-            tn = self.talk_control(gid, uid, text, bool(mentioned))
+            tn = self.talk_control(gid, uid, text, bool(mentioned) or bool(st.last_reply_ts and time.time() - st.last_reply_ts < 60))
             if tn:
                 st.talk_note = tn
+        if hasattr(self, "huh_signal"):
+            self.huh_signal(gid, uid, clean_member_text(f.text))       # 23.1 “？”“你为什么要回答两次”：先安静会儿
         if hasattr(getattr(self, "links", None), "take_videos") and hasattr(self, "watch_video"):
             for v in self.links.take_videos():                       # 4.4 B 站视频：点开看（字幕、弹幕、热评）
                 self._spawn(self.watch_video(gid, v, mentioned, name))

@@ -56,10 +56,10 @@ def test_ask_ledger_repeat_and_closed(cfg, brain):
     assert "已经问过" in gc._ask_repeat(GROUP, "AG 那场比分出来没？", FRIEND, now)
     assert gc._ask_repeat(GROUP, "晚上吃啥？", FRIEND, now) == ""
     gc.db.conn.execute("DELETE FROM qq_asks")
-    gc.note_asks(GROUP, ["AG 今天赢了没"], FRIEND, now - 30 * 3600)
-    assert gc._ask_repeat(GROUP, "AG 比分咋样？", FRIEND, now) == ""                 # 过了 24 小时：可以再问
+    gc.note_asks(GROUP, ["AG 今天赢了没"], FRIEND, now - 80 * 3600)
+    assert gc._ask_repeat(GROUP, "AG 比分咋样？", FRIEND, now) == ""                 # 23.1 过了 72 小时：可以再问
     gc._record(GROUP, FRIEND, "小王", "能别鞭尸了吗", 5)
-    gc.db.conn.execute("UPDATE qq_group_messages SET ts=? WHERE qq_msg_id=5", (now - 30 * 3600 + 60,))
+    gc.db.conn.execute("UPDATE qq_group_messages SET ts=? WHERE qq_msg_id=5", (now - 80 * 3600 + 60,))
     assert "别再问了" in gc._ask_repeat(GROUP, "AG 比分咋样？", FRIEND, now)          # 对方说过别问：一周都别提
     assert "别再问了" in gc.asks_block(GROUP)
 

@@ -50,8 +50,9 @@ TRAIT_WORDS = {"吐槽", "毒舌", "揣测", "反问", "装蒜", "说话碎", "�
 
 def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: int, quiet: bool, g: dict,
            p: float, thr: float, backoff_wait: float = 0.0, pending: int = 1, tie: float = 1.0,
-           rand: float = 0.0, waited: bool = False) -> tuple[bool, str]:
-    """这一批消息之后她要不要开口。p：gate 算的概率；thr：按发言配额算的阈值。返回 (要不要, 原因)。"""
+           rand: float = 0.0, waited: bool = False, burst: int = 0, hush: str = "") -> tuple[bool, str]:
+    """这一批消息之后她要不要开口。p：gate 算的概率；thr：按发言配额算的阈值。返回 (要不要, 原因)。
+    23.1 burst：她最近 5 分钟发了几条（不算被叫到才回的）；hush：群里刚有人嫌她 / 她自己说了“闭嘴”，到点前只回叫到她的。"""
     cap = int(g["max_per_10min"])
     if mentioned:
         if replies_10min >= cap * 2:
@@ -61,8 +62,16 @@ def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: 
         return False, "免打扰时段，只回叫到她的"
     if replies_10min >= cap:
         return False, "10 分钟上限"
-    if waited:
+    if hush:
+        return False, f"先安静会儿（{hush}）"
+    hard = int(g.get("burst_max", 5) or 0)
+    if hard and burst >= hard:
+        return False, f"这 5 分钟已经说了 {burst} 条，先歇会儿"
+    soft = int(g.get("burst_soft", 3) or 0)
+    if waited and not (soft and burst >= soft):
         return True, "等的人开口了"
+    if waited:
+        waited = False                      # 23.1 一来一回说多了：“接她的话”也要过冷却和门槛
     if last_reply_ts and now - last_reply_ts < float(g["cooldown_seconds"]):
         return False, "冷却中"
     if backoff_wait > 0 and pending < 6:
