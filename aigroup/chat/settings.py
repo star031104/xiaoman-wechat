@@ -197,6 +197,8 @@ DEFAULTS = {
     "check_tease_risk": "shadow",    # 不熟 / 他状态不好 / 他刚不爽时还损他
     "check_responsive": "shadow",    # 别人分享好事，只回一句“恭喜 / 厉害”
     "check_room_read": "shadow",     # 两个人正一来一回聊得快、跟她无关时插话
+    "check_other_claims": "on",      # 22.1 说某个群友“今天 emo / 又看哭了 / 在加班”，群里三天内没人说过 → 编的
+    "check_disputed": "on",          # 22.1 她说的时间 / 日期 / 数字刚被人指出不对，没有新来源还照说一遍
     "ask_repeat_hours": 24,          # 同一件事多久内别再问
     "ask_closed_days": 7,            # 对方说了“别问了 / 别鞭尸”：这件事多少天别再提
     # ---- 22.0 / 22.1 记忆（memory/autobio.py） ----

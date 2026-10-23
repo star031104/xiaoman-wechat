@@ -193,7 +193,7 @@ class EvalMixin:
         try:
             from aigroup.eval.calib import calibrate_judge
             c = await calibrate_judge(self.db, b.llm, b.persona)
-            out["calib"] = {k: c.get(k) for k in ("n", "rho", "trusted")}
+            out["calib"] = {k: c.get(k) for k in ("n", "rho", "alpha", "trusted")}
         except Exception as e:  # noqa: BLE001
             log.info("评委校准出错：%s", e)
         from aigroup.eval import traits as T

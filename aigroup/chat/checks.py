@@ -10,6 +10,8 @@
 - tease_risk      损人风险：不熟、他被损以后不接、他今天状态不好时还损他
 - responsive      回应性：别人分享好事，只回一句“恭喜 / 厉害”
 - room_read       热聊别插：两个人正一来一回聊得快，跟她无关
+- other_claims    22.1 编别人的事：说某个群友“今天 emo / 又看哭了 / 在加班”，群里没人说过
+- disputed        22.1 被质疑还嘴硬：她说的时间 / 日期 / 数字刚被人指出不对，没有新来源还照说一遍
 """
 from __future__ import annotations
 
@@ -48,7 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("source_gate", "self_consistency", "ask_repeat", "template", "addressee", "time_sense", "tease_risk",
-          "responsive", "room_read")
+          "responsive", "room_read", "other_claims", "disputed")
 
 # 这些词太常见，不算“说的是哪件事”
 STOP2 = COMMON2 | set("""我这 我那 这边 那边 一会 等会 今天 昨天 前天 这周 上周 最近 以前 之前 刚才 刚刚 上次 那天 周末 早上 晚上 中午
@@ -112,6 +114,53 @@ GOOD_NEWS = re.compile(r"(过了|上岸|拿到|中了|考上|录取|offer|涨薪
 FLAT_PRAISE = re.compile(r"^(恭喜|厉害|牛|nb|好耶|太强了|可以啊|不错|666|强|绝了)[!！啊呀了哦~～。\s]*$", re.I)
 TEASE_RX = re.compile(r"笑死|菜(鸡|狗)?|蠢|傻|活该|就这|丢人|废了|太逊|好惨|你也有今天|鞭尸|又输|又挂|不行啊|拉胯|下饭")
 JUST_NOW = re.compile(r"刚(才|刚)?(说|问|讲|提|发)|你刚")
+
+# ---- 22.1 说别人的状态 / 经历 ----
+OTHER_STATE = re.compile(r"(emo|难过|伤心|生气|气死|哭了|看哭|哭着|失恋|分手|生病|病了|感冒|发烧|加班|熬夜|通宵|迟到|翘课|挂科|睡过头|"
+                         r"没睡|在忙|出差|搬家|喝多|喝醉|破防|心情不好|不开心|被骂|吵架|摆烂)", re.I)
+ASKING = re.compile(r"[？?]|吗|是不是|咋了|怎么了|还好吗|没事吧|有没有|会不会|要是|如果|万一")
+
+# ---- 22.1 被质疑 ----
+DISPUTE = re.compile(r"不是.{0,14}吗|不对|错了|记错|明明|上面(不是)?写着|写的是|你去看看|我看的是|哪看的|原文|官网|截图(上|里)")
+VALUE = re.compile(r"(\d{1,4}(?:[.:：]\d{1,2})?|[一二两三四五六七八九十]{1,3})\s*(点半?|月底|月初|月中|月|号|日|块|元|分|小时|天|周|比\d+|:\d+|%)"
+                   r"|(\d{1,2})[/-](\d{1,2})")
+
+
+_CN = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _num(x: str) -> str:
+    if x.isdigit() or re.fullmatch(r"\d+(?:[.:：]\d+)?", x):
+        return x.replace("：", ":")
+    if len(x) == 1:
+        return str(_CN.get(x, x))
+    if x.startswith("十"):
+        return str(10 + _CN.get(x[1:], 0))
+    if len(x) >= 2 and x[1] == "十":
+        return str(_CN.get(x[0], 0) * 10 + (_CN.get(x[2], 0) if len(x) > 2 else 0))
+    return x
+
+
+def _values(text: str) -> set[str]:
+    """一句话里的时间 / 日期 / 数字（带单位，统一成阿拉伯数字：“两点”“2点”都是 2点）。"""
+    out = set()
+    for m in VALUE.finditer(TAG.sub("", text or "")):
+        if m.group(1):
+            unit = m.group(2)
+            if unit in ("点半",):
+                unit = "点半"
+            out.add(_num(m.group(1)) + unit)
+        elif m.group(3):
+            out.add(f"{int(m.group(3))}/{int(m.group(4))}")
+    return out
+
+
+def _said(word: str, text: str) -> bool:
+    """这个词在群友的话里出现过没有（英文词要整词：demo 里的 emo 不算）。"""
+    t = (text or "").lower()
+    if re.fullmatch(r"[a-z]+", word):
+        return re.search(rf"(?<![a-z]){word}(?![a-z])", t) is not None
+    return word in t
 
 
 class ChecksMixin:
@@ -369,9 +418,84 @@ class ChecksMixin:
             return f"{names.get(str(who[0]), '他')}和{names.get(str(who[1]), '他')}正一来一回聊得快"
         return ""
 
+    # ================= 22.1 编别人的事 / 被质疑还嘴硬 =================
+    def _other_claims(self, gid: int, text: str, target_uid) -> str:
+        """她说某个群友（点名，或者“你”= 她在回的人）现在 / 最近怎么了，群里三天内没人说过 → 编的。问一句（“你今天咋了”）不算。"""
+        if not hasattr(self, "names_of"):
+            return ""
+        who: list[tuple[int, str]] = []
+        for uid in self.names(gid):
+            try:
+                u = int(uid)
+            except ValueError:
+                continue
+            for n in self.names_of(gid, u):
+                if n and len(n) >= 2:
+                    who.append((u, n))
+        since = time.time() - 3 * 86400
+        recent = " ".join(re.sub(r"\[回复[^\]]*\]", "", str(r["content"] or "")) for r in self.db.conn.execute(
+            "SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>?", (gid, since)).fetchall())
+        last_subj = None                                   # “小王你……，别又看哭”：后半句的主语在前半句
+        for clause in re.split(r"[，,。！!；;~～\n]", TAG.sub("", text)):
+            c = clause.strip()
+            if not c:
+                continue
+            m = OTHER_STATE.search(c)
+            head = c[:m.start()] if m else c
+            subj = next(((u, n) for u, n in who if n in head), None)
+            if subj is None and target_uid and re.search(r"你", head) and "你们" not in head:
+                subj = (int(target_uid), self.names(gid).get(str(target_uid), "他"))
+            if subj is not None:
+                last_subj = subj
+            elif re.match(r"^(别|又|还|也|就|到时候)", c):
+                subj = last_subj
+            if not m or ASKING.search(c) or subj is None:
+                continue
+            word = m.group(1).lower()
+            if _said(word, recent):
+                continue
+            known = " ".join(f["text"] for f in self.memory.facts(gid, subject=subj[0], limit=30)) if getattr(self, "memory", None) else ""
+            stt = self.db.get(f"qq_state_{gid}_{subj[0]}") or {}
+            if _said(word, known) or _said(word, json.dumps(stt, ensure_ascii=False)):
+                continue
+            return (f"编了{subj[1]}的事（「{c[:20]}」）：群里没人说过他{word}。别替别人编状态和经历；"
+                    "想关心就问一句（“你今天咋了”），想逗他就拿他真说过的事")
+        return ""
+
+    def _disputed(self, gid: int, text: str, web: str = "", now: float | None = None) -> str:
+        """她刚说的时间 / 日期 / 数字，被人指出不对（“不是十二点吗”“上面不是写着到 10 月 31 日吗”），
+        这次又把同一个值说一遍、手里也没有新查到的来源 → 嘴硬。"""
+        now = now or time.time()
+        hers = self.db.conn.execute("SELECT id, ts, content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>? "
+                                    "ORDER BY id DESC LIMIT 6", (gid, now - 1800)).fetchall()
+        if not hers:
+            return ""
+        mine = {v for v in (_values(text)) if v}
+        if not mine:
+            return ""
+        for h in hers:
+            vals = _values(str(h["content"] or "")) & mine
+            if not vals:
+                continue
+            after = self.db.conn.execute("SELECT name, content FROM qq_group_messages WHERE group_id=? AND role='user' AND id>? "
+                                         "ORDER BY id LIMIT 8", (gid, h["id"])).fetchall()
+            dis = next((a for a in after if DISPUTE.search(str(a["content"] or ""))), None)
+            if not dis:
+                continue
+            vals -= _values(str(dis["content"] or ""))      # 改成对方说的那个值 = 认了，不算嘴硬
+            if not vals:
+                continue
+            if web and any(v in _values(web) for v in vals):
+                return ""                                  # 她这次真查到了：可以照着来源说
+            v = sorted(vals)[0]
+            from aigroup.core.safety import clean_name
+            return (f"{clean_name(dis['name'])}刚指出你说的「{v}」不对（他说：「{str(dis['content'])[:30]}」）。"
+                    "你手里没有新的来源，就别再坚持：认一下（“哦那我记错了”），或者说你去看看再说")
+        return ""
+
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
-                       mentioned: bool = False, gate_id=None) -> list[str]:
+                       mentioned: bool = False, gate_id=None, web: str = "") -> list[str]:
         """返回要交给重写的问题（只包含开关是 on 的）；shadow 的只记录。"""
         if not bubbles:
             return []
@@ -414,6 +538,14 @@ class ChecksMixin:
             w = self._tease_risk(gid, text, target_uid)
             if w:
                 found.append(("tease_risk", w))
+        if mode["other_claims"] != "off":
+            w = self._other_claims(gid, text, target_uid)
+            if w:
+                found.append(("other_claims", w))
+        if mode["disputed"] != "off":
+            w = self._disputed(gid, text, web, now)
+            if w:
+                found.append(("disputed", w))
         if mode["responsive"] != "off":
             w = self._responsive(text, target_row)
             if w:

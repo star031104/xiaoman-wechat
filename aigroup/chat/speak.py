@@ -735,7 +735,7 @@ class SpeakMixin:
             if hasattr(self, "checks22") and (i >= 0 or cands):
                 try:                                   # 22.0 亲历闸门、矛盾、问过、套路、叫错人、时间感、损人、回应性
                     c22 = await self.checks22(gid, cands[i] if i >= 0 else cands[0], target_uid=target_uid,
-                                              target_row=tgt_row, mentioned=mentioned, gate_id=gate_id)
+                                              target_row=tgt_row, mentioned=mentioned, gate_id=gate_id, web=web or "")
                 except Exception as e:  # noqa: BLE001
                     log.info("22.0 检查出错：%s", e)
                     c22 = []

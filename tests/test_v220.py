@@ -153,3 +153,51 @@ def test_daily_metrics_and_flavor(cfg, brain):
     assert jsd([3] * 10, [3] * 10) == 0.0 and jsd([3] * 10, [50] * 10) > 0.5
     assert lsm(["你在干嘛呢"] * 5, ["你在干嘛呢"] * 5) == 1.0
     assert flavor_alerts({"调侃": 20.0, "自嘲": 1.0}, {"调侃": 5.0, "自嘲": 0.0}) == ["调侃从每百句 20.0 掉到 5.0"]
+
+
+# ---------------- 22.1 编别人的事 / 被质疑还嘴硬 ----------------
+def test_other_claims(cfg, brain):
+    gc, _ = _gc(cfg, brain)
+    gc._record(GROUP, FRIEND, "小王", "这个网站挺好玩", 1)
+    assert "编了小王的事" in gc._other_claims(GROUP, "你今天emo啥呢，睡一觉还没缓过来", FRIEND)
+    assert "编了小王的事" in gc._other_claims(GROUP, "小王别到时候又看纪录片看哭", None)
+    assert gc._other_claims(GROUP, "你今天咋了，还好吗", FRIEND) == ""              # 问一句不算
+    gc._record(GROUP, FRIEND, "小王", "昨晚又加班到十一点", 2)
+    assert gc._other_claims(GROUP, "小王你又加班了啊", None) == ""                 # 他自己说过
+
+
+def test_disputed(cfg, brain):
+    from aigroup.chat.checks import _values
+    assert _values("两点开打") == {"2点"} and "12点" in _values("你那个十二点是哪看的")
+    gc, _ = _gc(cfg, brain)
+    gc._record(GROUP, 10001, "小满", "两点开打，我盯着时间提醒你", 1, role="assistant")
+    gc._record(GROUP, FRIEND, "小王", "不是十二点吗", 2)
+    assert "不对" in gc._disputed(GROUP, "我查的是两点，你那个十二点是哪看的")
+    assert gc._disputed(GROUP, "我查的是两点", web="赛程：14:00 两点开赛") == ""      # 真查到了可以照说
+    assert gc._disputed(GROUP, "哦那我记错了，十二点") == ""
+    gc._record(GROUP, 10001, "小满", "这活动9月底就结束了", 3, role="assistant")
+    gc._record(GROUP, FRIEND2, "老张", "上面不是写着到10月31日吗", 4)
+    assert "9月底" in gc._disputed(GROUP, "那个31号是整体到期，买一赠一9月底就没了")
+
+
+def test_other_claims_carry_subject_and_concede(cfg, brain):
+    gc, _ = _gc(cfg, brain)
+    gc._record(GROUP, FRIEND, "小王", "[回复你的「小王别看哭」] 无敌好了", 1)
+    assert "编了小王的事" in gc._other_claims(GROUP, "小王你签运我还没看，别到时候又看纪录片看哭", None)
+    gc._record(GROUP, 10001, "小满", "两点开打", 2, role="assistant")
+    gc._record(GROUP, FRIEND, "小王", "不是十二点吗", 3)
+    assert gc._disputed(GROUP, "行，那十二点算你对") == ""
+
+
+def test_other_claims_ascii_word_boundary(cfg, brain):
+    gc, _ = _gc(cfg, brain)
+    gc._record(GROUP, FRIEND, "小王", "https://example.github.io/mirofish-demo/", 1)
+    assert "编了小王的事" in gc._other_claims(GROUP, "你今天emo啥呢", FRIEND)
+
+
+def test_kripp_alpha():
+    from aigroup.eval.calib import kripp_alpha, to_human_scale
+    h = [1, 2, 3, 4, 5, 3, 2, 4]
+    assert kripp_alpha(h, h) == 1.0
+    assert kripp_alpha(h, to_human_scale([10, 30, 50, 70, 90, 55, 25, 75], h)) == 1.0     # 名次一样 → 对到你的分布后完全一致
+    assert kripp_alpha(h, [6 - x for x in h]) < 0

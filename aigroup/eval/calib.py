@@ -120,7 +120,34 @@ def spearman(a: list[float], b: list[float]) -> float | None:
     return round(cov / (va * vb), 3)
 
 
-async def calibrate_judge(db, llm, persona, limit: int = 30) -> dict:
+def kripp_alpha(a: list[float], b: list[float]) -> float | None:
+    """22.1 两个人（你 / 评委）给同一批话打分的 Krippendorff α（interval）：1 完全一致，0 和瞎蒙一样。
+    α = 1 - (N-1) Σ(a-b)² / Σ_{i<j}(v_i-v_j)²，N = 2n 个分数放在一起。"""
+    n = len(a)
+    if n < 5 or len(b) != n:
+        return None
+    vals = list(a) + list(b)
+    N = len(vals)
+    de = sum((vals[i] - vals[j]) ** 2 for i in range(N) for j in range(i + 1, N))
+    if not de:
+        return None
+    return round(1 - (N - 1) * sum((x - y) ** 2 for x, y in zip(a, b)) / de, 3)
+
+
+def to_human_scale(js: list[float], hs: list[float]) -> list[float]:
+    """评委是 0~100、你是 1~5：按名次对到你打分的分布上（评委第 k 名 → 你的分数里第 k 小的那个），再算 α。"""
+    order = sorted(range(len(js)), key=lambda i: js[i])
+    hsorted = sorted(hs)
+    out = [0.0] * len(js)
+    for rank, i in enumerate(order):
+        out[i] = hsorted[rank]
+    return out
+
+
+MIN_ALPHA = 0.667                  # Krippendorff 建议的“可以下初步结论”的线
+
+
+async def calibrate_judge(db, llm, persona, limit: int = 60) -> dict:
     """拿你打过分的话让评委重打（和每周评测同一个提示），算 Spearman。结果存 judge_calib。"""
     from aigroup.eval.replay import judge_one
     rows = scored(db, limit)
@@ -141,7 +168,12 @@ async def calibrate_judge(db, llm, persona, limit: int = 30) -> dict:
         hs.append(float(r["score"]))
         js.append(float(sc))
     rho = spearman(hs, js)
-    res = {"n": len(hs), "rho": rho, "trusted": rho is not None and rho >= MIN_TRUST, "ts": time.time(),
-           "why": "" if rho is None or rho >= MIN_TRUST else f"评委和你的打分相关只有 {rho}（要 ≥ {MIN_TRUST}）"}
+    alpha = kripp_alpha(hs, to_human_scale(js, hs)) if hs else None
+    ok_rho = rho is not None and rho >= MIN_TRUST
+    ok_alpha = alpha is None or len(hs) < 20 or alpha >= MIN_ALPHA      # 22.1 够 20 条以后还要 α 过线
+    why = ("" if ok_rho and ok_alpha else
+           f"评委和你的打分相关只有 {rho}（要 ≥ {MIN_TRUST}）" if not ok_rho else
+           f"评委和你的一致性 α 只有 {alpha}（要 ≥ {MIN_ALPHA}）：这周的评分只当参考")
+    res = {"n": len(hs), "rho": rho, "alpha": alpha, "trusted": ok_rho and ok_alpha, "ts": time.time(), "why": why}
     db.set("judge_calib", res)
     return res
