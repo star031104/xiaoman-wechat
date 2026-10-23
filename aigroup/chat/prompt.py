@@ -129,12 +129,15 @@ class PromptMixin:
                 content = clean_member_text(r["content"])
                 if quoted:
                     content = quote_member(content)
+            age = time.time() - float(r["ts"])
+            ago = (f"（{int(age / 3600)} 小时前）" if age >= 2 * 3600 and self.gk(gid).get("check_time_sense", "shadow") != "off"
+                   else "")                                       # 22.0 时间感：几个小时前的话别说成“刚才”
             if numbered:
                 tmap[i] = {"mid": r["qq_msg_id"], "uid": r["user_id"], "name": r["name"], "role": r["role"],
-                           "last": i == len(rows), "id": r["id"]}
-                lines.append(f"#{i} [{stamp}] {who}：{content}")
+                           "last": i == len(rows), "id": r["id"], "ts": r["ts"], "content": r["content"]}
+                lines.append(f"#{i} [{stamp}] {who}：{content}{ago}")
             else:
-                lines.append(f"[{stamp}] {who}：{content}")
+                lines.append(f"[{stamp}] {who}：{content}{ago}")
         if rows and time.time() - rows[-1]["ts"] > 30 * 60:              # 最后一条已经是一阵子以前的了：别说成“刚才”
             ago = time.time() - rows[-1]["ts"]
             lines.append(f"（最后这条是 {int(ago / 3600)} 个多小时以前的了）" if ago >= 3600
@@ -388,7 +391,7 @@ class PromptMixin:
                 + (core + "\n" if core else f"你是{p.name}。\n") + how
                 + ("。你这种时候不会：" + "；".join(nots) if nots else "") + "。")
 
-    ABLATABLE = ("recall", "lore", "known", "today", "people_today", "absent", "rel_exp", "spec", "signatures", "held",
+    ABLATABLE = ("recall", "autobio", "lore", "known", "today", "people_today", "absent", "rel_exp", "spec", "signatures", "held",
                  "examples", "person_card", "card_state", "card_absent", "card_avoid", "card_tease", "card_how",
                  "card_favor", "card_care")
     CARD_PARTS = ("people_today", "absent", "rel_exp", "spec")       # 21.0 开着人卡时这四段已经合进人卡
@@ -549,6 +552,8 @@ class PromptMixin:
             (f"# 你自己说过的事（要和这些保持一致）\n{self_txt}" if self_txt else ""),
             (f"# 这一周的你（你自己回想的，最近的小变化）\n{self.db.get(f'qq_reflect_{gid}')}"
              if self.db.get(f"qq_reflect_{gid}") else ""),
+            (self.drift_rx_block() if hasattr(self, "drift_rx_block") else ""),          # 22.0 走样处方
+            (self.timeline_block(gid) if hasattr(self, "timeline_block") else ""),       # 22.1 群时间线
             f"# 你今天自己的安排（{now:%m-%d} 星期{WEEK[now.weekday()]}）\n{life or '（普通的一天，自由发挥但要前后一致）'}",
             f"# 日历\n{calendar_hint(now)}",
         ]
@@ -568,7 +573,15 @@ class PromptMixin:
             self._ablated = {}
         self._ablated[gid] = drop
         recall = self.recall_block(gid, query or hist[-400:], focus) if drop != "recall" else ""
-        lore = self.lore.prompt_block(gid, self._recent_text(gid)) if getattr(self, "lore", None) and drop != "lore" else ""
+        lore = ""
+        if getattr(self, "lore", None) and drop != "lore":
+            if self.gk(gid).get("lore_v2", True):              # 22.1 群梗只由群友的话触发；30 天没人用过的不提
+                lore = self.lore.prompt_block(gid, self._recent_text(gid, users_only=True),
+                                              stale=self.lore.human_stale(gid, float(self.gk(gid).get("lore_stale_days", 30))))
+            else:
+                lore = self.lore.prompt_block(gid, self._recent_text(gid))
+        autobio = (self.autobio_block(gid, query or self._recent_text(gid)) if hasattr(self, "autobio_block")
+                   and drop != "autobio" else "")
         mood = self.mood.describe(gid) if getattr(self, "mood", None) else ""
         state = [f"现在是 {now:%H:%M}，{period_of_day(now.hour)}。{b.mood}"]
         if mood:
@@ -581,6 +594,12 @@ class PromptMixin:
         stale = self.stale_phrases(gid) if hasattr(self, "stale_phrases") else []
         if stale:
             state.append("你这几个小时已经说过这些了，这次别再用（换个说法、换个梗）：" + "、".join(f"“{x}”" for x in stale))
+        ab = self.asks_block(gid) if hasattr(self, "asks_block") else ""
+        if ab:
+            state.append(ab)                                 # 22.0 问过账
+        tpl = self.her_templates(gid) if hasattr(self, "her_templates") and self.gk(gid).get("check_template", "shadow") != "off" else []
+        if tpl:
+            state.append("你这一周的老套路（一听就是模板，这次别用）：" + "、".join(f"“{x}”" for x in tpl))
         if ign >= 2:
             state.append(f"你刚才主动说的 {ign} 句都没人接：别再硬聊，想说也短一点、换个话题，或者干脆不说。")
         situ = self.situation_block(gid, query or self._recent_text(gid), mentioned=mentioned, ign=ign, why=why or "",
@@ -606,7 +625,7 @@ class PromptMixin:
             from aigroup.eval.ablate import note_lengths
             note_lengths(self.db, {"recall": recall, "lore": lore, "known": known, "today": today})
         user = "\n\n".join(x for x in [
-            recall, lore, known, vids, web, today,
+            recall, autobio, lore, known, vids, web, today,
             f"# 最近的群聊记录（“你”是你自己）\n{hist}",
             "# 此刻\n" + "\n".join(state),
             situ,
@@ -616,8 +635,8 @@ class PromptMixin:
         ] if x)
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
-    def _recent_text(self, gid: int, n: int = 6) -> str:
-        return " ".join(r["content"] for r in self._rows(gid, n))
+    def _recent_text(self, gid: int, n: int = 6, users_only: bool = False) -> str:
+        return " ".join(str(r["content"] or "") for r in self._rows(gid, n) if not users_only or r["role"] == "user")
 
     @staticmethod
     def parse_plan_text(raw: str) -> dict | None:

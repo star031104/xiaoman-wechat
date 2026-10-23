@@ -109,8 +109,32 @@ class Lore:
             self.db.conn.commit()
         return picked
 
-    def prompt_block(self, gid: int, recent_text: str) -> str:
-        es = self.active(gid, recent_text)
+    def human_stale(self, gid: int, days: float = 30, now: float | None = None) -> set[int]:
+        """22.1 这么多天里没有一个群友（不算她）打过这个梗的任何一个词：先不提（梗是群友的，她不该一个人续命）。"""
+        now = now or time.time()
+        day = time.strftime("%Y-%m-%d", time.localtime(now))
+        ck = getattr(self, "_stale_cache", {})
+        if ck.get(gid, ("", None))[0] == day:
+            return ck[gid][1]
+        out = set()
+        for e in self.entries(gid):
+            if now - float(e.get("created") or now) < days * 86400:
+                continue                                        # 新记下的梗：还没到判“没人用”的时候
+            used = False
+            for k in e["keys"]:
+                if k and self.db.conn.execute(
+                        "SELECT 1 FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? AND content LIKE ? LIMIT 1",
+                        (gid, now - days * 86400, f"%{k}%")).fetchone():
+                    used = True
+                    break
+            if not used:
+                out.add(int(e["id"]))
+        ck[gid] = (day, out)
+        self._stale_cache = ck
+        return out
+
+    def prompt_block(self, gid: int, recent_text: str, stale: set | None = None) -> str:
+        es = [e for e in self.active(gid, recent_text) if not stale or int(e["id"]) not in stale]
         if not es:
             return ""
         return ("# 群里的梗（刚聊到的，知道它是什么意思就行；刚提过的别再硬提）\n"

@@ -20,7 +20,9 @@ def test_likely_to_her():
     assert not likely_to_her("你快说点什么", attention=0.1, **kw)              # 没在跟她聊、也没接她的词
     assert not likely_to_her("你们有点变态了", attention=0.9, **kw)            # 只有“你们”
     assert not likely_to_her("你小本本上都记啥了", attention=0.9, at_other=True, **kw)
-    assert not likely_to_her("你小本本上都记啥了", attention=0.9, now=500.0, her_last_ts=40.0, her_recent=hers)
+    # 22.0：十分钟内用“你”问她刚说的事（“你还有什么稿子”），也算冲她；再久就不算了
+    assert likely_to_her("你小本本上都记啥了", attention=0.9, now=500.0, her_last_ts=40.0, her_recent=hers)
+    assert not likely_to_her("你小本本上都记啥了", attention=0.9, now=900.0, her_last_ts=40.0, her_recent=hers)
     assert not likely_to_her("小王你小本本呢", attention=0.9, other_names=["小王"], **kw)
     assert likely_to_her("感觉它不聪明", attention=0.0, now=400.0, her_last_ts=40.0, her_recent=hers) == "about"
     assert likely_to_her("感觉它不聪明", attention=0.0, now=900.0, her_last_ts=40.0, her_recent=hers) == ""

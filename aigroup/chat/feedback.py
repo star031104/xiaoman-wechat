@@ -160,6 +160,14 @@ class FeedbackMixin:
                 log.info("每晚统计：%d 个人的打字习惯；%d 个群里她有要注意的说话毛病", nfp, nst)
             except Exception as e:  # noqa: BLE001
                 log.info("统计说话习惯出错：%s", e)
+        if self.g.get("metrics_daily", True):
+            try:                                                   # 22.0 每天的确定性指标、个性保留
+                from aigroup.eval.daily import run_daily
+                for m in run_daily(self, yday):
+                    log.info("每天指标（群 %s）：她 %s 句，说自己经历 %s 句、没来源 %s；检查命中 %s；味道 %s",
+                             m["gid"], m["her"], m["self_claims"], m["ungrounded"], m["checks"], m["flavor"])
+            except Exception as e:  # noqa: BLE001
+                log.info("每天指标出错：%s", e)
         if hasattr(self, "update_closeness"):
             try:
                 self.update_closeness(yday)                        # 昨天和她聊过的人熟一点

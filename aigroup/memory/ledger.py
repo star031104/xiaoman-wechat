@@ -40,6 +40,29 @@ def _key(s: str) -> str:
     return re.sub(r"\s+", "", str(s or "")).strip().lower()[:40]
 
 
+def entity_aliases(entity: str) -> list[str]:
+    """22.1 账本别名：实体名本身，加上括号里的简称、名字里的英文 / 数字缩写（“成都AG超玩会（AG）”→ AG）、
+    去掉常见后缀的短名（“KPL 职业联赛”→ KPL）。只认 ≥ 2 个字的，免得误中。"""
+    e = str(entity or "")
+    out = {_key(e)}
+    for x in re.findall(r"[（(]([^）)]{2,12})[）)]", e):
+        out.add(_key(x))
+    base = re.sub(r"[（(][^）)]*[）)]", "", e)
+    out.add(_key(base))
+    for w in re.findall(r"[A-Za-z][A-Za-z0-9]{1,11}", base):
+        if not re.fullmatch(r"(the|of|and|vs|team|club|esports?|gaming)", w, re.I):
+            out.add(_key(w))
+    short = re.sub(r"(战队|俱乐部|电竞|职业联赛|联赛|公司|集团|官方)$", "", base)
+    out.add(_key(short))
+    return [a for a in out if len(a) >= 2]
+
+
+def alias_in(a: str, t: str) -> bool:
+    if re.fullmatch(r"[a-z0-9]+", a):                     # 英文缩写要整词出现（AG 不能中 agent）
+        return re.search(rf"(?<![a-z0-9]){re.escape(a)}(?![a-z0-9])", t) is not None
+    return a in t
+
+
 class Ledger:
     def __init__(self, db, ttl: dict | None = None):
         self.db = db
@@ -97,7 +120,7 @@ class Ledger:
         t = _key(text)
         rows = self.db.conn.execute("SELECT * FROM qq_ledger WHERE group_id=? AND valid_to>? AND superseded_by IS NULL "
                                     "ORDER BY created DESC LIMIT 300", (gid, now)).fetchall()
-        hit = [dict(r) for r in rows if len(_key(r["entity"])) >= 2 and _key(r["entity"]) in t][:k]
+        hit = [dict(r) for r in rows if any(alias_in(a, t) for a in entity_aliases(r["entity"]))][:k]
         for r in hit:
             self.db.conn.execute("UPDATE qq_ledger SET hits=hits+1 WHERE id=?", (r["id"],))
         if hit:

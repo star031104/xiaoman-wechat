@@ -187,6 +187,28 @@ DEFAULTS = {
     "rel_tone": True,              # 关系网加情绪色彩（互损 / 互相支持 / 有摩擦），一周两次
     "weekly_qa": True,             # 每周问她 15 个关于自己的问题，看会不会改口
     "weekly_pairs": True,          # 每周测一次：同一句错话带着情绪说，她会不会改口附和
+    # ---- 22.0 发前检查（chat/checks.py）：off 关 / shadow 只记录不拦 / on 命中就重写（重写还不过、没被叫到就不说） ----
+    "check_source_gate": "on",       # 亲历闸门：说自己“昨天 / 这周……”做了什么，设定、今天的安排、她说过的里都没有 → 编的
+    "check_self_consistency": "shadow",  # 说自己的事和以前说过的对不上（只在有“我……”的句子时多问一次便宜模型）
+    "check_ask_repeat": "on",        # 同一件事 24 小时内问过 / 叮嘱过，或者对方说过“别问了”
+    "check_template": "on",          # 她这一周反复用的开头和“改成 X 版”这种句式
+    "check_addressee": "on",         # 回的是 A、嘴里叫的是 B；或者那句是 A 在问 B
+    "check_time_sense": "on",        # 几个小时前的话说成“刚才”（聊天记录里也会写“N 小时前”）
+    "check_tease_risk": "shadow",    # 不熟 / 他状态不好 / 他刚不爽时还损他
+    "check_responsive": "shadow",    # 别人分享好事，只回一句“恭喜 / 厉害”
+    "check_room_read": "shadow",     # 两个人正一来一回聊得快、跟她无关时插话
+    "ask_repeat_hours": 24,          # 同一件事多久内别再问
+    "ask_closed_days": 7,            # 对方说了“别问了 / 别鞭尸”：这件事多少天别再提
+    # ---- 22.0 / 22.1 记忆（memory/autobio.py） ----
+    "self_ledger": True,             # 自述账本：她说过的自己的事一条条存下来（只增不删），聊到相关的就放进提示词
+    "stances": True,                 # 立场账：她表过的态
+    "timeline": True,                # 群时间线：哪天群里发生了什么，最近一周放进提示词
+    "drift_rx": True,                # 走样处方：每周把最差的几句写成 3 条具体改法，下一周照着改
+    "lore_v2": True,                 # 群梗只由群友的话触发；30 天没有群友用过的梗先不提
+    "lore_stale_days": 30,
+    "far_name": True,                # 微信不能引用：回的是好几条以前的话时，开头点个名
+    "far_name_distance": 3,          # 隔了几条群友消息算“以前的话”
+    "metrics_daily": True,           # 每晚算昨天的确定性指标和“个性保留”（eval/daily.py，不花钱）
 }
 
 # 渠道不一样、默认值不一样的几个（QQ 能点表情、能戳一戳，补消息少补一点；微信做不到点表情和戳）

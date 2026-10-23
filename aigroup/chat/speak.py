@@ -339,6 +339,13 @@ class SpeakMixin:
                 ok, why = False, f"刚过阈值（{p:.2f} / {thr:.2f}），再问了一下：{judge_act or '不说'}"
                 if judged == "wait":
                     st.wait = {"uid": int(texts[-1][1]), "until": now + 150}
+        if ok and not mentioned and not guess and texts and hasattr(self, "room_hot"):
+            rm = self.check_mode(gid, "room_read")
+            hot = self.room_hot(gid, now) if rm != "off" else ""
+            if hot:                                        # 22.3 两个人正聊得快、跟她无关：别插
+                self.check_log(gid, "room_read", rm, "", hot)
+                if rm == "on":
+                    ok, why = False, f"{hot}，先不插"
         gate_id = None
         if texts and not quiet:
             gate_id = self.gate.add(gid, mentioned, p, thr, ok, feats, explore=explore, judge=judged,
@@ -378,6 +385,7 @@ class SpeakMixin:
                     st.batch_trigger, st.batch_who = trigger, who
                 st.batch_texts = texts + st.batch_texts
                 st.batch_callers = callers + st.batch_callers
+                st.batch_guess = st.batch_guess or guess      # 22.0 修：等的时候来了新消息，“多半在跟她说”别丢了
                 self.gate.drop(gate_id)
                 return
         waited_for = (now - st.mentioned_since) if (mentioned and st.mentioned_since) else 0.0
@@ -537,6 +545,7 @@ class SpeakMixin:
         sticker = ""
         kind = ""
         fix_notes: list[str] = []          # 21.0 九问自评里要改的地方（说漏、伤面子、玩笑不合适、讨好）：交给重写
+        far_dist, tgt_row = 0, None        # 22.0 回的是几条以前的话（微信不能引用时要点名）、回的那条
 
         def done(outcome: str, sent: list | None = None, quality: str = ""):
             if self.gk(gid).get("trace", True):
@@ -589,6 +598,8 @@ class SpeakMixin:
             tgt = tmap.get(plan["to"]) if plan["to"] else None
             if tgt and tgt["role"] == "user":
                 target_uid = int(tgt["uid"])
+                tgt_row = tgt
+                far_dist = sum(1 for k, v in tmap.items() if k > plan["to"] and v["role"] == "user")
             if replying and plan["act"] == "say" and kind in ("S1", "S2"):     # 只管接群友话；冒泡、欢迎、nudge 不管
                 log.info("群 %s：她判断这和她无关（%s），不说", gid, kind)
                 plan["act"] = "skip"
@@ -721,6 +732,15 @@ class SpeakMixin:
                 if hard:
                     hits = list(dict.fromkeys([*hard, *hits]))
                     score = max(score, SOFT_BLOCK)
+            if hasattr(self, "checks22") and (i >= 0 or cands):
+                try:                                   # 22.0 亲历闸门、矛盾、问过、套路、叫错人、时间感、损人、回应性
+                    c22 = await self.checks22(gid, cands[i] if i >= 0 else cands[0], target_uid=target_uid,
+                                              target_row=tgt_row, mentioned=mentioned, gate_id=gate_id)
+                except Exception as e:  # noqa: BLE001
+                    log.info("22.0 检查出错：%s", e)
+                    c22 = []
+                if c22:
+                    fix_notes = list(dict.fromkeys([*fix_notes, *c22]))
             if fix_notes:
                 hits = list(dict.fromkeys([*hits, *fix_notes]))
             if cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan:
@@ -797,6 +817,12 @@ class SpeakMixin:
                 bubbles[j] = ty[0]
                 if random.random() < float(self.gk(gid).get("typo_fix_chance", 0)):
                     bubbles.insert(j + 1, ty[1])
+        if (bubbles and far_dist >= int(self.gk(gid).get("far_name_distance", 3) or 0) > 0 and target_uid
+                and not getattr(self.ob, "can_quote", True) and not self.names_off(gid) and self.gk(gid).get("far_name", True)
+                and not bubbles[0].startswith("*")):
+            call = self.call_name(gid, target_uid) if hasattr(self, "call_name") else ""
+            if call and not any(n in " ".join(bubbles) for n in ([call] + (self.names_of(gid, target_uid) if hasattr(self, "names_of") else []))):
+                bubbles[0] = f"{call}，{bubbles[0]}"       # 22.3 回的是好几条以前的话、又不能引用：点个名，别人才知道在接谁
         if target_uid is None and mentioned and trigger:
             row = self.db.conn.execute("SELECT user_id FROM qq_group_messages WHERE group_id=? AND qq_msg_id=? "
                                        "ORDER BY id DESC LIMIT 1", (gid, trigger)).fetchone()
@@ -900,6 +926,11 @@ class SpeakMixin:
                 log_.append({"id": int(cur.lastrowid), "gid": gid, "sigs": sigs, "ts": now})
                 self.db.set("sig_log", log_[-600:])
             self.use_thoughts(gid, " ".join(sent_txt))
+            if hasattr(self, "note_asks"):
+                try:                                         # 22.0 问过账
+                    self.note_asks(gid, sent_txt, target_uid, now)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("记问过的事失败：%s", e)
             if plan and plan.get("move") and hasattr(self, "note_move"):
                 self.note_move(gid, plan["move"], now)           # 21.1 接法冷却：记下这次怎么接的
             if hasattr(self, "send_ok"):

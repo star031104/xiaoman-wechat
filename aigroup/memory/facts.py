@@ -230,8 +230,8 @@ class Memory:
         cur = self.db.conn.execute(
             "INSERT INTO qq_facts(group_id, speaker_id, subject_id, text, kind, msg_id, t_valid, t_invalid, created, source, "
             "heard_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (gid, speaker, subject, text, kind if kind in ("fact", "event", "plan", "opinion") else "fact", msg_id, now,
-             until if until and until > now else None, now, source if source in ("self", "other", "guess") else "",
+            (gid, speaker, subject, text, kind if kind in ("fact", "event", "plan", "opinion", "experience") else "fact", msg_id, now,
+             until if until and until > now else None, now, source if source in ("self", "other", "guess", "said") else "",
              ",".join(str(u) for u in self.present(gid, msg_id))))
         self.db.conn.commit()
         return int(cur.lastrowid)

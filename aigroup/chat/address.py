@@ -67,9 +67,21 @@ def likely_to_her(text: str, *, now: float, her_last_ts: float, attention: float
                     return "to"
             elif shared and re.search(r"[?？吗呢啥]", t):
                 return "to"
+    if (now - her_last_ts <= about_window and "你" in t.replace("你们", "")
+            and not any(n and len(n) >= 2 and n in t[:8] for n in (other_names or [])) and re.search(r"[?？吗呢啥哪谁咋几]", t)
+            and her_recent and _topic_overlap(t, her_recent[:3])):
+        return "to"                         # 22.0 “你还有什么稿子”“哪个老师叫你去的”：问她刚说的事，十分钟内都算冲她
     if now - her_last_ts <= about_window and ABOUT_HER.search(t):
         return "about"
     return ""
+
+
+def _topic_overlap(text: str, hers: list[str]) -> bool:
+    """两个字的、不太常见的词有没有重合（“稿子”“采访”）。"""
+    def g2(x):
+        return {w for w in grams(x, 2) if w not in COMMON2 and not w.startswith("你") and not w.startswith("我")}
+    mine = g2(text)
+    return bool(mine and any(mine & g2(h) for h in hers))
 
 
 def _blocks(a: str, b: str, min_len: int = 2) -> list[str]:

@@ -134,6 +134,11 @@ class EvalMixin:
             self.db.set("eval_hist", hist[-26:])
             self.db.set("judge_last", {"n": res["n"], "avg": res["avg"], "kinds": res["kinds"], "ts": time.time()})
             log.info("每周评测：%d 句，平均 %s 分", res["n"], res["avg"])
+        if hasattr(self, "make_drift_rx"):
+            try:                                                 # 22.0 走样处方：最差的几句 → 3 条具体改法
+                await self.make_drift_rx(res.get("items") or [])
+            except Exception as e:  # noqa: BLE001
+                log.info("走样处方出错：%s", e)
         try:                                                     # 14.0 人格一致性：facet 距离 + 幽默类型
             from aigroup.eval.traits import trait_check
             tr = await trait_check(self.db, self.brain.llm, self.brain.persona)
