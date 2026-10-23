@@ -577,6 +577,10 @@ class SpeakMixin:
             kind = plan["kind"]
             if plan["think"]:
                 tlog.info("群 %s 她想（%s）：%s", gid, kind or "-", plan["think"])
+            if plan.get("image"):                          # 22.4 看图三步
+                im = plan["image"]
+                tlog.info("群 %s 看图：是「%s」；为什么发：%s；打算：%s", gid, im.get("is", ""),
+                          "、".join(f"{w['guess']}（{w['conf']}）" for w in im.get("why") or []) or "没写", im.get("how", ""))
             if plan.get("hold") and self.gk(gid).get("hold_thoughts", True):
                 self.hold_thought(gid, plan["hold"], plan.get("think", ""))
             nxt = plan.get("next")
@@ -735,7 +739,8 @@ class SpeakMixin:
             if hasattr(self, "checks22") and (i >= 0 or cands):
                 try:                                   # 22.0 亲历闸门、矛盾、问过、套路、叫错人、时间感、损人、回应性
                     c22 = await self.checks22(gid, cands[i] if i >= 0 else cands[0], target_uid=target_uid,
-                                              target_row=tgt_row, mentioned=mentioned, gate_id=gate_id, web=web or "")
+                                              target_row=tgt_row, mentioned=mentioned, gate_id=gate_id, web=web or "",
+                                              image=(plan or {}).get("image") or {})
                 except Exception as e:  # noqa: BLE001
                     log.info("22.0 检查出错：%s", e)
                     c22 = []

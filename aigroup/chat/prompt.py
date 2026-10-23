@@ -86,6 +86,47 @@ def appraise_verdict(a: dict, *, prompted: bool) -> tuple[str, list[str]]:
     return "say", []
 
 
+def image_block_from(rows: list[dict], now: float) -> str:
+    """rows：最近 10 条（按时间）。她最后一次说话以后、15 分钟内有人发图 → 看图三步的提示；没有返回空。"""
+    last_her = max((i for i, r in enumerate(rows) if r["role"] == "assistant"), default=-1)
+    recent = [r for r in rows[last_her + 1:] if r["role"] == "user" and now - float(r["ts"]) < 900]
+    imgs = [r for r in recent if str(r["content"] or "").startswith("[图片")]
+    if not imgs:
+        return ""
+    r = imgs[-1]
+    from aigroup.core.safety import clean_name
+    name = clean_name(r["name"])
+    desc = re.sub(r"^\[图片[:：]?|\]$", "", str(r["content"] or "")).strip() or "（没看清）"
+    cap = [str(x["content"]) for x in recent if x["user_id"] == r["user_id"] and x["id"] != r["id"]
+           and not str(x["content"] or "").startswith("[") and abs(float(x["ts"]) - float(r["ts"])) <= 120]
+    return ("# 刚有人发了图（先看懂图，再想他为什么发，再决定怎么回）\n"
+            f"- {name}发的图：{desc}" + (f"；他前后配的字：{'／'.join(c[:40] for c in cap[:3])}" if cap else "；没配字") + "\n"
+            "1. 图是什么：只信上面写的，上面没写的别自己补（日期、地点、谁的东西）。\n"
+            "2. 他为什么发这张图：结合前面在聊什么、他配的字、他平时爱发什么，猜 1~3 种"
+            "（分享好东西 / 炫耀、搞笑吐槽、求意见、当证据或给信息、接前面的话题、表达心情、随手记录），每种写把握 高 / 中 / 低；"
+            "前面没聊到相关的、也没配字，就别写“高”。\n"
+            "3. 怎么回：有“高”的就顺着那个意图接（炫耀就夸具体的、求意见就直接给答案、给信息就接图里的内容）；"
+            "都不高就问一句（“这是要买球？”）或者只接图里看得见的东西，别替他说他在干嘛；没什么好接的就 skip。\n"
+            '这次 JSON 里多写一项 "image": {"is": "图是什么（一句）", "why": [{"guess": "他多半是想……", "conf": "高/中/低"}], '
+            '"how": "所以你打算怎么接（一句）"}')
+
+
+def _image(v) -> dict:
+    """22.4 看图三步：{"is": 图是什么, "why": [{"guess", "conf": 高/中/低}], "how": 怎么接, "top": 最高的把握}。"""
+    if not isinstance(v, dict):
+        return {}
+    conf = {"高": "高", "high": "高", "中": "中", "mid": "中", "medium": "中", "低": "低", "low": "低"}
+    why = []
+    for w in (v.get("why") or [])[:3] if isinstance(v.get("why"), list) else []:
+        if isinstance(w, dict) and str(w.get("guess") or "").strip():
+            why.append({"guess": str(w["guess"]).strip()[:40], "conf": conf.get(str(w.get("conf") or "").strip().lower(), "低")})
+        elif isinstance(w, str) and w.strip():
+            why.append({"guess": w.strip()[:40], "conf": "低"})
+    order = {"高": 3, "中": 2, "低": 1}
+    top = max((w["conf"] for w in why), key=lambda c: order[c], default="")
+    return {"is": str(v.get("is") or "")[:60], "why": why, "how": str(v.get("how") or "")[:60], "top": top}
+
+
 def _score(v) -> dict:
     """19.1 念头自评分 {"相关": 4, ...} → 只留 1~5 的数字。"""
     out = {}
@@ -625,16 +666,24 @@ class PromptMixin:
         if random.random() < 0.1:
             from aigroup.eval.ablate import note_lengths
             note_lengths(self.db, {"recall": recall, "lore": lore, "known": known, "today": today})
+        imgb = self.image_block(gid) if plan else ""
         user = "\n\n".join(x for x in [
             recall, autobio, lore, known, vids, web, today,
             f"# 最近的群聊记录（“你”是你自己）\n{hist}",
             "# 此刻\n" + "\n".join(state),
+            imgb,
             situ,
             drift,
             self.anchor(),
             f"（系统：{why}。{tail}）",
         ] if x)
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def image_block(self, gid: int, now: float | None = None) -> str:
+        """22.4 刚有人发了图：先看懂图 → 再想他为什么发 → 再决定怎么回（猜的意图带把握，把握不高就问或者只接看得见的）。"""
+        if not self.gk(gid).get("image_intent", True):
+            return ""
+        return image_block_from([dict(r) for r in self._rows(gid, 10)], now or time.time())
 
     def _recent_text(self, gid: int, n: int = 6, users_only: bool = False) -> str:
         return " ".join(str(r["content"] or "") for r in self._rows(gid, n) if not users_only or r["role"] == "user")
@@ -677,7 +726,8 @@ class PromptMixin:
                          not in ("null", "none") else ""),
                 "partial": bool(d.get("_partial")), "score": _score(d.get("score")),
                 "appraise": _appraise(d.get("appraise")),
-                "move": str(d.get("move") or "").strip()[:4]}
+                "move": str(d.get("move") or "").strip()[:4],
+                "image": _image(d.get("image"))}
 
     def parse_plan(self, raw: str) -> dict | None:
         return self.parse_plan_text(raw)

@@ -496,9 +496,12 @@ class ChecksMixin:
                     "你手里没有新的来源，就别再坚持：认一下（“哦那我记错了”），或者说你去看看再说")
         return ""
 
-    def _image_guess(self, gid: int, text: str, now: float | None = None) -> str:
-        """刚有人只发了一张图（3 分钟内，后面没人解释），她却替他说他在干嘛 / 要干嘛（不是问句）。"""
+    def _image_guess(self, gid: int, text: str, now: float | None = None, image: dict | None = None) -> str:
+        """刚有人只发了一张图（3 分钟内，后面没人解释），她却替他说他在干嘛 / 要干嘛（不是问句）。
+        22.4：她自己判断“他为什么发”有把握高的（前面在聊、配了字），顺着说不拦；中 / 低还说成事实才拦。"""
         now = now or time.time()
+        if (image or {}).get("top") == "高":
+            return ""
         rows = [r for r in self._rows(gid, 4) if r["role"] == "user"]
         if not rows or now - float(rows[-1]["ts"]) > 180:
             return ""
@@ -515,7 +518,7 @@ class ChecksMixin:
 
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
-                       mentioned: bool = False, gate_id=None, web: str = "") -> list[str]:
+                       mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None) -> list[str]:
         """返回要交给重写的问题（只包含开关是 on 的）；shadow 的只记录。"""
         if not bubbles:
             return []
@@ -567,7 +570,7 @@ class ChecksMixin:
             if w:
                 found.append(("disputed", w))
         if mode["image_guess"] != "off":
-            w = self._image_guess(gid, text, now)
+            w = self._image_guess(gid, text, now, image or {})
             if w:
                 found.append(("image_guess", w))
         if mode["responsive"] != "off":

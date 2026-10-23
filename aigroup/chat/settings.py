@@ -199,6 +199,7 @@ DEFAULTS = {
     "check_room_read": "shadow",     # 两个人正一来一回聊得快、跟她无关时插话
     "check_other_claims": "on",      # 22.1 说某个群友“今天 emo / 又看哭了 / 在加班”，群里三天内没人说过 → 编的
     "check_disputed": "on",          # 22.1 她说的时间 / 日期 / 数字刚被人指出不对，没有新来源还照说一遍
+    "image_intent": True,            # 22.4 有人发图：先看懂图 → 再猜他为什么发（带把握）→ 再决定怎么回
     "check_image_guess": "on",       # 22.2 刚有人只发了一张图，她替他说“这是在看……”“是要去……”（不是问句）
     "ask_repeat_hours": 24,          # 同一件事多久内别再问
     "ask_closed_days": 7,            # 对方说了“别问了 / 别鞭尸”：这件事多少天别再提

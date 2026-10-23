@@ -244,3 +244,22 @@ def test_detector_masks_names_and_needs_to_agree_with_you(cfg, brain):
     assert not info["used"] and info["rho_vs_you"] > 0 and "对不上" in info["why"]
     brain.db.set("ai_detector", {"logp": {"a": [0, 0]}, "prior": 0, "default": [0, 0], "n": [1, 1]})
     assert Detector.load(brain.db) is None                                   # 旧版本的模型不再用
+
+
+# ---------------- 22.4 看图三步 ----------------
+def test_image_block_and_intent(cfg, brain):
+    from aigroup.chat.prompt import PromptMixin
+    gc, _ = _gc(cfg, brain)
+    gc._record(GROUP, 10001, "小满", "那我先去看比赛了", 1, role="assistant")
+    gc._record(GROUP, FRIEND, "小王", "[图片：照片，香港一家羽毛球用品店贴的羽毛球价目表，RSL 每筒 120~245 港币]", 2)
+    gc._record(GROUP, FRIEND, "小王", "好贵", 3)
+    b = gc.image_block(GROUP)
+    assert "羽毛球价目表" in b and "好贵" in b and '"image"' in b
+    p = PromptMixin.parse_plan_text('{"act": "say", "say": ["这是要囤球？"], "image": {"is": "价目表", '
+                                    '"why": [{"guess": "觉得贵吐槽", "conf": "中"}, {"guess": "想买球", "conf": "low"}], "how": "问一句"}}')
+    assert p["image"]["top"] == "中" and p["image"]["why"][1]["conf"] == "低"
+    gc._record(GROUP, FRIEND, "小王", "[图片：照片，价目表]", 4)
+    assert "别替发图的人" in gc._image_guess(GROUP, "小王这是在挑球啊", image={"top": "中"})
+    assert gc._image_guess(GROUP, "小王这是在挑球啊", image={"top": "高"}) == ""     # 有把握（前面在聊买球）：可以顺着说
+    gc._record(GROUP, 10001, "小满", "嗯", 5, role="assistant")
+    assert gc.image_block(GROUP) == ""                                             # 她说过话以后的才算
