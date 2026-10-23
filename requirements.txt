@@ -1,0 +1,17 @@
+openai>=1.40
+httpx[socks]>=0.27
+pyyaml>=6.0
+aiohttp>=3.9
+numpy>=1.24
+tzdata>=2024.1
+cryptography>=41                                    # 微信群：解密微信本地库（AES）
+zstandard>=0.22                                     # 微信群：微信 4.x 压缩过的消息正文
+
+# 可选（install.bat / install.sh 会单独装，装不上也不影响）：
+#   lunar_python                       农历节日、节气
+#   trafilatura                        读网页正文更干净（13.0）
+#   curl_cffi                          19.3 网站拦下普通请求时，换成模仿真浏览器指纹的请求
+#   playwright                         19.3 无头浏览器读脚本加载的网页（还要 python -m playwright install chromium-headless-shell）
+#   sherpa-onnx                        她在服务器上本地合成语音（13.0，还要下载 Kokoro 模型，见 docs）
+pystray>=0.19; sys_platform == "win32"     # 托盘图标（start.bat 不开黑窗口）
+Pillow>=9.0                                         # 托盘图标；13.0 起图上叠中文字也用它

@@ -1,0 +1,20 @@
+# 复制到 /etc/systemd/system/（路径不一样就先改），然后：
+#   sudo systemctl daemon-reload && sudo systemctl enable --now xiaoman-wechat
+# 代码在 /opt/xiaoman-wechat（这个仓库），她的家在 home/wechat
+# 要 root：读容器里微信进程的内存拿数据库密钥（/proc/<pid>/mem），以及 docker exec 发消息
+[Unit]
+Description=xiaoman-wechat 微信群里的小满
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=root
+WorkingDirectory=/opt/xiaoman-wechat
+Environment=PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+ExecStart=/opt/xiaoman-wechat/.venv/bin/python run.py
+Restart=always
+RestartSec=10
+RestartPreventExitStatus=3
+
+[Install]
+WantedBy=multi-user.target

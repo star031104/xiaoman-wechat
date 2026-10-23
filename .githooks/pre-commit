@@ -1,0 +1,5 @@
+#!/bin/sh
+# 13.0 提交前的隐私扫描（装：git config core.hooksPath .githooks）
+PY=python3
+command -v $PY >/dev/null 2>&1 || PY=python
+exec $PY scripts/privacy_scan.py --staged

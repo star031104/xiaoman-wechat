@@ -1,0 +1,24 @@
+*.session
+*.tmp
+*.zip
+.env
+.venv/
+__pycache__/
+config.yaml
+data/
+.pytest_cache/
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+config.llm.yaml
+# 她的家（配置、密钥、数据、自己写的人设）
+home/
+# 群聊的私人人设、种子、微信密钥
+persona/local_*.md
+seed*.yaml
+seed*.json
+
+# 13.0 隐私扫描的私人词表（只在自己电脑上）
+.privacy-words
+backups/

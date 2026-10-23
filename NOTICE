@@ -1,0 +1,9 @@
+xiaoman-wechat
+Copyright (c) 2026 xiaoman-wechat contributors (MIT, see LICENSE)
+
+aigroup/wechat/keys.py and aigroup/wechat/dbview.py are written for this project, but the idea of reading
+WeChat 4.x database keys from the "com.Tencent.WCDB.Config.Cipher" object (and its XOR mask), and of only
+merging WAL frames whose salt matches the WAL header, come from:
+
+  wechatauto-replica — https://github.com/Xpercent/wechatauto-replica
+  Licensed under the Apache License, Version 2.0

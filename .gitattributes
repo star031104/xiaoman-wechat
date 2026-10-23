@@ -1,0 +1,5 @@
+*.bat text eol=crlf
+*.vbs text eol=crlf
+*.ps1 text eol=crlf
+*.sh text eol=lf
+*.service text eol=lf

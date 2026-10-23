@@ -1,0 +1,195 @@
+# ============================================================
+#  xiaoman-wechat 配置文件
+#  最省事：双击 setup.bat，向导会写好 config.yaml 和 .env。
+#  手动：复制一份改名为 config.yaml 再填写，带 ★ 的是必填项。
+# ============================================================
+
+# 时区（决定她的作息、免打扰的时间）
+timezone: Asia/Shanghai
+
+# 代理：只有 Groq 这类国外接口要用（国内的大模型不走代理）。不需要就留空
+proxy: ""
+
+# 她的人设（persona/ 里的 Markdown 文件）
+channel: wechat                     # 这个仓库只有微信群
+persona_file: persona/her.md         # ★ 她的人设：setup 会从 persona/template.md 复制一份到 home/wechat/persona/her.md，你改成自己的角色
+
+# 免打扰：这段时间她在睡觉，只记下谁叫了她，第二天早上补一句；也不冒泡。
+# 微信版默认不设（空）：只要程序开着，24 小时都会回；想让她晚上睡觉就写成比如 "01:30-09:00"
+quiet_hours: ""
+
+# ---------------- 大模型 ----------------
+# 这里不预置任何接口：装好后双击 scripts\llm.bat（或者在小屋的“大模型”页）添加你自己的——
+# 填接口地址（任何 OpenAI 兼容的，一般以 /v1 结尾）和 Key → 测连通 → 列出模型选一个 → 试聊一句 → 加进去。
+# 加的接口写在 config.llm.yaml（不改这个文件），Key 写在 .env。
+# routes：每种用途按顺序用哪些接口，前一个限流 / 出错自动换下一个：
+#   chat 群里说话；helper 其它小活；memory 整理对群友的印象；night 排她每天的安排（后两个不写就用 helper）；
+#   vision 看群里的图（要选能看图的模型，wechat.group.see_images；微信版暂时看不了图）
+#   image 画她偶尔晒的日常照片（OpenAI 兼容的 /images/generations，比如硅基流动的 Tongyi-MAI/Z-Image-Turbo；不写就不发照片）
+#   image_ref 画她自己（带参考图保持长相一致，比如硅基流动的 Qwen/Qwen-Image-Edit-2509；参考图放 data/avatar/，最多 3 张；不写就不画她自己）
+#   embed 算向量做语义召回（OpenAI 兼容的 /embeddings，比如硅基流动免费的 BAAI/bge-m3；不写就只用关键词）
+# 13.0 推荐（又强又便宜）：chat / helper / memory / night / vision 都用 DeepSeek 的 deepseek-flash（它能看图）；
+#   image 用硅基流动 Tongyi-MAI/Z-Image-Turbo；image_ref 用 Qwen/Qwen-Image-Edit-2509；embed 用 BAAI/bge-m3（免费）
+#   图里要写的中文字由程序用 Pillow 叠上去（不让画图模型写字），要有中文字体（Windows 自带；Linux 装 fonts-noto-cjk）
+llm:
+  budget:                        # 每天的花费上限（人民币，按 token 估算，画图按张算）；到了上限后台的活先停，聊天再多一成也停，第二天恢复
+    daily_cny: 0                 # 0 = 不限；三个她放一台服务器上时，三个都写同一个数、同一个 shared_file，就是三个加起来的上限
+    name: wx                     # 在共享账本里的名字
+    shared_file: ""              # 服务器上的小管家（deploy/server/ops.py）每 5 分钟写一次三个程序今天各花了多少
+  temperature: 0.9
+  max_tokens: 800
+  background_yield_seconds: 25   # 聊天优先：刚聊完的这么多秒内，后台的整理记忆等先等一等，免得抢额度被限流
+  profiles: {}
+  #   手写的话长这样（名字随便起）：
+  #   my_model:
+  #     base_url: https://你的接口地址/v1
+  #     api_key: ${MY_MODEL_KEY}        # Key 写在 .env：MY_MODEL_KEY=...
+  #     model: 模型名
+  routes:
+    chat: []
+    helper: []
+    vision: []
+    image: []
+    image_ref: []
+    embed: []
+
+
+# ---------------- 小屋（网页） ----------------
+# 只能在这台电脑上打开：http://127.0.0.1:8768（托盘图标双击也能打开）
+web:
+  enabled: true
+  port: 8768                     # 小屋端口
+
+# ---------------- 微信 ----------------
+# 不 hook、不注入：读电脑上微信的本地数据库收消息（只读），用窗口操作（剪贴板 + 按键）发消息。
+# 电脑上的微信要一直开着、登录她的小号；可以关显示器，但别锁屏（锁屏时 Windows 不让模拟按键）。
+wechat:
+  owner: ""                      # ★ 你自己的微信号（wxid_ 开头那个；setup 从群成员里让你选）
+  groups: []                     # ★ 她待的群（白名单，群 id 形如 12345678@chatroom；setup 会列出来让你选）
+  aliases: []                    # 群里这样叫也算叫她（人设里的名字、她的微信昵称和群昵称自动算）
+  not_aliases: []                # 这些不算叫她（比如她的微信昵称其实是你的名字，大家叫它是在叫你）
+  self_names: []                 # 别人 @ 她时可能用的名字（一般不用填：自动从群昵称、微信昵称里取）
+  data_dir: ""                   # 微信数据目录（xwechat_files）；空着自动找
+  account: ""                    # 电脑上登过好几个微信号时，指定用哪个（账号目录名或微信号；setup 会写）
+  poll_seconds: 1.0              # 多久看一次有没有新消息
+  stale_seconds: 600             # 比这还旧的“新”消息（微信刚开时同步下来的离线消息）不一条条接，补进记录就好
+  # 发消息：
+  send_key: enter                # 微信里“发送”用哪个键：enter 或 ctrl+enter（看微信 设置→快捷键）
+  click_input: true              # 发之前先点一下输入框
+  search_fallback: false         # 群没有单独窗口时用 Ctrl+F 搜群名打开（默认关：搜索打开的会话核对不了是不是那个群，可能发错地方）
+  window_titles: {}              # 群名 → 单独窗口的标题（一般和群名一样，不用填）
+  idle_seconds: 2                # 你最近这么多秒在动键盘鼠标，就先等你停手再发（最多等 max_idle_wait 秒）
+  max_idle_wait: 60              # 等到时间你还在用，这次就不发了（不抢你的键盘）
+  restore_focus: true            # 发完把前台还给你原来在用的窗口
+  send_gap_seconds: 1.2          # 两条消息之间至少隔这么久（不像机器连发）
+  max_sends_per_hour: 80         # 每小时最多发多少条（所有群加起来；超过就先不发，防风控）
+  confirm_seconds: 10            # 发完在库里等多久看到自己那条（看不到就算没发出去）
+  # Linux 服务器（微信跑在 Docker 里，见 docs/LINUX.md）。Windows 上这几项不用管：
+  linux: false                   # true＝用 Linux 的方式拿密钥（/proc）、发消息（xdotool + xclip）
+  container: ""                  # 微信所在的 Docker 容器名（比如 wechat）；填了就自动 linux: true
+  display: ":0"                  # 微信所在的 X 显示
+  x_exec: []                     # 自己指定执行 xdotool / xclip 的命令前缀（一般不用填：有 container 就是 docker exec）
+  outbox: ""                     # 发图片时先存到哪（要是微信能看到的目录，比如挂进容器的 data 目录下的 _outbox）
+  path_map: {}                   # 宿主机路径 → 微信看到的路径，比如 {"/root/xiaoman/wechat/data": "/root/xwechat_files"}
+  group:
+    owner_note: "把你拉进群的老朋友，爱和你互损"   # 她一开始怎么看你
+    talkativeness: 0.3           # 话痨度 0~1：最近 1 小时里留给她的发言份额（她说多了会自动收紧；被叫到不受影响）
+    max_per_10min: 6             # 每个群 10 分钟最多说几轮（被叫到时放宽到两倍）
+    max_bubbles: 2               # 一次最多几条
+    cooldown_seconds: 60         # 没被叫到时两次开口的最小间隔
+    idle_hours: 3                # 群里安静这么久以上，她可能自己冒个泡
+    idle_chance: 0.25
+    idle_gap_hours: 6
+    active_hours: "10:00-23:30"  # 只在这段时间冒泡
+    impression_every: 40         # 每个群每攒这么多条群消息，整理一次对群友的印象和群里的梗，顺便学说话方式和黑话
+    learn: true                  # 跟着群里学说话方式和黑话（小屋“学到的”页可以点不用）
+    plan_json: true              # 先想再说：大模型先写想法、选回哪条、说多长，再写要发的话
+    profile_every: 15            # 某个人又说了这么多句，就更新一次她心里这个人的画像（称呼、性格、说话风格、近况……）
+    see_images: true             # 群里的图片要不要让看图模型看（没配 routes.vision 就不看；一张图只看一次）
+    typing_chars_per_sec: 6      # 打字速度（每秒几个字）
+    # 像真人的小细节（一般不用改）：
+    pace: 1.0                    # 下面这些等待时间的倍数（0＝全部立刻回）
+    read_delay: [2, 12]          # 被叫到、她有空：几秒后看到
+    notice_delay: [5, 40]        # 想插话时，刷到群消息要多久
+    busy_delay_minutes: [1, 2]   # 她正在上课 / 上班时被叫到：几分钟后偷空回
+    repeat_chance: 0.5           # 群里在复读时她跟着复读的概率
+    react_chance: 0              # 微信没有给消息点表情（保持 0）
+    welcome_chance: 0.7          # 新人进群欢迎一下
+    night_catch_up: true         # 免打扰时段被叫到先不回，早上补一句“才看到”
+    # 2.0：
+    talk_curve: {"09:00-11:59": 0.8, "12:00-13:59": 1.1, "14:00-17:59": 0.9, "18:00-23:59": 1.2}   # 按时段调话量
+    quality_check: true          # 发之前检查 AI 腔、越界说法、复读
+    candidates: 2                # 让大模型多写几种说法，挑最像群友的（1 = 只写一种）
+    typo_rate: 0.03              # 偶尔打错一个字（typo_fix_chance：补一句“*正确的字”的概率）
+    stickers: true               # 存群里常用的表情包、偶尔发
+    memory_recall: true          # 聊到了会想起以前群里的事
+    profile_detail: 4            # 提示词里最多写几个人的详细画像
+    trace: true                  # 每次“想说什么”都存一份，python run.py replay 回放
+    # 3.0：
+    lore: true                   # 群梗词条：聊到关键词才告诉她这个梗的意思（提过以后一阵子不再提）
+    mood: true                   # 持续的心情：被夸、被怼、没人理会影响一阵子
+    human_latency: true          # 她“看到消息”要多久，按这个群群友自己的回复间隔来
+    poke_back_chance: 0          # 被拍了拍回去（微信版做不到，保持 0）
+    update_signature: false      # 按今天的安排改签名（微信版做不到）
+    explore_rate: 0.02           # 本该不说时偶尔随机说一次，让每晚的重新拟合不偏
+    # 20.0 / 20.1 / 20.2（小屋“性格开关”里也能调）：
+    typing_abort: true           # 她主动说的那句还在打字、群里又说了好几句：这句不发了
+    ablate_rate: 0.1             # 主动开口时随机去掉提示词里一段的概率（看哪段有用；0 = 关）
+    drift_anchor: true           # 问她自己 / 有人难过 / 聊人生时，在最后再提一遍她是谁
+    number_check: true           # 查资料后说的数字要在简报里出现过
+    ledger: true                 # 查到的硬事实记进账本（带有效期、会被取代）
+    feed: true                   # “刷到的”：按大家的兴趣攒候选、按事件去重、规则打分过线才分享
+    feed_hours: 6
+    feed_topics: 5
+    feed_min: 0.25
+    rel_tone: true               # 关系网加情绪色彩
+    weekly_qa: true              # 每周问她 15 个关于自己的问题
+    weekly_pairs: true           # 每周测带情绪时会不会附和
+    # 21.0 开口前九问（小屋“性格开关 → 开口前九问”也能调）：
+    appraise: true               # 开口前结构化地想：时机（现在 / 等等 / 不说）、会不会说漏、伤不伤面子、玩笑合不合适
+    pitch_queue: true            # 觉得“再等等”的那句先放着，群里停下来再判一次（60~240 秒，过时丢掉）
+    borderline_judge: true       # 门控刚过阈值一点点、没人叫她：再问一下便宜模型
+    person_card: true            # 在聊的人合成一张 ≤120 字的人卡
+    hard_rules: true             # 四条硬底线：别碰的话题、编线下、说幕后、对方难受时损他
+    # 21.1（小屋“性格开关 → 听者与分寸”也能调）：
+    listener_mode: auto          # 独立的听者判插话时机：auto 先只记、和你的标注对得上后自动接管；on / shadow / off
+    length_match: true           # 长度靠拢群友
+    talk_control: true           # 群里有人说“小满少说点 / 多说点”就照做
+    share_target: 0.8            # 她的消息份额超过活跃群友平均份额的 0.8 倍就收紧
+    mention_read_cap: 20         # 被叫到最多拖几秒才看
+    favors: true                 # 每晚记人情账
+    catch_up: true               # 接上微信后从本地库补上她不在时（重启、关机、微信没开）群里说的话；期间被 @ 上线后补一句“才看到”
+    catch_up_count: 200          # 每个群往回最多补多少条
+    # 群友的别名（真名、外号）：群里叫真名时她知道说的是谁。左边写群名片或微信昵称；
+    # 启动接上微信时把这里新写的别名加进去（这里没改就不动，小屋里删掉的不会又冒出来）；也可以在小屋“群里的人”→ 点人 →“别名”里改
+    people_aliases: {}
+    #   "2206某某": "某某、阿某"
+    #   "某个昵称": "小名"
+    # 联网：读链接、不知道的先搜一搜、记住查到的东西
+    read_links: true
+    web_search: true
+    search_per_hour: 12
+    agent: false                 # 19.0 回话前先想一想：要查的事多搜几次、打开网页看，交简报再回；有人让她到点提醒也当场记下（要 DeepSeek 官方接口）
+    agent_per_day: 60
+    remember_web: true
+    weekly_reflect: true
+    memory_embed_model: ""       # 本机向量模型（要装 sentence-transformers）；配了 llm.routes.embed 就走接口（推荐，硅基流动 bge-m3 免费）
+
+# ---------------- 联网 ----------------
+net:
+  search: true                   # 能不能上网搜（关掉就只读群友发的链接）
+  deepseek_search: true         # 20.0 用 DeepSeek 搜索 / 读网页（和聊天同一个官方 DeepSeek Key；¥5 / 千次成功请求，空结果不收钱）
+  deepseek_key: ""               # 可选：单独给搜索用的 Key；不填就用 llm.profiles 里 api.deepseek.com 的 Key
+  search_first: tavily          # 先用哪个：tavily（默认，先用每月免费额度，用完再 DeepSeek）/ deepseek
+  deepseek_ip: ""               # 20.1 可选：填服务器公网 IP，DeepSeek 搜索按它出结果（不同 IP 结果只重合约六成，固定了更稳）
+  deepseek_qps: 5               # 20.1 DeepSeek 搜索每秒最多几次（超了会 429，自动歇 10 秒）
+  tavily_qps: 2
+  tavily_key: ""                 # 可选：Tavily 的 Key（写 ${TAVILY_KEY}，Key 放 .env），百度 / 360 / 搜狗都不行时兜底；每月 1000 次免费
+  browser: auto                  # 19.3 读脚本加载的网页时开无头浏览器：auto 装了 playwright 就用 / false 不用
+  tavily_extract: true           # 19.3 国内打不开、被拦的网页让 Tavily 去读（一次算一个额度）
+  asr: {}                        # 4.4 看 B 站视频时把声音转成文字：默认借你 llm 里硅基流动接口的 Key，用 FunAudioLLM/SenseVoiceSmall；
+                                 #     自己写：{base_url: ..., api_key: ${KEY}, model: ..., max_minutes: 20}；enabled: false 关掉
+  cookies: {}                    # 可选：要登录才能看的网站，填你自己浏览器里的 cookie，比如 {"zhihu.com": "z_c0=…"}（只用来读群友发的链接）
+  links:
+    enabled: true                # 读群友发的链接
+    max_chars: 500               # 网页正文最多读多少字
