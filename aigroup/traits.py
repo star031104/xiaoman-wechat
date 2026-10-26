@@ -189,7 +189,11 @@ def detect_flags(text: str, *, mentioned: bool = False, pestered: bool = False, 
                  hour: int | None = None, why: str = "", mood: dict | None = None) -> set[str]:
     """从这一批消息和程序状态里认出情境（给签名挑选用）。mood（16.0）：chat/mood.py 的 {v, a}，心情也是情境。"""
     f: set[str] = set()
-    if mood:
+    lab = str((mood or {}).get("label") or "")
+    if lab:                                         # 24.0 带滞回的心情档（chat/mood.Mood.stable）
+        f |= {"proud": {"mood_high"}, "content": {"mood_high"}, "annoyed": {"mood_annoyed"}, "upset": {"mood_annoyed"},
+              "down": {"mood_down"}}.get(lab, set())
+    elif mood:
         v, a = float(mood.get("v") or 0), float(mood.get("a") or 0)
         if v >= 0.5:
             f.add("mood_high")

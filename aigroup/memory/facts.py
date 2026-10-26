@@ -4,7 +4,8 @@
 - 原始消息永远保留、可以直接检索（只在本群里查，不跨群）
 - 另有一张事实表 qq_facts：整理印象时顺便记下“谁 / 关于谁 / 什么事”，每条带说话人、群、原消息 id、
   生效时间 t_valid 和失效时间 t_invalid（Graphiti 的双时间轴：新事实和旧的矛盾时只给旧的标失效，不删）
-- 检索：消息和事实各自 BM25 打分 → RRF（k=60）融合 → 按“强度”（半衰期 30 天，每被想起一次 +0.05）微调
+- 检索：消息和事实各自 BM25 打分 → RRF（k=60）融合 → 按“强度”微调
+  （24.0：从上次被群友提起算淡忘，半衰期 30~90 天看重要度；被她想起不加强；要过证据门槛；带“3 天前”）
 - 分词：有 jieba 就用 jieba，没有就用字的二元组（中文够用，不用装东西）
 
 recall() 返回给提示词用的几行；聊天记录窗口里已经有的消息不重复给。
@@ -37,9 +38,23 @@ CREATE TABLE IF NOT EXISTS qq_embed (       -- 3.0（可选）：消息的向量
     msg_id INTEGER PRIMARY KEY,
     vec BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS qq_forgotten (   -- 24.0 删掉的记忆留个“指纹”：以后整理时不再学回来（dsh-soul 的做法）
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,                     -- fact 记的事 / lore 群梗
+    text TEXT NOT NULL DEFAULT '',
+    keys TEXT NOT NULL DEFAULT '[]',
+    ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qq_forgotten ON qq_forgotten(group_id, kind);
 """
 K_RRF = 60
 HALF_LIFE_DAYS = 30.0
+# 24.0 召回门槛（dsh-fish-memory）：BM25 分 s 换成“证据分”C = s/(s+1)；低于 MIN_CONF 的不给，没有一条够强的就只给 1 条
+MIN_CONF = 0.6
+STRONG_CONF = 0.8
+MSG_MIN_CONF = 0.5                 # 老消息的门槛低一点（一句话本来就短）
+RECALL_COOLDOWN = 30 * 60          # 同一条事实刚给过她：半小时内不再给（除非特别相关），免得她反复提同一件事
 STOP = set("的了是我你他她它们在有就不也都和吗呢吧啊哈嗯哦呀啦么这那个一")
 
 try:  # 可选：有 jieba 用 jieba
@@ -73,20 +88,94 @@ class BM25:
         df: Counter = Counter()
         for d in docs:
             df.update(set(d))
-        self.idf = {w: math.log(1 + (self.n - c + 0.5) / (c + 0.5)) for w, c in df.items()}
+        n_eff = max(self.n, 50)        # 24.0 库很小时 idf 都很低，证据门槛会把什么都挡掉：按至少 50 条算
+        self.idf = {w: math.log(1 + (n_eff - c + 0.5) / (c + 0.5)) for w, c in df.items()}
         self.tf = [Counter(d) for d in docs]
 
-    def scores(self, q: list[str]) -> list[float]:
+    def scores(self, q: list[str], weights: dict | None = None) -> list[float]:
+        """weights（24.0）：查询词的权重（说话的人自己的口头禅权重低，见 own_weights）；没给就都是 1。"""
         out = []
         qs = [w for w in set(q) if w in self.idf]
+        wt = {w: float((weights or {}).get(w, 1.0)) for w in qs}
         for d, tf in zip(self.docs, self.tf):
             s, L = 0.0, len(d) or 1
             for w in qs:
                 f = tf.get(w, 0)
                 if f:
-                    s += self.idf[w] * f * (self.k1 + 1) / (f + self.k1 * (1 - self.b + self.b * L / (self.avg or 1)))
+                    s += wt[w] * self.idf[w] * f * (self.k1 + 1) / (f + self.k1 * (1 - self.b + self.b * L / (self.avg or 1)))
             out.append(s)
         return out
+
+
+def own_weights(query_tokens: list[str], own_texts: list[str]) -> dict[str, float]:
+    """24.0（dsh-fish-memory）：词在“说话的人自己的话”里越常见，越像口头禅，召回时权重越低。
+    own_texts：这个人最近说的话。出现在他 30% 以上的话里的词权重压到 0.25 左右。"""
+    if not own_texts or not query_tokens:
+        return {}
+    docs = [set(tokens(t)) for t in own_texts if t]
+    n = len(docs)
+    if n < 10:
+        return {}
+    out = {}
+    for w in set(query_tokens):
+        df = sum(1 for d in docs if w in d) / n
+        if df > 0.05:
+            out[w] = max(0.15, 1.0 - 2.5 * df)
+    return out
+
+
+def conf(s: float) -> float:
+    return s / (s + 1.0) if s > 0 else 0.0
+
+
+def rel_day(ts: float, now: float, tz=None) -> str:
+    """24.0 记的事带相对时间：“3 天前 10-23”“今天”“昨天 10-25”。"""
+    a = datetime.fromtimestamp(float(ts), tz)
+    b = datetime.fromtimestamp(float(now), tz)
+    d = (b.date() - a.date()).days
+    md = a.strftime("%m-%d")
+    if d <= 0:
+        return "今天"
+    if d == 1:
+        return f"昨天 {md}"
+    if d < 60:
+        return f"{d} 天前 {md}"
+    return f"{d // 30} 个月前 {md}"
+
+
+def _fp_text(text: str) -> str:
+    return re.sub(r"[\s\W_]+", "", str(text or "").lower())
+
+
+def forgotten_match(db, gid: int, kind: str, text: str = "", keys: list[str] | None = None) -> bool:
+    """24.0 这条以前被删过吗（文本很像，或者梗的关键词有重合）。"""
+    try:
+        rows = db.conn.execute("SELECT text, keys FROM qq_forgotten WHERE group_id=? AND kind=?", (gid, kind)).fetchall()
+    except Exception:  # noqa: BLE001
+        return False
+    if not rows:
+        return False
+    from difflib import SequenceMatcher
+    t = _fp_text(text)
+    ks = {str(k).strip().lower() for k in (keys or []) if str(k).strip()}
+    import json as _json
+    for r in rows:
+        if t and r["text"] and SequenceMatcher(None, t, _fp_text(r["text"])).ratio() >= 0.75:
+            return True
+        if ks:
+            try:
+                old = {str(k).strip().lower() for k in _json.loads(r["keys"] or "[]")}
+            except ValueError:
+                old = set()
+            if ks & old:
+                return True
+    return False
+
+
+def remember_forgotten(db, gid: int, kind: str, text: str = "", keys: list[str] | None = None):
+    import json as _json
+    db.conn.execute("INSERT INTO qq_forgotten(group_id, kind, text, keys, ts) VALUES (?,?,?,?,?)",
+                    (gid, kind, str(text or "")[:200], _json.dumps(list(keys or []), ensure_ascii=False), time.time()))
 
 
 def rrf(*ranked: list) -> dict:
@@ -200,26 +289,38 @@ class Memory:
             db.conn.execute("ALTER TABLE qq_facts ADD COLUMN evidence INTEGER NOT NULL DEFAULT 1")
         if "heard_by" not in cols:               # 20.2 这件事被说出来的时候谁在（那条消息前 30 分钟到后 2 小时说过话的人）
             db.conn.execute("ALTER TABLE qq_facts ADD COLUMN heard_by TEXT NOT NULL DEFAULT ''")
+        if "last_said" not in cols:              # 24.0 群友上一次又提起这件事的时间（只有再被提起才加强，被她想起不算）
+            db.conn.execute("ALTER TABLE qq_facts ADD COLUMN last_said REAL")
         db.conn.commit()
+        self.last_new = False
         self._idx: dict[int, tuple] = {}         # gid → (建索引时的最大消息 id, 行, BM25)；每 200 条新消息重建一次
 
     # ---------------- 写 ----------------
     def add_fact(self, gid: int, text: str, *, speaker: int | None = None, subject: int | None = None,
                  kind: str = "fact", msg_id: int | None = None, replaces: list[int] | None = None,
                  now: float | None = None, source: str = "", until: float | None = None) -> int | None:
-        """until（15.0）：这件事到什么时候就不算数了（“这周在赶论文”→ 周日），到点自动当成过期；source 见建表处。"""
+        """until（15.0）：这件事到什么时候就不算数了（“这周在赶论文”→ 周日），到点自动当成过期；source 见建表处。
+        24.0：msg_id 是这件事出自哪条消息（“门牌”）。同一件事又记一遍时，只有出自一条更新的消息才算“又被提起了”
+        （证据 +1、重新算淡忘）；整理时重叠的那段聊天被重复抽出来不算。删过的事（qq_forgotten）不再记。"""
         text = re.sub(r"\s+", " ", str(text or "")).strip()[:120]
         if len(text) < 4:
             return None
         now = now or time.time()
+        self.last_new = False                  # 24.0 这次是不是真记了一条新的（同一件事再记一遍不算）：日志里的条数用它
+        if forgotten_match(self.db, gid, "fact", text):
+            return None
         dup = self.db.conn.execute(
-            "SELECT id, text, source FROM qq_facts WHERE group_id=? AND (t_invalid IS NULL OR t_invalid>?) "
+            "SELECT id, text, source, msg_id FROM qq_facts WHERE group_id=? AND (t_invalid IS NULL OR t_invalid>?) "
             "AND IFNULL(subject_id,0)=IFNULL(?,0)", (gid, now, subject)).fetchall()
         from difflib import SequenceMatcher
         for r in dup:
-            if SequenceMatcher(None, r["text"], text).ratio() >= 0.85:      # 同一件事又说了一遍：算想起一次
-                self.db.conn.execute("UPDATE qq_facts SET hits=hits+1, last_hit=?, evidence=evidence+1 WHERE id=?",
-                                     (now, r["id"]))
+            if SequenceMatcher(None, r["text"], text).ratio() >= 0.85:      # 同一件事又说了一遍
+                again = bool(msg_id) and (not r["msg_id"] or int(msg_id) > int(r["msg_id"]))
+                if again:
+                    self.db.conn.execute("UPDATE qq_facts SET evidence=evidence+1, last_said=?, msg_id=? WHERE id=?",
+                                         (now, int(msg_id), r["id"]))
+                elif msg_id and not r["msg_id"]:
+                    self.db.conn.execute("UPDATE qq_facts SET msg_id=? WHERE id=?", (int(msg_id), r["id"]))
                 if r["source"] == "guess" and source in ("self", "other"):   # 猜的被证实了：升级来源
                     self.db.conn.execute("UPDATE qq_facts SET source=? WHERE id=?", (source, r["id"]))
                 self.db.conn.commit()
@@ -229,12 +330,35 @@ class Memory:
                                  (now, int(rid), gid, now))
         cur = self.db.conn.execute(
             "INSERT INTO qq_facts(group_id, speaker_id, subject_id, text, kind, msg_id, t_valid, t_invalid, created, source, "
-            "heard_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "heard_by, last_said) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (gid, speaker, subject, text, kind if kind in ("fact", "event", "plan", "opinion", "experience") else "fact", msg_id, now,
              until if until and until > now else None, now, source if source in ("self", "other", "guess", "said") else "",
-             ",".join(str(u) for u in self.present(gid, msg_id))))
+             ",".join(str(u) for u in self.present(gid, msg_id)), now))
         self.db.conn.commit()
+        self.last_new = True
         return int(cur.lastrowid)
+
+    def forget_fact(self, fid: int) -> bool:
+        """24.0 删一条记的事，并留下指纹：以后整理群聊时不会再把它学回来。"""
+        r = self.db.conn.execute("SELECT group_id, text FROM qq_facts WHERE id=?", (int(fid),)).fetchone()
+        if not r:
+            return False
+        remember_forgotten(self.db, int(r["group_id"]), "fact", r["text"])
+        self.db.conn.execute("DELETE FROM qq_facts WHERE id=?", (int(fid),))
+        self.db.conn.commit()
+        return True
+
+    def locate(self, gid: int, text: str, rows: list[dict]) -> tuple[int | None, int | None, float]:
+        """24.0 给一条记的事找“门牌”：在整理时看的那段聊天里，最像它的那条群友消息 → (消息 id, 谁说的, 证据分)。"""
+        cand = [r for r in rows if r.get("role") == "user" and len(str(r.get("content") or "")) >= 2]
+        if not cand:
+            return None, None, 0.0
+        bm = BM25([tokens(r["content"]) for r in cand])
+        sc = bm.scores(tokens(text))
+        i = max(range(len(cand)), key=lambda k: sc[k])
+        if sc[i] <= 0:
+            return None, None, 0.0
+        return int(cand[i]["id"]), int(cand[i].get("user_id") or 0) or None, conf(sc[i])
 
     # ---------------- 20.2 谁在场 ----------------
     @staticmethod
@@ -294,29 +418,44 @@ class Memory:
         return [dict(r) for r in self.db.conn.execute(sql + " ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()]
 
     # ---------------- 想起来 ----------------
-    def strength(self, created: float, hits: int, now: float) -> float:
-        age = max(0.0, now - float(created or now)) / 86400
-        return 0.5 ** (age / HALF_LIFE_DAYS) + 0.05 * int(hits or 0)
+    def strength(self, created: float, hits: int = 0, now: float | None = None, *, evidence: int = 1,
+                 last_said: float | None = None) -> float:
+        """24.0 记忆的强度（dsh-fish-memory）：从“上一次被群友提起”算起淡忘；半衰期随重要度变长
+        （H = 30 × (1 + 2 × 重要度) 天，重要度看被独立提起了几次）；被提起过 2 次以上的有个地板，不会完全忘掉。
+        被她想起来（召回）不加强——以前召回一次 +0.05，结果过时的老事越想越强、霸占名额。hits 只留着做统计。"""
+        now = now or time.time()
+        base = max(float(created or now), float(last_said or 0))
+        age = max(0.0, now - base) / 86400
+        imp = min(1.0, max(0, int(evidence or 1) - 1) / 3)
+        s = 0.5 ** (age / (HALF_LIFE_DAYS * (1 + 2 * imp)))
+        return max(s, 0.08) if int(evidence or 1) >= 2 else s
+
+    def _strength_of(self, f, now: float) -> float:
+        g = f.get if isinstance(f, dict) else (lambda k, d=None: f[k] if k in f.keys() else d)
+        return self.strength(g("created"), g("hits") or 0, now, evidence=g("evidence") or 1, last_said=g("last_said"))
 
     def recall(self, gid: int, query: str, *, skip_after_id: int | None = None, k_msgs: int = 4, k_facts: int = 4,
-               max_docs: int = 4000, now: float | None = None) -> dict:
-        """在本群里找和 query 相关的老消息和事实。skip_after_id：这个 id 之后的消息已经在聊天记录里了，不重复给。"""
+               max_docs: int = 4000, now: float | None = None, own_texts: list[str] | None = None) -> dict:
+        """在本群里找和 query 相关的老消息和事实。skip_after_id：这个 id 之后的消息已经在聊天记录里了，不重复给。
+        24.0：own_texts 是在说话的人自己最近的话（压掉他的口头禅）；事实要过证据门槛 MIN_CONF，
+        没有一条够强（STRONG_CONF）就只给 1 条；半小时内刚给过的不再给。"""
         now = now or time.time()
         q = tokens(query)
         out = {"messages": [], "facts": []}
         if not q:
             return out
+        wts = own_weights(q, own_texts or [])
         rows, bm = self._index(gid, max_docs)
         if skip_after_id:                                     # 聊天记录窗口里已经有的不重复给
             keep = [i for i, r in enumerate(rows) if r["id"] < skip_after_id]
         else:
             keep = list(range(len(rows)))
         if keep:
-            allsc = bm.scores(q)
+            allsc = bm.scores(q, wts)
             rows = [rows[i] for i in keep]
             sc = [allsc[i] for i in keep]
             ranked = sorted(range(len(rows)), key=lambda i: -sc[i])
-            ranked = [i for i in ranked if sc[i] > 0][:30]
+            ranked = [i for i in ranked if conf(sc[i]) >= MSG_MIN_CONF][:30]
             rec = sorted(ranked, key=lambda i: -rows[i]["ts"])           # 第二路：越近越好
             dense = self._dense(rows, query)                              # 第三路（可选）：语义相近
             fused = rrf([("m", i) for i in ranked], [("m", i) for i in rec], [("m", i) for i in dense])
@@ -328,15 +467,18 @@ class Memory:
                                      "ORDER BY id DESC LIMIT 2000", (gid, time.time())).fetchall()
         if frows:
             bm = BM25([tokens(r["text"]) for r in frows])
-            sc = bm.scores(q)
-            ranked = [i for i in sorted(range(len(frows)), key=lambda i: -sc[i]) if sc[i] > 0][:30]
-            by_strength = sorted(ranked, key=lambda i: -self.strength(frows[i]["created"], frows[i]["hits"], now))
+            sc = bm.scores(q, wts)
+            cs = [conf(x) for x in sc]
+            ranked = [i for i in sorted(range(len(frows)), key=lambda i: -sc[i]) if cs[i] >= MIN_CONF][:30]
+            ranked = [i for i in ranked if not (frows[i]["last_hit"] and now - float(frows[i]["last_hit"]) < RECALL_COOLDOWN
+                                                and cs[i] < 0.9)]
+            by_strength = sorted(ranked, key=lambda i: -self._strength_of(frows[i], now))
             fused = rrf(ranked, by_strength)
-            pick = sorted(fused, key=lambda i: -fused[i])[:k_facts]
+            k = k_facts if any(cs[i] >= STRONG_CONF for i in ranked) else 1
+            pick = sorted(fused, key=lambda i: -fused[i])[:k]
             out["facts"] = [dict(frows[i]) for i in pick]
-            for i in pick:
-                self.db.conn.execute("UPDATE qq_facts SET hits=hits+1, last_hit=? WHERE id=? AND "
-                                     "(last_hit IS NULL OR last_hit<?)", (now, frows[i]["id"], now - 3600))
+            for i in pick:                                    # 只记“什么时候给过她”（冷却、统计用），不加强
+                self.db.conn.execute("UPDATE qq_facts SET hits=hits+1, last_hit=? WHERE id=?", (now, frows[i]["id"]))
             self.db.conn.commit()
         return out
 
@@ -405,13 +547,13 @@ class Memory:
                 who = "你自己："
             elif f.get("subject_id") and names and str(f["subject_id"]) in names:
                 who = f"{names[str(f['subject_id'])]}："
-            day = datetime.fromtimestamp(f["t_valid"], self.tz).strftime("%m-%d")
+            day = rel_day(f.get("last_said") or f["t_valid"], time.time(), self.tz)
             src = {"self": "（他自己说的）", "other": "（听别人说的，未必准）", "guess": "（你猜的，别当真说出来）"}.get(
                 str(f.get("source") or "") if f.get("subject_id") not in (-1, 0) else "", "")
             exp = (f"（到 {datetime.fromtimestamp(f['t_invalid'], self.tz):%m-%d} 为止）"
                    if f.get("t_invalid") else "")
             fuzzy = ""
-            if f.get("created") and self.strength(f["created"], f.get("hits") or 0, time.time()) < 0.35:
+            if f.get("created") and self._strength_of(f, time.time()) < 0.35:
                 fuzzy = "（记得不太清了：说的时候带个“好像”“我记得是”）"     # 20.0 记忆会淡：太久没想起的别说得斩钉截铁
             lines.append(f"- （{day}）{who}{clean_member_text(f['text'], 120)}{src}{exp}{fuzzy}{self.presence_note(f, names, focus)}")
         for m in found.get("messages") or []:

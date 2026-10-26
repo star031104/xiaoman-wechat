@@ -54,7 +54,7 @@ def test_no_monologue_and_today_block(cfg, brain):
 
 
 def test_self_score_skips_low_thoughts(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0)
+    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0, self_score=True, appraise=False)
     gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
     brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["是啊好冷"],
                         score={"相关": 2, "信息差": 1, "效果": 1, "新意": 1, "时机": 3})

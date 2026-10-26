@@ -41,6 +41,8 @@ from aigroup.chat.ingest import IngestMixin
 from aigroup.chat.insight import InsightMixin
 from aigroup.chat.life import LifeMixin
 from aigroup.chat.mood import Mood
+from aigroup.chat.outbox import OutboxMixin
+from aigroup.memory.diary import DiaryMixin
 from aigroup.chat.plan import NAME_TAIL
 from aigroup.chat.prompt import PromptMixin
 from aigroup.chat.settings import DEAD_KNOBS, DEFAULTS, GLOBAL_ONLY, KNOBS, group_key
@@ -88,7 +90,7 @@ MSG_COLUMNS = {"to_her": "INTEGER NOT NULL DEFAULT 0",   # 这条是在叫她（
 
 class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, LifeMixin, PromptMixin, PeopleMixin, DigestMixin,
                 NetMixin, GrowMixin, EvalMixin, StyleMixin, InsightMixin, AgentMixin, HumaneMixin, SocialMixin,
-                ListenerMixin, ChecksMixin, AutobioMixin):
+                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, DiaryMixin):
     """她在群里的一切：收消息 → 判断要不要说 → 说 → 看效果；空闲时冒泡、整理记忆。
 
     这个类只负责把各部分装起来、放共用的小工具；具体的活在各个 Mixin 里（见文件开头的说明）。
@@ -146,6 +148,8 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Li
         self.links = LinkReader(cfg, brain)                 # 读群友发的链接
         self.web = WebSearch(cfg)                           # 不知道的先搜一搜
         self.web.kv = self.db                               # 19.0 记 Tavily 这个月用了几次、免费额度用完没
+        if hasattr(brain.llm, "add_cost"):
+            self.web.on_cost = brain.llm.add_cost           # 24.0 搜索花的钱也记账
         self.knowledge = Knowledge(self.db)
         from aigroup.net.voice import Hearing, Voice
         self.hearing = Hearing(cfg)                         # 13.0 听懂群友的语音
@@ -155,6 +159,7 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Li
         self.photos.llm = brain.llm   # 偶尔晒照片
         self._grow_init()
         self._checks_init()
+        self._outbox_init()                                 # 24.0 统一的发送口：演练、静音、每天上限、发送账本
         from aigroup.net.where import Where
         self.where = Where(self.db, cfg.tz)                 # 4.4 群友在哪、那边天气
         from aigroup.eval.weekly import note_persona
@@ -169,6 +174,10 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Li
         self._digesting: set[int] = set()
         self._tmap: dict[int, dict] = {}
         self._clean_interests()
+        try:
+            self.refresh_name_blocks()                      # 24.0 群友的名字不当黑话 / 梗
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---------------- 2.0 升级老数据 ----------------
     def _migrate_20(self):

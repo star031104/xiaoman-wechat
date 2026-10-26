@@ -120,11 +120,27 @@ async def tool_loop(llm, messages: list[dict], tools: list[dict], execute, *, ma
     res = LoopResult()
     from aigroup.agent.tools import SEEN
     SEEN.set([])                                     # 20.1 这次研究搜过的词：重复的不再真去搜
+    fails: dict[str, int] = {}
+    inner = execute
+
+    async def execute(name, args):                   # 24.0（dsh-bili-subagent）：同一个工具这次失败两次就别再用了
+        if fails.get(name, 0) >= 2:
+            return f"（{name} 这次已经失败两次了，别再用它；换别的办法，或者用已有的资料交卷）"
+        try:
+            out = await inner(name, args)
+        except (Exception, asyncio.CancelledError):      # 出错，或者被 run_tools 超时取消
+            fails[name] = fails.get(name, 0) + 1
+            raise
+        if str(out).startswith(("（" + name + " 出错", "（" + name + " 超时")):
+            fails[name] = fails.get(name, 0) + 1
+        return out
     covered = False
+    reserve = min(8.0, deadline_s * 0.25)            # 24.0 留给“交卷”那一轮的时间：剩得不够就现在交卷（以前上限 25 秒常常拖到 50 秒）
     for rnd in range(max_rounds + 1):
         if rnd >= 3 and compress:
             compress_old_tools(messages, keep_rounds=2)
-        last = covered or rnd == max_rounds or (time.time() - t0) > deadline_s
+        left = deadline_s - (time.time() - t0)
+        last = covered or rnd == max_rounds or left < reserve
         if last and rnd > 0 and covered and covered_prompt:
             messages.append({"role": "user", "content": covered_prompt})
             res.stop = "covered"
@@ -161,7 +177,8 @@ async def tool_loop(llm, messages: list[dict], tools: list[dict], execute, *, ma
             res.steps.append("都证实了，停")
             covered = True
             continue
-        done = await run_tools(calls, execute)
+        left = deadline_s - (time.time() - t0) - reserve
+        done = await run_tools(calls, execute, timeout=max(3.0, min(20.0, left)))
         for tc, args, out in done:
             res.steps.append(f"{tc['function']['name']} {json.dumps(args, ensure_ascii=False)[:100]}")
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": out})

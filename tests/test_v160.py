@@ -177,9 +177,11 @@ def test_mood_flags_and_signature():
 def test_guess_fact_needs_two(cfg, brain):
     gc, ob = _gc(cfg, brain)
     m = gc.memory
-    a = m.add_fact(GROUP, "小王好像喜欢打羽毛球", subject=FRIEND, source="guess")
+    a = m.add_fact(GROUP, "小王好像喜欢打羽毛球", subject=FRIEND, source="guess", msg_id=10)
     assert m.recall(GROUP, "羽毛球")["facts"] == []                   # 只猜过一次：先不拿来用
-    assert m.add_fact(GROUP, "小王好像喜欢打羽毛球！", subject=FRIEND, source="guess") == a
+    assert m.add_fact(GROUP, "小王好像喜欢打羽毛球！", subject=FRIEND, source="guess", msg_id=10) == a
+    assert m.recall(GROUP, "羽毛球")["facts"] == []                   # 24.0 同一条消息又抽出来一次：不算第二次证据
+    assert m.add_fact(GROUP, "小王好像喜欢打羽毛球！", subject=FRIEND, source="guess", msg_id=25) == a
     assert [f["id"] for f in m.recall(GROUP, "羽毛球")["facts"]] == [a]
     m.add_fact(GROUP, "小王好像喜欢打羽毛球", subject=FRIEND, source="self")
     assert m.facts(GROUP, FRIEND)[0]["source"] == "self"              # 他自己说了：升级来源

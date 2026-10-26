@@ -138,6 +138,11 @@ class Detector:
         d = db.get("ai_detector")
         if not isinstance(d, dict) or not d.get("logp") or int(d.get("v") or 1) < 2:
             return None                       # 22.3 以前的版本学的是“谁在说话”，不要了，等重训
+        info = db.get("ai_detector_info") or {}
+        hp = info.get("her_p") if isinstance(info, dict) else None
+        if (isinstance(hp, list) and len(hp) == 3 and int(info.get("n_scored") or 0) >= 30
+                and float(hp[2]) - float(hp[0]) < MIN_SPREAD):
+            return None                       # 24.0 对她的话分不出好坏（几乎都判成像 AI）：不用
         try:
             return cls.from_json(d)
         except Exception:  # noqa: BLE001
@@ -176,7 +181,8 @@ def training_data(db, days: float = 60) -> tuple[list[str], list[str]]:
     return ai, human
 
 
-MAX_RHO = -0.2
+MAX_RHO = -0.3          # 24.0 从 -0.2 收紧：线上 -0.21 刚过线，实际几乎没用
+MIN_SPREAD = 0.3        # 24.0 她的话在 10%~90% 分位的概率至少差这么多，才算分得出好坏
 
 
 def human_check(db, det: "Detector") -> tuple[float | None, int]:
@@ -217,12 +223,17 @@ def train_from_db(db, mask: list[str] | None = None) -> "Detector | None":
     ps = sorted(full.prob(t) for t in ai[:200])
     acc = (sum(_sig(cal[0] * s + cal[1]) > 0.5 for s in sa) + sum(_sig(cal[0] * s + cal[1]) <= 0.5 for s in sh)) / max(1, k_ai + k_h)
     rho, n_s = human_check(db, full)
-    used = a_u is not None and a_u >= MIN_AUC and (n_s < 30 or (rho is not None and rho <= MAX_RHO))
+    spread = (ps[int(0.9 * (len(ps) - 1))] - ps[int(0.1 * (len(ps) - 1))]) if ps else 0.0
+    # 24.0 还要能在她自己的话里分出好坏：她的话 10%~90% 分位都在 0.94 以上时等于给每句都扣分（线上就是这样），不用
+    used = (a_u is not None and a_u >= MIN_AUC and (n_s < 30 or (rho is not None and rho <= MAX_RHO))
+            and (n_s < 30 or spread >= MIN_SPREAD))
     db.set("ai_detector_info", {"v": 2, "auc": a_u, "acc": round(acc, 3), "ai": len(ai), "human": len(human), "used": used,
                                 "rho_vs_you": rho, "n_scored": n_s,
                                 "her_p": [round(ps[int(q * (len(ps) - 1))], 2) for q in (0.1, 0.5, 0.9)] if ps else [],
                                 "why": "" if used else (f"留出 AUC {a_u} < {MIN_AUC}" if not a_u or a_u < MIN_AUC else
-                                                        f"和你打的分相关 {rho}（要 ≤ {MAX_RHO}）：它判的“像 AI”和你觉得好不好对不上")})
+                                                        f"和你打的分相关 {rho}（要 ≤ {MAX_RHO}）：它判的“像 AI”和你觉得好不好对不上"
+                                                        if n_s >= 30 and (rho is None or rho > MAX_RHO) else
+                                                        f"她的话差不多都被判成像 AI（10%~90% 分位只差 {spread:.2f}）：分不出好坏")})
     if not used:
         db.set("ai_detector", None)
         return None

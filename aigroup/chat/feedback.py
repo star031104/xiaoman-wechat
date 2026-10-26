@@ -132,6 +132,8 @@ class FeedbackMixin:
     def auto_lore(self):
         if self.lore is None:
             return
+        if hasattr(self, "refresh_name_blocks"):
+            self.refresh_name_blocks()
         for gid in self.groups:
             jg = [dict(r) for r in self.db.conn.execute(
                 "SELECT term, meaning FROM qq_jargon WHERE group_id=? AND is_jargon=1 AND status!='no' AND meaning!=''",
@@ -213,8 +215,12 @@ class FeedbackMixin:
             n = await asyncio.to_thread(self.memory.embed_pending, 2000)
             if n:
                 log.info("给 %d 条消息补了向量", n)
+            if hasattr(self, "clear_health"):
+                self.clear_health("embed")
         except Exception as e:  # noqa: BLE001
             log.info("补向量出错：%s", e)
+            if hasattr(self, "note_health"):
+                self.note_health("embed", f"向量接口出错（语义召回只剩关键词）：{e}")
         if hasattr(self, "favors_nightly"):
             try:                                                  # 21.1 人情账
                 await self.favors_nightly()

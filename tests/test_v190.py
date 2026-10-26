@@ -185,7 +185,7 @@ def test_research_quick_makes_brief_and_reuses(cfg, brain, monkeypatch):
 
 
 def test_research_deep_says_filler_and_thinks(cfg, brain, monkeypatch):
-    gc, ob = _gc(cfg, brain, agent=True)
+    gc, ob = _gc(cfg, brain, agent=True, agent_filler_after=0)       # 23.3 默认查了 10 秒还没好才说；这里马上说
 
     async def fake_search(q, n=6, days=0, **kw):
         return [], ""

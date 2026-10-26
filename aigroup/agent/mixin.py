@@ -299,6 +299,19 @@ class AgentMixin:
         bs = self.db.get(f"agent_briefs_{gid}") or []
         return [b for b in bs if isinstance(b, dict) and time.time() - float(b.get("ts", 0)) < 6 * 3600]
 
+    def _similar_brief(self, gid: int, goal: str, minutes: float = 30) -> dict | None:
+        """24.0 半小时内查过、问题差不多（字二元组重合 ≥ 0.5，或者说的是同样几个实体）的简报。"""
+        from aigroup.chat.plan import bigram_overlap
+        from aigroup.chat.checks import content_terms
+        g = content_terms(goal)
+        for b in self._briefs(gid):
+            if time.time() - float(b.get("ts") or 0) > minutes * 60 or not (b.get("brief") or {}).get("answer_points"):
+                continue
+            o = content_terms(str(b.get("goal") or ""))
+            if bigram_overlap(goal, str(b.get("goal") or "")) >= 0.5 or (g and o and len(g & o) / max(1, min(len(g), len(o))) >= 0.6):
+                return b
+        return None
+
     def _save_brief(self, gid: int, goal: str, d: dict):
         bs = [{"goal": goal, "ts": time.time(), "brief": d}] + self._briefs(gid)
         self.db.set(f"agent_briefs_{gid}", bs[:5])
@@ -332,6 +345,38 @@ class AgentMixin:
         now = self.brain.now()
         return f"{now:%Y-%m-%d %H:%M} 星期{P.WEEK[now.weekday()]}"
 
+    # 24.0 “想一想”之前先用规则筛：线上 146 次里只有 29 次真的要查 / 设提醒，其余每次白花 1~2 秒和一次调用
+    NEED_RX = re.compile(r"[？?]|吗|多少|几[点号个天岁]|啥|什么|怎么|咋|哪|谁|是不是|有没有|能不能|会不会|查|搜|提醒|叫我|记得叫|闹钟|"
+                         r"最新|新闻|比赛|赛程|比分|战绩|排名|夺冠|赢|输|首发|转会|退役|价格|多少钱|天气|下雨|温度|上线|发布|更新|版本|"
+                         r"明天|后天|今晚|周[一二三四五六日天末]|下周|\d|BV|bv|b23|http|链接|视频|UP主|up主|"
+                         r"评价|押|预测|分析|说说|讲讲|出处|哪来的|真的假的|对位|赛|局|战队|选手|英雄联盟|LPL|LCK|KPL|瓦|无畏|活动|截图", re.I)
+
+    def agent_needed(self, gid: int, texts: list[str]) -> bool:
+        """这批新消息里有没有可能要查资料 / 设提醒的信号（问句、时间、数字、比赛、价格、链接……）。没有就不调“想一想”。"""
+        if not self.gk(gid).get("agent_prefilter", True):
+            return True
+        joined = " ".join(str(t or "") for t in texts)
+        return bool(self.NEED_RX.search(joined))
+
+    def agent_needed_ctx(self, gid: int, texts: list[str], mentioned: bool) -> bool:
+        """被叫到时多看几句上下文（“@你 评价一下”本身没信号，前面在聊比赛）。"""
+        if self.agent_needed(gid, texts):
+            return True
+        if not mentioned:
+            return False
+        ctx = [str(r["content"] or "") for r in self._rows(gid, 8) if r["role"] == "user"]
+        return self.agent_needed(gid, ctx)
+
+    def agent_skip_block(self, gid: int) -> str:
+        """没调“想一想”时：半小时内刚查过的简报和账本里还有效的照样给她（和模型说“不用办事”时一样）。"""
+        users = [r for r in self._rows(gid, 12) if r["role"] == "user"]
+        recent_text = " ".join(str(r["content"] or "") for r in users[-4:])
+        led = self.ledger_block(gid, recent_text)
+        recent = self._briefs(gid)
+        if recent and time.time() - recent[0]["ts"] < 30 * 60:
+            return brief_block(recent[0]["goal"], recent[0]["brief"], fresh=False) + ("\n\n" + led if led else "")
+        return led
+
     # ---------------- 入口：说话前先想一想 ----------------
     async def agent_think(self, gid: int, mentioned: bool, who: str = "", trigger=None) -> str | None:
         """返回放进提示词的一段（可能是空字符串：什么都不用办）；出错返回 None（调用方退回老办法）。"""
@@ -355,10 +400,10 @@ class AgentMixin:
             gname = await self.group_name(gid)
         except Exception:  # noqa: BLE001
             gname = "群"
-        msgs = [{"role": "system", "content": P.ROUTER_SYSTEM.format(now=self._now_text(), name=self.brain.persona.name,
-                                                                    group=gname)},
+        # 24.0 system 里不放时间（每分钟都变，整段缓存都命不中）：时间挪到最后
+        msgs = [{"role": "system", "content": P.ROUTER_SYSTEM.format(name=self.brain.persona.name, group=gname)},
                 {"role": "user", "content": P.ROUTER_USER.format(transcript=self.transcript(gid, 12), recent=rec_txt,
-                                                                 focus=focus)}]
+                                                                 focus=focus, now=self._now_text())}]
         t0 = time.time()
         try:
             m = await self.brain.llm.chat_tools(msgs, P.ROUTER_TOOLS, role="helper", thinking=False, max_tokens=500)
@@ -378,6 +423,11 @@ class AgentMixin:
             tlog.info("群 %s 想一想：%s %s", gid, name, json.dumps(args, ensure_ascii=False)[:120])
             if name == "research" and research is None and str(args.get("goal") or "").strip():
                 research = args
+                same = self._similar_brief(gid, str(args.get("goal") or ""))
+                if same is not None:                      # 24.0 半小时内刚查过同一件事：直接用那份简报，不再查一遍
+                    log.info("群 %s：「%s」%d 分钟前刚查过，直接用", gid, same["goal"][:30], (time.time() - same["ts"]) / 60)
+                    research = None
+                    self.__dict__.setdefault("_reused_brief", {})[gid] = brief_block(same["goal"], same["brief"], fresh=False)
             elif name == "reminder_set":
                 acts.append(self.remind_set(gid, args, int(asker["user_id"]), asker["name"]))
             elif name == "reminder_list":
@@ -385,6 +435,9 @@ class AgentMixin:
             elif name == "reminder_cancel":
                 acts.append(self.remind_cancel(gid, args))
         parts = []
+        reused = (self.__dict__.get("_reused_brief") or {}).pop(gid, "")
+        if reused:
+            parts.append(reused)
         if acts:
             parts.append("# 你刚办的事（回话时顺口确认一下，时间说清楚；没办成的就说没办成）\n" + "\n".join(f"- {a}" for a in acts))
         if research:
@@ -418,8 +471,18 @@ class AgentMixin:
         if mentioned:                                    # 21.1 被叫到：群里等不了太久，到点就交卷（没覆盖的写进“没查到”）
             deadline = min(deadline, float(g.get("agent_mention_deep_cap" if deep else "agent_mention_quick_cap",
                                                  25 if deep else 12)))
+        filler = None
         if mentioned and g.get("agent_filler", True) and deep:
-            await self._agent_filler(gid, goal)          # 21.1 先用她自己的口气短回一句，查完再补
+            # 21.1 先用她自己的口气短回一句，查完再补。23.3 查得快就不发这句（10-24“我去手机查一下哈”+ 答案连着 5 条）：
+            # 过 agent_filler_after 秒还没查完才发
+            after = float(g.get("agent_filler_after", 10) or 0)
+            if after <= 0:
+                await self._agent_filler(gid, goal)
+            else:
+                async def _late_filler():
+                    await asyncio.sleep(after)
+                    await self._agent_filler(gid, goal)
+                filler = asyncio.ensure_future(_late_filler())
         thinking = deep and bool(g.get("agent_deep_thinking", True))
         msgs = [{"role": "system", "content": P.RESEARCH_SYSTEM.format(
                     now=self._now_text(), name=self.brain.persona.name,
@@ -438,6 +501,9 @@ class AgentMixin:
         except Exception as e:  # noqa: BLE001
             log.info("群 %s：查资料失败：%s", gid, e)
             return None
+        finally:
+            if filler is not None and not filler.done():
+                filler.cancel()
         d = parse_brief(res.text)
         dropped = verify_citations(d, "\n".join(res.tool_text)) if g.get("agent_verify_cites", True) else 0
         log.info("群 %s：查了「%s」（%s，%d 轮，%.0f 秒，%s%s）", gid, goal, depth, res.rounds, res.seconds,

@@ -38,7 +38,7 @@ def test_said_where_weather_note_and_care(cfg, brain, monkeypatch):
     p = gc.where.get(FRIEND)
     assert p and p["city"] == "珠海" and p["kind"] == "trip" and p["why"] == "出差"
     msgs = asyncio.run(gc.build_messages(GROUP, False, False, "小王", focus=[FRIEND]))
-    assert "这几天在珠海出差" in msgs[0]["content"] and "明天大雨" in msgs[0]["content"]
+    assert "这几天在珠海出差" in msgs[1]["content"] and "明天大雨" in msgs[1]["content"]   # 24.0 天气每小时变：放 user
     monkeypatch.setattr(brain, "now", lambda: brain.__class__.now(brain).replace(hour=20))
     st = gc._st(GROUP)
     assert asyncio.run(gc.weather_tick(GROUP, st)) is True

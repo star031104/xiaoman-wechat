@@ -159,6 +159,7 @@ class WebSearch:
         self.ds_key = deepseek_key(cfg) if c.get("deepseek_search", True) else ""
         # 20.4.3 默认先用 Tavily 的每月免费额度，用完（或出错）再用 DeepSeek；search_first: deepseek 改回 DeepSeek 在前
         self.ds_first = str(c.get("search_first") or "tavily").lower() == "deepseek"
+        self.ds_usd = float(c.get("deepseek_search_usd", 0.0007) or 0)    # 24.0 一次 DeepSeek 搜索 / 读网页记多少美元
         self.ds_ip = str(c.get("deepseek_ip") or "").strip()      # 20.1 固定按哪个 IP 出结果（不同 IP 前 10 只重合 0.58）
         self.buckets = {"DeepSeek": Bucket(float(c.get("deepseek_qps", 5))), "Tavily": Bucket(float(c.get("tavily_qps", 2)))}
         self.last_engine = ""
@@ -286,6 +287,12 @@ class WebSearch:
         if r.status_code == 404 and path == "fetch":
             return {}
         r.raise_for_status()
+        cb = getattr(self, "on_cost", None)          # 24.0 DeepSeek 搜索按次收费（约 ¥5 / 千次）：记进每天的账（以前没记）
+        if cb is not None:
+            try:
+                cb(self.ds_usd, f"ds_{path}")
+            except Exception:  # noqa: BLE001
+                pass
         return r.json()
 
     async def _deepseek(self, q: str, n: int, days: int = 0, snippet: int = 220, site: str = "",

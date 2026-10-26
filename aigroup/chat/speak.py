@@ -291,9 +291,14 @@ class SpeakMixin:
         thr, keep, tie = threshold_ex(probs, min(1.0, talk), spoke)
         burst = sum(1 for r in recent if r[1] == "assistant")      # 23.1 她最近 5 分钟发了几条
         hush = self.hushed(gid, now) if hasattr(self, "hushed") else ""
+        corrected = bool(not mentioned and hasattr(self, "corrected_now") and self.corrected_now(gid, texts, now))
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
-                         rand=random.random(), waited=waited, burst=burst, hush=hush)
+                         rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected)
+        if corrected and ok:
+            st.talk_note = (st.talk_note or "") + ("（23.3）刚才有人指出你说错了：先认一句（“啊我看错了”“记错了，是 X”），"
+                                                     "一句就够，别辩解、别找补、别开玩笑带过；他说得对不对拿不准就问他来源")
+            st.__dict__["admit_ts"] = now
         explore = False
         if (not ok and not mentioned and not quiet and why.startswith("不太想插话") and talk > 0
                 and random.random() < float(self.gk(gid).get("explore_rate", 0.02))):
@@ -490,13 +495,17 @@ class SpeakMixin:
                 texts.insert(0, r["content"])
             web = None
             if hasattr(self, "agent_on") and self.agent_on(gid):        # 19.0 先想一想：要不要查、要不要设提醒
-                try:
-                    t_a = time.time()
-                    web = await self.agent_think(gid, mentioned, who, trigger)
-                    tm["think"] = round(time.time() - t_a, 1)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("群 %s：想一想出错，退回只搜一次：%s", gid, e)
-                    web = None
+                if hasattr(self, "agent_needed_ctx") and not self.agent_needed_ctx(gid, texts, mentioned):
+                    web = self.agent_skip_block(gid)                    # 24.0 规则看着不像要查 / 设提醒：不调“想一想”
+                    tm["think"] = 0.0
+                else:
+                    try:
+                        t_a = time.time()
+                        web = await self.agent_think(gid, mentioned, who, trigger)
+                        tm["think"] = round(time.time() - t_a, 1)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("群 %s：想一想出错，退回只搜一次：%s", gid, e)
+                        web = None
             if web is None:
                 web = await self.web_block(gid, texts, mentioned)
         messages = await self.build_messages(gid, mentioned, owner_spoke, who, why, note=note, interest=interest,
@@ -542,6 +551,8 @@ class SpeakMixin:
                                         last_is_sticker=last_is_sticker, web=web, must=must, _rethink=_rethink + 1,
                                         may_ignore=may_ignore, pitch=pitch, bid=bid)
         mb = 1 if may_ignore else int(self.gk(gid)["max_bubbles"])
+        if time.time() - float(st.__dict__.get("admit_ts") or 0) < 120:
+            mb = 1                                         # 23.3 被纠正后认错：一句就够
         use_plan = bool(self.gk(gid).get("plan_json", True))
         tmap = self._tmap.get(gid, {}) if use_plan else {}
         plan = self.parse_plan(raw) if use_plan else None
@@ -765,13 +776,25 @@ class SpeakMixin:
                 except Exception as e:  # noqa: BLE001
                     log.info("22.0 检查出错：%s", e)
                     c22 = []
+                from aigroup.chat.checks import DROP as _DROP
+                c22_drop = [w[len(_DROP):] for w in c22 if w.startswith(_DROP)]
+                c22 = [w[len(_DROP):] if w.startswith(_DROP) else w for w in c22]
+                if c22_drop and not mentioned and not must:
+                    # 23.2 替别人答、视频还没看完就空说“去看”：重写也还是这个毛病，没被叫到就直接不说
+                    log.info("群 %s：发前检查要不说（%s）", gid, c22_drop[0][:40])
+                    try:
+                        from aigroup.chat.rules import note as _rnote
+                        _rnote(self.db, gid, c22_drop, "拦下", " / ".join(cands[i] if i >= 0 else cands[0]))
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return skip("blocked", "检查：" + c22_drop[0][:40])
                 if c22:
                     fix_notes = list(dict.fromkeys([*fix_notes, *c22]))
             lv = await listener_verdict()
             if lv:
                 return skip(lv if lv == "defer" else "skip")
-            if fix_notes:
-                hits = list(dict.fromkeys([*hits, *fix_notes]))
+            if fix_notes:                                  # 24.0 检查给的意见放前面：重写只看前 4 条，别被罚分项挤掉
+                hits = list(dict.fromkeys([*fix_notes, *hits]))
             if cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan:
                 # 5.0 被叫到（或者是她自己要说的）却只有毛病很大的说法：告诉她哪里不对，重写一次
                 fix = await self._rewrite(messages, raw, hits, gid)
@@ -786,6 +809,16 @@ class SpeakMixin:
                         cands, i, score, hits = fix, i2, s2, h2
                         fix_notes = []
                         rewrote = True
+                        if hasattr(self, "checks22") and not mentioned and not must:
+                            try:                       # 24.0 重写完再过一遍规则检查（以前改完就直接发）
+                                again = await self.checks22(gid, cands[i], target_uid=target_uid, target_row=tgt_row,
+                                                            mentioned=mentioned, web=web or "", recheck=True,
+                                                            image=(plan or {}).get("image") or {})
+                            except Exception:  # noqa: BLE001
+                                again = []
+                            if again:
+                                log.info("群 %s：重写以后还有毛病（%s），没被叫到就不说了", gid, again[0][:40])
+                                i = -1
                 if fix_notes and not mentioned and not must:
                     log.info("群 %s：九问自评要改、重写没成，没被叫到就不说了", gid)
                     i = -1
@@ -889,7 +922,9 @@ class SpeakMixin:
                 if mid is None:
                     mid = await self.ob.send_group(gid, segs)
             except Exception as e:  # noqa: BLE001
-                log.warning("群消息没发出去：%s", e)
+                from aigroup.chat.outbox import DryRun
+                if not isinstance(e, DryRun):              # 24.0 演练：没真发，也不算发不出去
+                    log.warning("群消息没发出去：%s", e)
                 break
             plain = AT_RE.sub(lambda m: "@" + m.group(1), text)
             self._record(gid, self.ob.self_id or 0, b.persona.name, plain, mid, role="assistant")

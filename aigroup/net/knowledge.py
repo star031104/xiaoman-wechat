@@ -58,9 +58,11 @@ LEARN_PROMPT = """把下面搜到的内容整理成一条“她记住的知识�
 %s"""
 
 
+MOOD_LINE = re.compile(r"心情|情绪|开心|难过|低落|郁闷|烦躁|心态|比翻书还快|变得太快")
 REFLECT_PROMPT = """你是%s。下面是你这一周在群里的经历。用第一人称写 3~5 句“这一周的我”：
-最近迷上 / 了解了什么、口味和看法有什么小变化、和群里谁走得更近了、心情怎么样、接下来想做什么。
+最近迷上 / 了解了什么、口味和看法有什么小变化、和群里谁走得更近了、接下来想做什么。
 要和你的人设一致（只是一点点自然的变化，不要变成另一个人），只写这一周真的发生过的，不编。每句一行，开头用“- ”。
+（24.0）不写心情和情绪（“心情挺亮的”这种），也不评判自己（“立场变得比翻书还快”这种）：心情是一时的，写进来会一直跟着你。
 
 你本来是什么样的人：
 %s
@@ -289,16 +291,28 @@ class NetMixin:
         if kn is not None and self.g.get("remember_web", True):
             summary = cache["gist"] + ("；" + "；".join(cache["points"][:2]) if cache["points"] else "")
             kn.add(gid, cache["title"][:20], [cache["title"][:16], *cache["keys"]], summary[:160], "video")
-        if to_her:
+        about = (not to_her and self.g.get("video_about_her", True) and self.video_about_her(gid, cache)
+                 and not (hasattr(self, "hushed") and self.hushed(gid)))
+        if to_her or about:
             st = self._st(gid)
             why = (f"{who or '有人'}发了个视频给你看，你刚看完（下面“群里最近分享的视频”里有你看到的内容）。"
                    "像朋友那样说说感想，可以提到具体哪一段、哪个梗，一两句话；没看到的画面别编")
+            if about:                                      # 23.2 视频讲的就是她 / 这个群（10-23 群友做的讲她的视频）
+                why = (f"{who or '有人'}发的视频讲的是你 / 这个群，你刚看完（下面“群里最近分享的视频”里有你看到的内容）。"
+                       "说说你看到哪一点最有感觉，具体到哪一段或哪句话，一两句；没看到的画面别编，别说“去看”")
+                log.info("群 %s：视频《%s》讲的是她，看完说两句", gid, cache["title"][:30])
             async with st.lock:
                 try:
                     await self.speak(gid, mentioned=True, owner_spoke=False, trigger=None, who=who, why=why)
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s 看完视频没说成：%s", gid, e)
         return cache
+
+    def video_about_her(self, gid: int, cache: dict) -> bool:
+        """23.2 视频讲的是不是她 / 这个群：标题、要点里有她的名字，或者“AI 群友 / 我们群 / 这个群”。"""
+        text = " ".join([str(cache.get("title") or ""), str(cache.get("gist") or ""), " ".join(cache.get("keys") or [])])
+        names = [a for a in (getattr(self, "aliases", None) or []) if a and len(a) >= 2]
+        return bool(any(n in text for n in names) or re.search(r"AI ?群友|群里的 ?AI|我们群|这个群|微信群.{0,6}AI", text, re.I))
 
     def videos_block(self, gid: int, hours: float = 6, query: str = "") -> str:
         vids = [v for v in (self.db.get(f"qq_videos_{gid}") or []) if time.time() - float(v.get("ts") or 0) < hours * 3600]
@@ -380,7 +394,8 @@ class NetMixin:
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 每周回想失败：%s", gid, e)
                 continue
-            lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip().startswith("-")][:5]
+            lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip().startswith("-")
+                     and not MOOD_LINE.search(ln)][:5]                    # 24.0 心情不进长期的“这一周的我”
             if lines:
                 self.db.set(f"qq_reflect_{gid}", "\n".join(lines)[:600])
                 hist = [h for h in (self.db.get(f"qq_reflect_hist_{gid}") or []) if h.get("week") != week]

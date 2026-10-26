@@ -88,7 +88,7 @@ def test_appraise_parse_and_verdict():
 
 
 def test_appraise_in_prompt(cfg, brain):
-    gc, _ = _gc(cfg, brain)
+    gc, _ = _gc(cfg, brain, appraise=True)
     gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
     msgs = asyncio.run(gc.build_messages(GROUP, False, False, "", None, query="今天好冷", focus=[FRIEND]))
     sysm = msgs[0]["content"]
@@ -96,7 +96,7 @@ def test_appraise_in_prompt(cfg, brain):
 
 
 def test_appraise_skip_and_wait_queue(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0)
+    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0, appraise=True)
     gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
     brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["是啊好冷"], appraise={"timing": "不说"})
     assert not asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who="")) and not ob.sent
@@ -129,7 +129,7 @@ def test_pitch_dropped_when_stale(cfg, brain):
 
 
 def test_appraise_fix_unprompted_skips_when_rewrite_fails(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0)
+    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0, appraise=True)
     gc._record(GROUP, FRIEND, "小王", "我体检报告出来了", 1)
     brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["哈哈你又胖了"],
                         appraise={"timing": "现在", "fresh": True, "face_risk": 3})

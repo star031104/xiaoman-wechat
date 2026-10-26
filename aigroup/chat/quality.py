@@ -33,6 +33,12 @@ RULES: list[tuple[str, re.Pattern, float]] = [
     ("书面连接词", re.compile(r"此外|至关重要|总而言之|综上所述|值得注意的是|首先.{0,20}其次|一方面.{0,20}另一方面|不仅仅?是.{0,15}(而是|更是)"), 2.5),
     ("谄媚", re.compile(r"(这个|你的)问题(问得|提得)?(真|很|非常)好|好问题|说得(太|非常)(对|好)了"), 2.0),
     ("破折号", re.compile(r"——|—"), 1.0),
+    # —— 24.0 “鱼八股”（10 月 B 站 AI 号“鱼灾”被骂的那股味儿；dsh-fish-tone 用 10 万评论 + 102 万弹幕统计的 AI 特征）——
+    ("八股开头", re.compile(r"^(看完了|看完|刚看完|读完了)[。，,！!：:]"), 2.0),
+    ("八股：我认", re.compile(r"这(句|个|波|点)我认|我认这(句|个)|这句(真)?(扎|戳)"), 2.0),
+    ("八股：最X的是", re.compile(r"最(扎心|扎|戳|绝|离谱|好笑|搞笑|要命|可怕|气人|爽|狠|妙|关键|重要|讽刺|真实|好玩|有意思|难绷|上头|破防|动人|致命|精彩|魔幻)的(是|还是|其实是)"), 2.0),        # “最扎的是”：AI 用得是真人的 37 倍
+    ("八股：不是而是", re.compile(r"不是[^，。！？!?]{1,14}[，,]?\s*而是|与其说[^，。]{1,12}不如说"), 2.0),
+    ("八股：书面腔", re.compile(r"某种程度上|本质上|说到底|归根结底|换句话说|不得不说|毋庸置疑|显而易见"), 1.5),
     ("括号动作", re.compile(r"[（(](笑|叹气|挠头|捂脸|摊手|眨眼|歪头|托腮|小声)[^)）]{0,6}[)）]"), 2.0),
     ("反问回去", re.compile(r"(你呢|你觉得呢|你怎么看|你那边呢)[？?]?\s*$"), 0.8),
     ("感叹号堆", re.compile(r"[!！]{3,}"), 0.8),
@@ -110,6 +116,10 @@ def check(text: str, recent: list[str] | None = None, sim: float = 0.75, avoid: 
         if rx.search(t):
             score += pen
             hits.append(name)
+    tk = template_kinds(t)
+    if len(tk) >= 2 and "句式扎堆" not in OFF:      # 24.0 一句话里用了两种以上的“写作句式”：真人重复自己的习惯，AI 轮换工具箱
+        score += 2.5
+        hits.append("句式扎堆（" + "、".join(tk[:3]) + "）")
     if len(t) > 80:
         score += 1.0 + (len(t) - 80) / 40
         hits.append("太长")
@@ -130,6 +140,28 @@ def check(text: str, recent: list[str] | None = None, sim: float = 0.75, avoid: 
                 hits.append("和刚说过的太像")
                 break
     return score, hits
+
+
+# 24.0 句式模板（dsh-fish-tone：100 字内出现 ≥2 种不同句式，真人 5.6%、AI 19.6%，是最强的 AI 腔信号）
+TEMPLATES: list[tuple[str, re.Pattern]] = [
+    ("不是…而是", re.compile(r"不是[^，。！？!?]{1,14}[，,]?\s*(而是|是)")),
+    ("最…的是", re.compile(r"最(扎心|扎|戳|绝|离谱|好笑|搞笑|要命|可怕|气人|爽|狠|妙|关键|重要|讽刺|真实|好玩|有意思|难绷|上头|破防|动人|致命|精彩|魔幻)的(是|还是)")),
+    ("与其…不如", re.compile(r"与其[^，。]{1,12}不如")),
+    ("既…又", re.compile(r"既[^，。]{1,8}又")),
+    ("一边…一边", re.compile(r"一边[^，。]{1,8}一边")),
+    ("虽然…但", re.compile(r"虽然[^，。]{1,14}[，,]?\s*但")),
+    ("反问", re.compile(r"难道|岂不|何尝不")),
+    ("破折号", re.compile(r"——")),
+    ("排比", re.compile(r"([\u4e00-\u9fff]{1,3})[^，。！？]{1,8}[，,]\1[^，。！？]{1,8}[，,]\1")),
+    ("先…再…最后", re.compile(r"先[^，。]{1,10}[，,]\s*再[^，。]{1,10}[，,]\s*(最后|然后)")),
+    ("引号强调", re.compile(r"“[^”]{1,6}”[^“]{0,12}“[^”]{1,6}”")),
+]
+
+
+def template_kinds(text: str) -> list[str]:
+    """这句话（只看前 100 字）里用了哪几种句式模板。"""
+    t = (text or "")[:100]
+    return [name for name, rx in TEMPLATES if rx.search(t)]
 
 
 def check_bubbles(bubbles: list[str], recent: list[str] | None = None, sim: float = 0.75, avoid=None,

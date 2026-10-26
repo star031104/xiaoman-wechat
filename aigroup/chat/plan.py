@@ -50,7 +50,7 @@ TRAIT_WORDS = {"吐槽", "毒舌", "揣测", "反问", "装蒜", "说话碎", "�
 
 def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: int, quiet: bool, g: dict,
            p: float, thr: float, backoff_wait: float = 0.0, pending: int = 1, tie: float = 1.0,
-           rand: float = 0.0, waited: bool = False, burst: int = 0, hush: str = "") -> tuple[bool, str]:
+           rand: float = 0.0, waited: bool = False, burst: int = 0, hush: str = "", corrected: bool = False) -> tuple[bool, str]:
     """这一批消息之后她要不要开口。p：gate 算的概率；thr：按发言配额算的阈值。返回 (要不要, 原因)。
     23.1 burst：她最近 5 分钟发了几条（不算被叫到才回的）；hush：群里刚有人嫌她 / 她自己说了“闭嘴”，到点前只回叫到她的。"""
     cap = int(g["max_per_10min"])
@@ -60,6 +60,9 @@ def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: 
         return True, "被叫到"
     if quiet:
         return False, "免打扰时段，只回叫到她的"
+    if corrected:
+        # 23.3 群友刚指出她说错了：认一句不受刷屏刹车 / 安静 / 冷却限制（10-24 13:24 刹车把她的认错也拦了，像没听见）
+        return True, "被纠正，认一句"
     if replies_10min >= cap:
         return False, "10 分钟上限"
     if hush:

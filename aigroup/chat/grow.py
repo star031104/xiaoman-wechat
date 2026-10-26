@@ -119,7 +119,9 @@ SHARE_JUDGE = """你是%s。今天是 %s。你刚刷到下面这些，想想值�
 3. gist 只写原文里明明白白写着的事，别补原文没说的，别换说法：
    主语照原文（是队伍还是选手、哪个赛事、哪一届），称号、术语照原文的词（原文说“首支两次夺冠的队伍”就别改成“双冠王”这种另有含义的叫法）；
    原文自己就含糊的地方照样含糊，宁可少说。
-只输出 JSON：{"share": true 或 false, "when": "这件事发生的日期 YYYY-MM-DD，看不出写 unknown", "source_title": "你依据的那一条的原标题，照抄", "gist": "你看到了什么，一句话（不超过 50 字）", "topic": "话题（2~8 个字）", "summary": "要点（不超过 90 字，带上日期）"}
+4. 给最值得分享的那一条打分（每项 0~4，老实打）：新鲜（这两天的事）、相关（群里有人真在意这个）、有意思（值得说一句，不是流水账）、
+   可信（来源靠谱、写得清楚）、能聊（大家看了会想接话）；reason 写一句为什么值得分享（说不出就是不值得）。
+只输出 JSON：{"share": true 或 false, "score": {"新鲜": 0~4, "相关": 0~4, "有意思": 0~4, "可信": 0~4, "能聊": 0~4}, "reason": "一句话", "when": "这件事发生的日期 YYYY-MM-DD，看不出写 unknown", "source_title": "你依据的那一条的原标题，照抄", "gist": "你看到了什么，一句话（不超过 50 字）", "topic": "话题（2~8 个字）", "summary": "要点（不超过 90 字，带上日期）"}
 
 # 你知道的
 %s
@@ -131,6 +133,21 @@ PHOTO_PROMPT = """你是%s。人设：%s
 你今天的安排：%s
 你想随手拍一张照片发进群里（像朋友在群里晒日常：吃的、桌面、窗外、宠物、路上看到的）。照片里不出现你的脸。
 只输出 JSON：{"scene": "照片拍的是什么（具体的画面，20~40 字，别写文字和人脸）", "say": "发图时配的一句话（口语，15 字以内）"}"""
+
+
+def share_score(j) -> int | None:
+    """24.0 分享评分卡的总分（5 项各 0~4，代码来加，不让模型直接说“通过”）；没给分返回 None。"""
+    sc = (j or {}).get("score") if isinstance(j, dict) else None
+    if not isinstance(sc, dict):
+        return None
+    tot, n = 0, 0
+    for k in ("新鲜", "相关", "有意思", "可信", "能聊"):
+        try:
+            v = max(0, min(4, int(float(str(sc.get(k)).strip()[:3]))))
+        except (TypeError, ValueError):
+            continue
+        tot, n = tot + v, n + 1
+    return tot if n >= 4 else None
 
 
 def share_age(j: dict, res: list[dict], today: datetime, fresh: int) -> int | None:
@@ -495,6 +512,8 @@ class GrowMixin:
                 continue
             if self.muted(gid):
                 continue
+            if not getattr(self.ob, "ready", True):
+                continue                                       # 24.0 微信掉线了：等登回来再发，不算失败（以前掉线时到点 4 次就作废）
             st = self._st(gid)
             if st.lock.locked() or st.speaking:
                 continue                                       # 正在说话：下一分钟再来
@@ -751,15 +770,54 @@ class GrowMixin:
         k = f"qq_share_n_{gid}_{self.brain.now():%Y-%m-%d}"
         self.db.set(k, int(self.db.get(k, 0) or 0) + 1)
 
+    def share_pause(self, gid: int, now: float | None = None) -> str:
+        """24.0（dsh-bili-whale 的“跟着反应衰减”）：她最近的分享有没有人接。
+        连着 1 次没人接 → 隔 2 天再分享；连着 3 次没人接 → 歇 7 天（之后再试一次）。返回不分享的原因，能分享返回空。"""
+        now = now or time.time()
+        mine = [x for x in self.shares(gid) if x.get("kind") == "news"][-6:]
+        if not mine:
+            return ""
+        miss = 0
+        for x in reversed(mine):
+            r = self.db.conn.execute("SELECT score FROM qq_reply_effect WHERE group_id=? AND mentioned=0 AND done=1 "
+                                     "AND ts BETWEEN ? AND ? ORDER BY ts LIMIT 1",
+                                     (gid, float(x["ts"]) - 5, float(x["ts"]) + 180)).fetchone()
+            if r is None or r["score"] is None:
+                continue                                    # 还没统计出来：不算
+            if float(r["score"]) >= 0.6:
+                break
+            miss += 1
+        since = (now - float(mine[-1]["ts"])) / 86400
+        if miss >= 3 and since < 7:
+            return f"最近 {miss} 次分享都没人接，歇几天（还剩 {7 - since:.1f} 天）"
+        if miss >= 1 and since < 2:
+            return "上次分享没人接，隔两天再说"
+        return ""
+
     def share_due(self, gid: int, now: float, step_minutes: float = 1.0) -> bool:
+        """24.0：每天在活跃时段里随机定一个时刻（dsh-bili-whale：窗口内随机时刻醒），到点后群里静了 20 分钟、
+        最后一句不是她就分享；有三成的日子她“不想分享”。以前是每分钟掷一次 0.6/780 的骰子，加上掉线半天，5 天只分享了 1 次。"""
         g = self._gk(gid)
         per_day = int(g.get("share_per_day", 1))
         if per_day <= 0:
             return False
-        if int(self.db.get(f"qq_share_n_{gid}_{self.brain.now():%Y-%m-%d}", 0) or 0) >= per_day:
+        nd = self.brain.now()
+        day = f"{nd:%Y-%m-%d}"
+        if int(self.db.get(f"qq_share_n_{gid}_{day}", 0) or 0) >= per_day:
             return False
-        h = self.brain.now().hour
-        if not 10 <= h < 23:
+        if not 10 <= nd.hour < 23:
+            return False
+        key = f"qq_share_at_{gid}_{day}"
+        plan = self.db.get(key)
+        if not isinstance(plan, dict):
+            start = max(nd.timestamp(), nd.replace(hour=10, minute=0, second=0, microsecond=0).timestamp())
+            end = nd.replace(hour=22, minute=30, second=0, microsecond=0).timestamp()
+            skip = random.random() >= float(g.get("share_chance", 0.7))
+            plan = {"at": random.uniform(start, max(start + 60, end)), "skip": skip}
+            self.db.set(key, plan)
+            if skip:
+                log.info("群 %s：今天不太想分享刷到的东西", gid)
+        if plan.get("skip") or now < float(plan.get("at") or 0):
             return False
         last = self.db.conn.execute("SELECT ts, role FROM qq_group_messages WHERE group_id=? ORDER BY id DESC LIMIT 1",
                                     (gid,)).fetchone()
@@ -767,8 +825,13 @@ class GrowMixin:
             return False
         if now - float(last["ts"]) > 3 * 86400:            # 群已经好几天没人说话：别自说自话
             return False
-        # 一天大约 13 个小时可以分享；share_chance = 一天里分享的概率
-        return random.random() < float(g.get("share_chance", 0.6)) * step_minutes / (13 * 60)
+        why = self.share_pause(gid, now)
+        if why:
+            if not plan.get("paused"):
+                log.info("群 %s：今天不分享：%s", gid, why)
+                self.db.set(key, {**plan, "paused": why})
+            return False
+        return True
 
     async def share(self, gid: int, st, force_photo: bool | None = None) -> bool:
         """刷到点东西发进群：多数时候是和大家兴趣有关的新消息，有时候是一张自己的日常照片。"""
@@ -830,6 +893,13 @@ class GrowMixin:
         except Exception as e:  # noqa: BLE001
             log.info("判断要不要分享失败：%s", e)
             return False
+        card = share_score(j)
+        if card is not None and card < int(g.get("share_min_score", 13)):   # 24.0 评分卡（5 项 × 4 分，≥13 才分享），分数由代码加
+            log.info("群 %s：刷到的「%s」评分 %d（要 %d），不分享", gid, str((j or {}).get("gist") or q)[:30], card,
+                     int(g.get("share_min_score", 13)))
+            j = {**j, "share": False}
+        if isinstance(j, dict) and j.get("share") and not str(j.get("reason") or "").strip() and card is not None:
+            j = {**j, "share": False}                                      # 说不出为什么值得分享：不分享
         if not isinstance(j, dict) or not j.get("share") or not j.get("gist"):
             self._note_share(gid, "skip", q, str((d or {}).get("topic") or ""))     # 算一次：今天别再刷了
             if item is not None:
@@ -859,7 +929,9 @@ class GrowMixin:
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 分享失败：%s", gid, e)
                 return False
-        self._note_share(gid, "news" if ok else "skip", str(j["gist"]), topic, feed=item is not None)
+        # 24.0 记兴趣表里的话题名（以前记的是模型起的名字，比如“羽毛球世界排名”，兴趣权重永远对不上“羽毛球”）
+        self._note_share(gid, "news" if ok else "skip", str(j["gist"]), item["topic"] if item is not None else topic,
+                         feed=item is not None)
         if item is not None:
             self.feed_mark(gid, item)
         return bool(ok)

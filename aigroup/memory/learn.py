@@ -70,6 +70,7 @@ def due_checkpoint(count: int, checked_at: int) -> int | None:
 class Learner:
     def __init__(self, db, brain):
         self.db, self.brain = db, brain
+        self.blocked: set[str] = set()        # 24.0 群友的名字、外号、称呼：不当黑话（某个群友的外号被猜成“群友对 AI 的戏称”）
         db.conn.executescript(SCHEMA)
         for table in ("qq_expressions", "qq_jargon"):
             ensure_columns(db.conn, table, {"users": "TEXT NOT NULL DEFAULT '[]'"})   # 2.0：哪些人说过
@@ -146,7 +147,7 @@ class Learner:
         joined = [r["content"] for r in lines]
         for t in (data.get("terms") or [])[:15]:
             term = str(t or "").strip()[:12]
-            if not term or len(term) > 10 or term in (self.persona.name,):
+            if not term or len(term) > 10 or term in (self.persona.name,) or self._is_name(term):
                 continue
             hits = [c for c in joined if term.lower() in c.lower()]
             n = sum(c.lower().count(term.lower()) for c in hits)
@@ -233,19 +234,31 @@ class Learner:
                 d = {}
             return d if isinstance(d, dict) else {}
         return [{"term": r["term"], "meaning": r["meaning"], "by": by(r)} for r in rows if r["term"].lower() in low
-                and (r["status"] == "ok" or len(json.loads(r["users"] or "[]")) >= MIN_USERS)][:k]
+                and (r["status"] == "ok" or (len(json.loads(r["users"] or "[]")) >= MIN_USERS and not self._is_name(r["term"])))][:k]
+
+    def _is_name(self, term: str) -> bool:
+        t = str(term or "").strip()
+        return bool(t) and (t in self.blocked or any(t in b or b in t for b in self.blocked if len(b) >= 2 and len(t) >= 2)
+                            and bool(re.fullmatch(r"[\u4e00-\u9fff]{1,3}总|[\u4e00-\u9fff]{2,4}", t)))
 
     def prompt_block(self, gid: int, recent_text: str) -> str:
-        parts = []
+        return "\n\n".join(x for x in (self.expressions_block(gid), self.jargon_block(gid, recent_text)) if x)
+
+    def expressions_block(self, gid: int) -> str:
+        """这个群的说话习惯（一小时才换一次：放 system，缓存能命中）。"""
         ex = self.expressions_for(gid)
-        if ex:
-            parts.append("# 这个群的说话习惯（视情况自然地用，不用硬套，一次最多用一个）\n"
-                         + "\n".join(f"- 当{e['situation']}时，可以{e['style'] if e['style'].startswith(('用', '说')) else '说“' + e['style'] + '”'}"
-                                     for e in ex))
+        if not ex:
+            return ""
+        return ("# 这个群的说话习惯（视情况自然地用，不用硬套，一次最多用一个）\n"
+                + "\n".join(f"- 当{e['situation']}时，可以{e['style'] if e['style'].startswith(('用', '说')) else '说“' + e['style'] + '”'}"
+                             for e in ex))
+
+    def jargon_block(self, gid: int, recent_text: str) -> str:
+        """最近聊天里出现了的黑话（每轮都可能变：24.0 起放 user，别破坏 system 的缓存）。"""
         jg = self.jargon_in(gid, recent_text)
-        if jg:
-            parts.append("# 群里的黑话（下面的意思是你猜的，仅供理解聊天，不一定对）\n"
-                         + "\n".join(f"- {j['term']}：{j['meaning']}" + (
-                             "（不同人用法不一样：" + "；".join(f"{k}用它指{v}" for k, v in j["by"].items()) + "，按在聊的人的意思理解）"
-                             if j.get("by") else "") for j in jg))
-        return "\n\n".join(parts)
+        if not jg:
+            return ""
+        return ("# 群里的黑话（下面的意思是你猜的，仅供理解聊天，不一定对）\n"
+                + "\n".join(f"- {j['term']}：{j['meaning']}" + (
+                    "（不同人用法不一样：" + "；".join(f"{k}用它指{v}" for k, v in j["by"].items()) + "，按在聊的人的意思理解）"
+                    if j.get("by") else "") for j in jg))

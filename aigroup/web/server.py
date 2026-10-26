@@ -62,6 +62,7 @@ class GroupHome:
         r = a.router
         r.add_get("/", self.page)
         r.add_get("/api/state", self.state)
+        r.add_get("/api/today", self.today)                   # 24.0 今天她做了什么、7 天趋势、后台问题、生效设置
         r.add_get("/tokens.css", self.tokens_css)
         r.add_get("/avatar/{kind}", self.avatar)
         r.add_get("/api/insight", self.insight)               # 17.0 只读：关系网、相处经验（每晚算好存着的）
@@ -490,6 +491,7 @@ class GroupHome:
             "qq": {"ready": bool(self.ob.ready), "self_id": getattr(self.ob, "self_wxid", "") or self.ob.self_id,
                    "nick": self.nick, "ws": ""},
             "wechat": self._wechat_status(),
+            "health": gc.health_issues() if hasattr(gc, "health_issues") else {},
             "send_health": max(((gc.send_health(g) if hasattr(gc, "send_health") else {}) for g in gc.groups),
                                key=lambda d: int(d.get("streak") or 0), default={}),
             "channel": self.cfg.get("channel") or ("wechat" if hasattr(self.ob, "status") else "qq"),
@@ -503,6 +505,107 @@ class GroupHome:
                     "llm_limited": llm_today.get("limited", 0),
                     "effect_rate": eff["rate"], "effect_n": eff["n"], "effect_cold": eff["cold"]},
             "recent_her": recent_her,
+        })
+
+    # ---------------- 24.0 今天她做了什么 ----------------
+    def _llm_day(self, day: str) -> dict:
+        st = self.db.get(f"llm_stats_{day}")
+        if not st and hasattr(self.brain.llm, "stats"):
+            try:
+                st = self.brain.llm.stats(day)
+            except Exception:  # noqa: BLE001
+                st = None
+        return st if isinstance(st, dict) else {}
+
+    @staticmethod
+    def _llm_brief(st: dict) -> dict:
+        hit, miss = int(st.get("tok_hit", 0) or 0), int(st.get("tok_miss", 0) or 0)
+        return {"calls": int(st.get("calls", 0) or 0), "usd": round(float(st.get("usd", 0) or 0), 4),
+                "cache_hit": round(hit / (hit + miss), 3) if hit + miss else None,
+                "searches": int(st.get("ds_search", 0) or 0)}
+
+    def _engaged(self, gid: int, a: float, z: float) -> dict:
+        """她主动开口（没人叫她）的次数，和算完效果的里面被接住（score≥0.6）的比例。"""
+        r = self._q("SELECT COUNT(*) n, SUM(done=1) done, SUM(done=1 AND score>=0.6) engaged FROM qq_reply_effect "
+                    "WHERE group_id=? AND mentioned=0 AND ts>=? AND ts<?", (gid, a, z))[0]
+        done = r["done"] or 0
+        return {"n": r["n"] or 0, "done": done, "engaged": r["engaged"] or 0,
+                "rate": round((r["engaged"] or 0) / done, 3) if done else None}
+
+    def _effective(self, gid: int) -> list[dict]:
+        """每个开关最终生效的值和它从哪来：和 GroupChat 里合并的顺序一样
+        （默认 → config.yaml 的 group 段 → 小屋全局 web_overrides → 小屋里这个群单独调的）。"""
+        dft = defaults_for(self.cfg.get("channel"))
+        conf = chan_group(self.cfg)
+        over = self.db.get("web_overrides") or {}
+        over = over if isinstance(over, dict) else {}
+        gover = self.gc.gover.get(gid) or {}
+        eff = self.gc.gk(gid)
+        out = []
+        for k, (label, *_rest) in KNOBS.items():
+            if k in gover:
+                src, scope = "小屋", "这个群"
+            elif k in over:
+                src, scope = "小屋", "全局"
+            elif k in conf:
+                src, scope = "配置文件", "全局"
+            else:
+                src, scope = "默认", ""
+            v, d = eff.get(k), dft.get(k)
+            out.append({"key": k, "label": label, "value": v, "default": d, "source": src, "scope": scope,
+                        "changed": json.dumps(v, ensure_ascii=False) != json.dumps(d, ensure_ascii=False)})
+        return out
+
+    async def today(self, req):
+        gc = self.gc
+        if req.query.get("gid"):
+            gid = self._gid(req)
+        elif gc.groups:
+            gid = sorted(gc.groups)[0]
+        else:
+            raise web.HTTPBadRequest(text="还没配置群")
+        now = time.time()
+        t0 = self._day_start()
+        summary = gc.actions_summary(gid, t0) if hasattr(gc, "actions_summary") else {
+            "sent": 0, "failed": 0, "by_kind": {}, "why": {}}
+        actions = gc.actions(gid, 0, 30) if hasattr(gc, "actions") else []
+        shares_all = [x for x in (self.db.get("qq_shares") or []) if isinstance(x, dict) and x.get("gid") == gid]
+        sh_today = [x for x in shares_all if float(x.get("ts") or 0) >= t0]
+        by_kind: dict = {}
+        for x in sh_today:
+            by_kind[x.get("kind") or "?"] = by_kind.get(x.get("kind") or "?", 0) + 1
+        idle_ts = float(self.db.get(f"qq_idle_{gid}") or 0) or None
+        her_n = self._q("SELECT COUNT(*) n FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>=?",
+                        (gid, t0))[0]["n"] or 0
+        today = {
+            "day": f"{self.brain.now():%Y-%m-%d}",
+            "dry_run": bool(gc.dry_run(gid)) if hasattr(gc, "dry_run") else False,
+            "sends": summary, "actions": actions, "her_msgs": her_n,
+            "llm": self._llm_brief(self._llm_day(f"{self.brain.now():%Y-%m-%d}")),
+            "active": self._engaged(gid, t0, now + 1),
+            "shares": {"n": sum(v for k, v in by_kind.items() if k != "skip"), "by_kind": by_kind,
+                       "items": [{"ts": x.get("ts"), "kind": x.get("kind"), "text": x.get("text") or "",
+                                  "topic": x.get("topic") or ""} for x in sh_today[-5:]]},
+            "idle": {"last": idle_ts, "today": bool(idle_ts and idle_ts >= t0)},
+        }
+        trend = []
+        for i in range(6, -1, -1):
+            a, z = self._day_start(i), self._day_start(i - 1) if i else now + 1
+            r = self._q("SELECT SUM(role='user') u, SUM(role='assistant') her FROM qq_group_messages "
+                        "WHERE group_id=? AND ts>=? AND ts<?", (gid, a, z))[0]
+            u, her = r["u"] or 0, r["her"] or 0
+            day = datetime.fromtimestamp(a, self.cfg.tz)
+            lb = self._llm_brief(self._llm_day(f"{day:%Y-%m-%d}"))
+            trend.append({"day": f"{day:%m-%d}", "msgs": u, "her": her,
+                          "her_share": round(her / (u + her), 3) if u + her else None,
+                          "engaged_rate": self._engaged(gid, a, z)["rate"], "usd": lb["usd"],
+                          "cache_hit": lb["cache_hit"], "searches": lb["searches"],
+                          "shares": sum(1 for x in shares_all if a <= float(x.get("ts") or 0) < z
+                                        and x.get("kind") != "skip")})
+        return web.json_response({
+            "gid": gid, "today": today, "trend": trend,
+            "health": gc.health_issues() if hasattr(gc, "health_issues") else {},
+            "effective": self._effective(gid),
         })
 
     # ---------------- 群聊记录 ----------------
@@ -965,8 +1068,12 @@ class GroupHome:
         except (TypeError, ValueError):
             return web.json_response({"ok": False, "error": "参数不对"}, status=400)
         if d.get("delete"):
-            self.db.conn.execute("DELETE FROM qq_facts WHERE id=?", (fid,))
-            msg = "删掉了"
+            mem = getattr(self.gc, "memory", None)
+            if mem is not None and hasattr(mem, "forget_fact"):
+                mem.forget_fact(fid)                       # 24.0 留指纹：以后整理时不会再学回来
+            else:
+                self.db.conn.execute("DELETE FROM qq_facts WHERE id=?", (fid,))
+            msg = "删掉了（以后也不会再记回来）"
         elif d.get("expire"):
             self.db.conn.execute("UPDATE qq_facts SET t_invalid=? WHERE id=?", (time.time(), fid))
             msg = "标成过时了：她不会再当现在的事提"
@@ -1296,9 +1403,17 @@ class GroupHome:
         if lore is None:
             return web.json_response({"ok": False, "error": "“群梗词条”在性格开关里关着"})
         if d.get("delete"):
+            row = self.db.conn.execute("SELECT group_id, keys, content FROM qq_lore WHERE id=?", (int(d["id"]),)).fetchone()
+            if row:                                         # 24.0 留指纹：每晚自动加梗时不会再加回来
+                from aigroup.memory.facts import remember_forgotten
+                try:
+                    keys = json.loads(row["keys"] or "[]")
+                except ValueError:
+                    keys = []
+                remember_forgotten(self.db, int(row["group_id"]), "lore", row["content"], keys)
             self.db.conn.execute("DELETE FROM qq_lore WHERE id=?", (int(d["id"]),))
             self.db.conn.commit()
-            return web.json_response({"ok": True, "message": "删掉了"})
+            return web.json_response({"ok": True, "message": "删掉了（以后也不会自动加回来）"})
         if d.get("id"):
             if d.get("status") in ("new", "ok", "no"):
                 self.db.conn.execute("UPDATE qq_lore SET status=? WHERE id=?", (d["status"], int(d["id"])))

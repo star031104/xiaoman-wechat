@@ -193,9 +193,42 @@ def test_share_due_limits(cfg, brain):
     assert not gc.share_due(GROUP, time.time())                        # 群里没人说过话
     gc._record(GROUP, FRIEND, "小王", "hi", 1, ts=time.time() - 3600)
     h = brain.now().hour
+    day = f"{brain.now():%Y-%m-%d}"
+    brain.db.set(f"qq_share_at_{GROUP}_{day}", {"at": time.time() + 3600, "skip": False})
+    assert not gc.share_due(GROUP, time.time())                        # 24.0 还没到今天定的时刻
+    brain.db.set(f"qq_share_at_{GROUP}_{day}", {"at": time.time() - 1, "skip": True})
+    assert not gc.share_due(GROUP, time.time())                        # 24.0 今天不想分享
+    brain.db.set(f"qq_share_at_{GROUP}_{day}", {"at": time.time() - 1, "skip": False})
     assert gc.share_due(GROUP, time.time()) == (10 <= h < 23)
     gc._note_share(GROUP, "news", "x")
     assert not gc.share_due(GROUP, time.time())                        # 今天分享过了
+
+
+def test_share_pause_after_ignored(cfg, brain):
+    """24.0 分享没人接：隔两天；连着 3 次没人接：歇 7 天。"""
+    gc, ob = _gc(cfg, brain)
+    now = time.time()
+    for i, ago in enumerate((10 * 86400, 6 * 86400, 1 * 86400)):
+        t = now - ago
+        gc._note_share(GROUP, "news", f"x{i}")
+        sh = list(brain.db.get("qq_shares"))
+        sh[-1]["ts"] = t
+        brain.db.set("qq_shares", sh)
+        brain.db.conn.execute("INSERT INTO qq_reply_effect(ts, group_id, mentioned, her_ids, text, done, score) "
+                              "VALUES (?,?,0,'[]','x',1,0)", (t + 1, GROUP))
+    brain.db.conn.commit()
+    assert "歇" in gc.share_pause(GROUP, now)
+    assert gc.share_pause(GROUP, now + 7 * 86400) == ""
+    brain.db.conn.execute("UPDATE qq_reply_effect SET score=0.8")
+    brain.db.conn.commit()
+    assert gc.share_pause(GROUP, now) == ""
+
+
+def test_share_score_card():
+    from aigroup.chat.grow import share_score
+    assert share_score({"score": {"新鲜": 4, "相关": 3, "有意思": 3, "可信": 3, "能聊": 2}}) == 15
+    assert share_score({"score": {"新鲜": "2"}}) is None
+    assert share_score({}) is None
 
 
 def test_photo_stops_over_budget(cfg, brain):

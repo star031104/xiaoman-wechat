@@ -69,21 +69,47 @@ class Mood:
         if n5m >= 15:
             self.bump(gid, 0.0, +0.05)
 
+    @staticmethod
+    def label_of(v: float, a: float) -> str:
+        if v >= 0.5:
+            return "proud" if a >= 0.2 else "content"
+        if v >= 0.05:
+            return "eager" if a >= 0.3 else "normal" if a > -0.3 else "sleepy"
+        if v > -0.35:
+            return "annoyed" if a >= 0.2 else "flat"
+        return "upset" if a >= 0.1 else "down"
+
+    LABEL_TEXT = {"proud": "心情挺好，有点小得意", "content": "心情不错，懒洋洋的", "eager": "兴致勃勃，想说话",
+                  "normal": "平常的心情", "sleepy": "有点困，懒得多说", "annoyed": "有点不服气，想怼回去", "flat": "有点没劲",
+                  "upset": "有点不高兴，想说话也带点情绪", "down": "有点低落，不太想说话"}
+    SWITCH_MIN = 15 * 60          # 24.0 换一种心情至少隔 15 分钟（dsh-mood 的防横跳），刚发生了显著的事除外
+
+    def stable(self, gid: int, now: float | None = None) -> str:
+        """24.0 带“滞回”的心情档：数值在两档边上抖来抖去时别跟着变；要么离开原来那档够远（0.08），
+        要么隔了 15 分钟，要么刚发生了显著的事（被夸 / 被怼 / 没人理，2 分钟内），才换档。"""
+        now = now or time.time()
+        m = self.get(gid, now)
+        new = self.label_of(m["v"], m["a"])
+        st = self.db.get(f"qq_mood_label_{gid}") or {}
+        old, since = st.get("label"), float(st.get("ts") or 0)
+        if not old or old == new:
+            if not old:
+                self.db.set(f"qq_mood_label_{gid}", {"label": new, "ts": now})
+            return new
+        fresh_event = now - float(m.get("why_ts") or 0) < 120
+        far = self.label_of(m["v"] + 0.08, m["a"] + 0.08) == new and self.label_of(m["v"] - 0.08, m["a"] - 0.08) == new
+        if fresh_event or far or now - since >= self.SWITCH_MIN:
+            self.db.set(f"qq_mood_label_{gid}", {"label": new, "ts": now})
+            return new
+        return old
+
     def describe(self, gid: int, now: float | None = None) -> str:
         m = self.get(gid, now)
-        v, a = m["v"], m["a"]
-        if v >= 0.5:
-            s = "心情挺好，有点小得意" if a >= 0.2 else "心情不错，懒洋洋的"
-        elif v >= 0.05:
-            s = "兴致勃勃，想说话" if a >= 0.3 else "平常的心情" if a > -0.3 else "有点困，懒得多说"
-        elif v > -0.35:
-            s = "有点不服气，想怼回去" if a >= 0.2 else "有点没劲"
-        else:
-            s = "有点不高兴，想说话也带点情绪" if a >= 0.1 else "有点低落，不太想说话"
+        s = self.LABEL_TEXT[self.stable(gid, now)]
         out = f"你的心情：{s}"
         if m["why"]:
             out += f"（{m['why']}）"
-        return out + "。别直接说出自己的心情，体现在语气里就行。"
+        return out + "。这只是你此刻的底子，不是非这样不可；别直接说出自己的心情，体现在语气里就行。"
 
     @staticmethod
     def feature(m: dict) -> float:

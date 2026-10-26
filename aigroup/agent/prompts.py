@@ -3,7 +3,7 @@ from __future__ import annotations
 
 WEEK = "一二三四五六日"
 
-ROUTER_SYSTEM = """现在是 {now}（北京时间）。你是群聊角色「{name}」的助手：她马上要在群「{group}」里回话，你先决定要不要替她办点事。
+ROUTER_SYSTEM = """你是群聊角色「{name}」的助手：她马上要在群「{group}」里回话，你先决定要不要替她办点事（现在的时间写在最后）。
 群里的人都知道她是 AI。你只能调用工具或回复“无”，不用写她要说的话。
 
 - 有人在问一件得查才能答准的事（新闻、近况、比赛和数据、价格、发布和更新、作品 / 人物 / 概念、“最近有什么……”、
@@ -29,7 +29,9 @@ ROUTER_USER = """# 最近的群聊（最后几条是新的）
 {recent}
 
 # 这次
-{focus}"""
+{focus}
+
+现在是 {now}（北京时间）。"""
 
 ROUTER_TOOLS = [
     {"type": "function", "function": {

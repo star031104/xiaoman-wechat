@@ -286,3 +286,58 @@ def test_where_api(cfg, brain, monkeypatch):
             L = await (await c.get(f"/api/life?gid={GROUP}")).json()
             assert not L["where"]
     asyncio.run(go())
+
+
+def test_today_api(cfg, brain):
+    """24.0 /api/today：发送账本、今天的用量、主动开口被接住、7 天趋势、生效设置的来源。"""
+    import time
+
+    from aigroup.core.config import chan_group
+    gc, ob = _setup(cfg, brain)
+    now = time.time() - 5
+    db = brain.db
+    for i, (uid, role) in enumerate([(FRIEND, "user"), (OWNER, "user"), (FRIEND, "user"), (0, "assistant")]):
+        db.conn.execute("INSERT INTO qq_group_messages(ts, group_id, user_id, name, role, content) VALUES (?,?,?,?,?,?)",
+                        (now - 60 + i, GROUP, uid, "x", role, f"消息{i}"))
+    db.conn.execute("INSERT INTO qq_actions(ts, group_id, kind, text, ok, why, mid) VALUES (?,?,?,?,?,?,?)",
+                    (now, GROUP, "text", "笑死", 1, "", "1"))
+    db.conn.execute("INSERT INTO qq_actions(ts, group_id, kind, text, ok, why, mid) VALUES (?,?,?,?,?,?,?)",
+                    (now, GROUP, "sticker", "", 0, "出错：超时", ""))
+    for score in (1.0, 0.0):
+        db.conn.execute("INSERT INTO qq_reply_effect(ts, group_id, mentioned, done, score) VALUES (?,?,0,1,?)",
+                        (now, GROUP, score))
+    db.conn.commit()
+    db.set(f"llm_stats_{brain.now():%Y-%m-%d}", {"calls": 12, "tok_hit": 300, "tok_miss": 100, "usd": 0.0123,
+                                                 "ds_search": 2})
+    db.set("qq_shares", [{"ts": now, "gid": GROUP, "kind": "news", "text": "新番定档", "topic": "番"},
+                         {"ts": now, "gid": GROUP, "kind": "skip", "text": "", "topic": ""}])
+    db.set("health_issues", {"向量接口": {"msg": "401", "since": now - 3600, "ts": now, "n": 3}})
+
+    async def go():
+        async with _client(cfg, brain, gc, ob) as c:
+            await c.post("/api/settings", json={"values": {"talkativeness": 0.55}})
+            d = await (await c.get("/api/today")).json()
+            assert d["gid"] == GROUP and set(d) >= {"today", "trend", "health", "effective"}
+            t = d["today"]
+            assert t["sends"]["sent"] == 1 and t["sends"]["failed"] == 1
+            assert t["sends"]["by_kind"] == {"text": 1} and t["sends"]["why"] == {"出错": 1}
+            assert len(t["actions"]) == 2 and t["dry_run"] is False
+            assert t["llm"] == {"calls": 12, "usd": 0.0123, "cache_hit": 0.75, "searches": 2}
+            assert t["active"]["n"] == 2 and t["active"]["rate"] == 0.5
+            assert t["shares"]["n"] == 1 and t["shares"]["by_kind"] == {"news": 1, "skip": 1}
+            assert len(d["trend"]) == 7
+            last = d["trend"][-1]
+            assert last["msgs"] == 3 and last["her"] == 1 and last["her_share"] == 0.25
+            assert last["engaged_rate"] == 0.5 and last["cache_hit"] == 0.75 and last["searches"] == 2
+            assert last["shares"] == 1
+            assert d["health"]["向量接口"]["msg"] == "401"
+            eff = {x["key"]: x for x in d["effective"]}
+            assert eff["talkativeness"]["source"] == "小屋" and eff["talkativeness"]["value"] == 0.55
+            assert eff["pace"]["source"] == "配置文件" and eff["pace"]["value"] == 0 and eff["pace"]["changed"]
+            free = next(k for k in eff if k not in chan_group(cfg) and k not in gc.gover.get(GROUP, {})
+                        and k not in (brain.db.get("web_overrides") or {}))
+            assert eff[free]["source"] == "默认" and not eff[free]["changed"]
+            assert (await c.get("/api/today?gid=1")).status == 400
+            page = await (await c.get("/")).text()
+            assert 'id="todayCard"' in page and 'id="alerts"' in page and 'id="effAll"' in page
+    asyncio.run(go())

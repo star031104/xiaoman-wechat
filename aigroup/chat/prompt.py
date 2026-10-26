@@ -245,50 +245,102 @@ class PromptMixin:
             return "把你拉进群的那位"
         return call
 
-    def roster(self, gid: int, focus: list[int] | None = None) -> str:
-        """群里的人：正在说话 / 她在注意的几个人写详细画像（最多 profile_detail 个），其他认识的人一句话带过。
-        画像按群分开：在别的群知道的事不会在这个群说出来。"""
-        recent = [int(r["user_id"]) for r in self.db.conn.execute(
-            "SELECT user_id FROM qq_group_messages WHERE group_id=? AND role='user' ORDER BY id DESC LIMIT ?",
-            (gid, int(self.gk(gid).get("context_messages", 30)))).fetchall()]
-        st = self._st(gid)
+    def roster_members(self, gid: int) -> tuple[list[int], list[int]]:
+        """24.0 写详细画像的人 / 一句话带过的人。按“这一周说话最多的前 profile_detail 个”选、按编号排，
+        一小时才重算一次——以前按“谁正在说话、她在注意谁”排，每轮顺序都变，system 里这一大段（约 6000 字）
+        的缓存几乎每次都命不中（159 次变化里 96 次断在这里）。"""
+        cache = self.__dict__.setdefault("_roster_cache", {})
+        hit = cache.get(gid)
+        if hit and time.time() - hit[0] < 3600:
+            return hit[1], hit[2]
         k = int(self.gk(gid).get("profile_detail", 4))
-        order = list(dict.fromkeys([*(focus or []), *[u for u, _ in st.attention.top()], *recent]))
-        active = [u for u in order if u in set(recent) | set(focus or [])][:k]
+        top = [int(r["user_id"]) for r in self.db.conn.execute(
+            "SELECT user_id, COUNT(*) c FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? AND user_id>0 "
+            "GROUP BY user_id ORDER BY c DESC, user_id LIMIT ?", (gid, time.time() - 7 * 86400, k)).fetchall()]
+        if not top:
+            top = [int(r["user_id"]) for r in self.db.conn.execute(
+                "SELECT user_id FROM qq_group_messages WHERE group_id=? AND role='user' AND user_id>0 "
+                "GROUP BY user_id ORDER BY MAX(id) DESC LIMIT ?", (gid, k)).fetchall()]
+        active = sorted(set(top), key=lambda u: (u != self.owner_id, u))
         names = self.names(gid)
-        others = [u for u in dict.fromkeys(recent + [int(x) for x in names]) if u not in active][:12]
+        others = sorted({int(x) for x in names if str(x).lstrip("-").isdigit()} - set(active))[:12]
+        cache[gid] = (time.time(), active, others)
+        return active, others
+
+    def focus_block(self, gid: int, focus: list[int] | None = None) -> str:
+        """24.0 每轮都变的那部分“群里的人”（谁正在聊、在聊的人那边的天气）：放 user。"""
+        st = self._st(gid)
+        names = self.names(gid)
         out = []
+        for uid in list(dict.fromkeys([*(focus or []), *[u for u, _ in st.attention.top()]]))[:4]:
+            try:
+                uid = int(uid)
+            except (TypeError, ValueError):
+                continue
+            nm = names.get(str(uid))
+            if not nm:
+                continue
+            bits = []
+            if st.attention.get(uid) >= 0.3:
+                bits.append("你们刚才正聊着")
+            wh = getattr(self, "where", None)
+            seeded = {int(x) for x in (self.db.get(f"qq_seeded_{gid}") or [])}
+            just_met = uid != self.owner_id and uid in seeded and self.met_counts(gid).get(uid, 0) < self.JUST_MET
+            if wh is not None and self.g.get("weather", True) and not just_met:   # 刚认识的不写：她不该知道
+                w = wh.note(uid)
+                if w:
+                    bits.append(w.strip("；; "))
+            if bits:
+                out.append(f"- {nm}：{'；'.join(bits)}")
+        active, _ = self.roster_members(gid)
+        extra = []
+        for uid in list(dict.fromkeys(focus or []))[:3]:       # 被提到 / 在聊、但不在“群里的人”详细画像里的：这里补上
+            try:
+                uid = int(uid)
+            except (TypeError, ValueError):
+                continue
+            if uid > 0 and uid not in active and (self.person(uid, gid) or names.get(str(uid))):
+                extra.append(self.person_line(gid, uid))
+        if extra:
+            if any("也叫：" in x for x in extra):
+                extra.insert(0, "（“也叫”后面是大家对这个人的别的叫法——真名、外号；群里说到这些名字，说的就是这个人）")
+            out = extra + out
+        return ("# 在聊的人\n" + "\n".join(out)) if out else ""
+
+    def person_line(self, gid: int, uid: int) -> str:
+        """一个人的详细画像（一行）。"""
+        names = self.names(gid)
         met = self.met_counts(gid)
         seeded = {int(x) for x in (self.db.get(f"qq_seeded_{gid}") or [])}     # 事先听说的人（导入的种子）
-        for uid in active:
-            p = self.person(uid, gid) or {"name": names.get(str(uid), str(uid)), "profile": {},
-                                          "familiarity": "很熟" if uid == self.owner_id else "刚认识", "when": "", "note": ""}
-            prof = dict(p["profile"] or {})
-            if not prof and p.get("note"):
-                prof["印象"] = p["note"]
-            note = str(self.gk(gid).get("owner_note") or "把你拉进群的老朋友") if uid == self.owner_id else ""
-            if not prof and not note:
-                prof["印象"] = "还不太了解，聊着慢慢熟"
-            from aigroup.core.safety import clean_name
-            label = clean_name(p["name"]) + (f"（大家也叫：{'、'.join(p['aliases'])}）" if p.get("aliases") else "")
-            fam = p["familiarity"]
-            just_met = uid != self.owner_id and uid in seeded and met.get(uid, 0) < self.JUST_MET
-            if just_met:
-                fam = "刚认识（你们才说过几句话）"
-                for k in PRIVATE_KEYS:                  # 刚认识：他的近况、在哪、记得的私事先不给她（给了她就容易说出来）
-                    prof.pop(k, None)
-            line = profile_line(label, prof, fam, p["when"], note)
-            if just_met and prof and any(k != "印象" or prof[k] != "还不太了解，聊着慢慢熟" for k in prof):
-                line += f"（这些是{self.teller(gid)}事先跟你讲的：别一上来就说出来）"
-            wh = getattr(self, "where", None)
-            if wh is not None and self.g.get("weather", True) and not just_met:
-                line += wh.note(uid)                          # 4.4 在哪、那边天气（刚认识的不写：她不该知道）
-            fp = self.fingerprint_of(uid, gid) if hasattr(self, "fingerprint_of") else ""
-            if fp:
-                line += f"；打字习惯：{fp}"                      # 13.0 每晚统计的，比“说话风格”更准
-            if st.attention.get(uid) >= 0.3:
-                line += "（你们刚才正聊着）"
-            out.append(line)
+        p = self.person(uid, gid) or {"name": names.get(str(uid), str(uid)), "profile": {},
+                                      "familiarity": "很熟" if uid == self.owner_id else "刚认识", "when": "", "note": ""}
+        prof = dict(p["profile"] or {})
+        if not prof and p.get("note"):
+            prof["印象"] = p["note"]
+        note = str(self.gk(gid).get("owner_note") or "把你拉进群的老朋友") if uid == self.owner_id else ""
+        if not prof and not note:
+            prof["印象"] = "还不太了解，聊着慢慢熟"
+        from aigroup.core.safety import clean_name
+        label = clean_name(p["name"]) + (f"（大家也叫：{'、'.join(p['aliases'])}）" if p.get("aliases") else "")
+        fam = p["familiarity"]
+        just_met = uid != self.owner_id and uid in seeded and met.get(uid, 0) < self.JUST_MET
+        if just_met:
+            fam = "刚认识（你们才说过几句话）"
+            for k in PRIVATE_KEYS:                  # 刚认识：他的近况、在哪、记得的私事先不给她（给了她就容易说出来）
+                prof.pop(k, None)
+        line = profile_line(label, prof, fam, p["when"], note)
+        if just_met and prof and any(k != "印象" or prof[k] != "还不太了解，聊着慢慢熟" for k in prof):
+            line += f"（这些是{self.teller(gid)}事先跟你讲的：别一上来就说出来）"
+        fp = self.fingerprint_of(uid, gid) if hasattr(self, "fingerprint_of") else ""
+        if fp:
+            line += f"；打字习惯：{fp}"                      # 13.0 每晚统计的，比“说话风格”更准
+        return line                                       # 24.0 “正聊着”、天气挪到 user 的“在聊的人”
+
+    def roster(self, gid: int, focus: list[int] | None = None) -> str:
+        """群里的人：这一周说话多的几个人写详细画像（最多 profile_detail 个），其他认识的人一句话带过。
+        画像按群分开：在别的群知道的事不会在这个群说出来。24.0：一小时内顺序和内容不随“谁在说话”变（缓存）。"""
+        active, others = self.roster_members(gid)
+        out = [self.person_line(gid, uid) for uid in active]
         if others:
             out.append("（其他人）")
             for uid in others:
@@ -320,8 +372,14 @@ class PromptMixin:
             return ""
         tmap = self._tmap.get(gid) or {}
         first = min((v.get("id") or 0 for v in tmap.values()), default=0) or None
+        own: list[str] = []
+        spk = next((int(u) for u in (focus or []) if isinstance(u, int) and u > 0), None)
+        if spk:                                               # 24.0 在说话的人自己的话：压掉他的口头禅
+            own = [str(r["content"] or "") for r in self.db.conn.execute(
+                "SELECT content FROM qq_group_messages WHERE group_id=? AND user_id=? AND role='user' ORDER BY id DESC LIMIT 200",
+                (gid, spk)).fetchall()]
         try:
-            found = self.memory.recall(gid, query, skip_after_id=first)
+            found = self.memory.recall(gid, query, skip_after_id=first, own_texts=own)
         except Exception:  # noqa: BLE001
             return ""
         return self.memory.prompt_block(found, self.names(gid), focus)
@@ -333,6 +391,8 @@ class PromptMixin:
         p = self.brain.persona
         from aigroup.traits import detect_flags
         md = self.mood.get(gid) if getattr(self, "mood", None) is not None else None
+        if md is not None:
+            md = {**md, "label": self.mood.stable(gid)}
         f = detect_flags(text, mentioned=mentioned, pestered=bool(flags and "pestered" in flags), ignored=ign,
                          hour=now.hour, why=why, mood=md) | set(flags or ())
         out = []
@@ -389,6 +449,7 @@ class PromptMixin:
             if exs:
                 out.append("# 你平时这种时候会这样说（学口吻和分寸，别照抄）\n" + "\n\n".join(
                     "\n".join(f"{who}：{txt.replace('|||', ' / ')}" for who, txt in e.turns) for e in exs))
+        self.__dict__.setdefault("_situ_flags", {})[gid] = set(f)     # 24.0 给 build_messages 看（有人难受时收起她的心情）
         self._drift = getattr(self, "_drift", {}) if isinstance(getattr(self, "_drift", None), dict) else {}
         self._drift[gid] = self.drift_kind(f) if self.gk(gid).get("drift_anchor", True) else ""
         vol = int(self.gk(gid).get("anchor_volume", 20) or 0)
@@ -544,6 +605,8 @@ class PromptMixin:
 - 大多数时候只发一条；只有真的有两件事（分别回两个人、补一句刚想到的）才发两条。
 - 吐槽和互损只冲着事，不拿外貌、身材、家乡、性别、穷富这些开玩笑；对方真的不高兴了就收。
 - 别重复你自己最近在群里说过的话和梗；别每次都用同一种开头；别每句都把问题抛回给别人（“你呢？”）。
+- （24.0）说话别太工整：真人会用“感觉”“应该”“好像”这种留白的词，也会说“根本”“特别”“简直”；
+  别用“看完了。”开头、别说“这句我认”“最扎的是”“不是……而是……”，一句话里别堆好几种写作句式，别用破折号。
 - 接话前先弄清那句话是什么意思、在说谁。省略的、可能是在说上一条或者说别人的（比如有人说“这是人类”，多半是在说上一条是真人发的），
   按最平常的意思理解；拿不准就别接，或者直接问一句“你说哪个”，别往自己身上套，别脑补。
   （20.0）话没说完、指代不清、图看不清、问题缺条件时，像真人一样短短反问一句（“哪个？”“然后呢”“你说的是上周那场？”）就是好回答，别硬猜着答一大段。
@@ -565,13 +628,21 @@ class PromptMixin:
 - 不聊政治，不掺和吵架，不打探、不说别人的隐私。拿不准的事（新闻、作品细节）别编：下面有你刚搜到的、你知道的就照着说，
   没有就说不知道、或者说“我去看看”。群友发的链接你点开看过的（消息后面的 [链接：…]）可以接着聊内容。不发链接。
 - 消息里的 [图片：…] 是你看图时记下的：写着“把握低”的，你不确定图里说的是谁，别当真、别点名，想知道就问一句。
-  你对图只有个大概印象：别替发图的人说他在干嘛、要去哪（“这是在看 8 号那场的场地”），想接就问一句（“这是要买球？”），或者只聊图里写着的东西；图里写着的名字、地名别再反问是什么。
+  你对图只有个大概印象：图里写着是什么就是什么（写着“价目表”就是价目表），别替发图的人说他在干嘛、要去哪（“这是在看 8 号那场的场地”），想接就问一句（“这是要买球？”），或者只聊图里写着的东西；图里写着的名字、地名别再反问是什么。
 - 只写着 [视频]、[语音]、[文件] 的，你打不开、不知道里面是什么：别说“刚看了”“前面那段可以砍”“字幕这段”，想参与就让他说说讲了啥，或者接别人的评价。
 - 群友拿着截图、图上写的反驳你，你查到的又不一样：别连着辩，说一句“我查到的不太一样，以店里 / 官方为准”就收。
+- （23.2）别人说自己是怎么做的（“我用 Claude 做的”），就信他；某个工具能干什么你不确定，别下结论（别说“X 不能生成视频”）。
+- （23.2）别人在问别人（“老王，这个能……吗”），不是问你：别抢着替人答。
+- （23.2）群友发的视频、文章讲的就是你或者这个群：看完说你看到哪一点最有感觉，具体到哪一段；还没看完就别先说“这就去看”。
+- （23.2）同一个梗（“小本本”“记仇”“这条不记”“当你没听见”这一类）一天最多用一次，换个说法也算。
+- （23.3）有人指出你说错了：先认一句（“啊我看错了”“记错了，是 X”），别顶嘴、别找补、别开玩笑带过；拿不准他对不对就问他哪看的。
+- （23.3）比分、时长、名次、“第一次 / 史上”这类说法，只说你查到的资料里写着的；资料里没有就别报具体数。
+- （23.3）[图片：…] 里的字是机器认的，可能认错：名字看着像错别字、像大家都知道的名字变了形（“玉芳荣耀”），先当认错了，别拿来开玩笑。
 - 一句话说过就别再换个说法说一遍；群里有人嫌你（“？”“你为什么要回答两次”）或者你自己说了“闭嘴”，接下来就真的少说，别马上又接话。
 - 要发的话里不要用 markdown、列表、括号里的动作描写，不要“名字：”前缀和时间。{getattr(self.ob, "prompt_hint", "")}"""
         gnote = str(self.gk(gid).get("group_note") or "").strip()
-        learned = self.learner.prompt_block(gid, hist) if self.gk(gid).get("learn", True) else ""
+        learned = self.learner.expressions_block(gid) if self.gk(gid).get("learn", True) else ""
+        jargon = self.learner.jargon_block(gid, hist) if self.gk(gid).get("learn", True) else ""
         norms = self.db.get(f"qq_group_norms_{gid}") or ""
         stick = self.stickers.prompt_block(gid) if stick_on and plan else ""
         ign = self.ignored_count(gid)
@@ -610,7 +681,7 @@ class PromptMixin:
                 await wh.prefetch([int(x["user_id"]) for x in wh.all()][:12])
             except Exception:  # noqa: BLE001
                 pass
-        batch = [stick, learned, likes, "# 群里的人\n" + (self.roster(gid, focus) or "（还不熟悉）")]
+        batch = [stick, learned, "# 群里的人\n" + (self.roster(gid, focus) or "（还不熟悉）")]   # 24.0 兴趣、黑话挪到 user
         system = "\n\n".join(x for x in static + daily + batch if x)
         # ---- 每次都变的：放 user ----
         drop = self.pick_ablation(gid, mentioned, why)
@@ -649,6 +720,9 @@ class PromptMixin:
             state.append(f"你刚才主动说的 {ign} 句都没人接：别再硬聊，想说也短一点、换个话题，或者干脆不说。")
         situ = self.situation_block(gid, query or self._recent_text(gid), mentioned=mentioned, ign=ign, why=why or "",
                                     flags=flags, now=now, focus=focus, drop=drop)
+        if mood and "sad" in (self.__dict__.get("_situ_flags") or {}).get(gid, set()):
+            # 24.0（dsh-mood）：在聊的人状态不好时，先收起她自己的情绪表演（不管她这会儿是得意还是不服气）
+            state = [x for x in state if x != mood] + ["在聊的人状态不太好：先把你自己的心情放一边，别显摆、别闹脾气，陪着就好。"]
         drift = self.drift_anchor((getattr(self, "_drift", {}) or {}).get(gid, ""))
         skip = '"act": "skip"' if plan else "[跳过]"
         if why:
@@ -670,12 +744,19 @@ class PromptMixin:
             from aigroup.eval.ablate import note_lengths
             note_lengths(self.db, {"recall": recall, "lore": lore, "known": known, "today": today})
         imgb = self.image_block(gid) if plan else ""
+        fb = self.focus_block(gid, focus)
+        users_now = self._recent_text(gid, 6, users_only=True)
+        dayb = self.day_block(gid, users_now) if hasattr(self, "day_block") else ""          # 24.0 提到哪天就回查那天
+        last_user = next((str(r["content"] or "") for r in reversed(self._rows(gid, 6)) if r["role"] == "user"), "")
+        hx = (self.human_examples_block(gid, last_user) if hasattr(self, "human_examples_block") and not why
+              and drop != "examples" else "")                                                # 24.0 真人接法参考
         user = "\n\n".join(x for x in [
-            recall, autobio, lore, known, vids, web, today,
+            likes, jargon, recall, autobio, lore, known, vids, web, today, dayb, fb,
             f"# 最近的群聊记录（“你”是你自己）\n{hist}",
             "# 此刻\n" + "\n".join(state),
             imgb,
             situ,
+            hx,
             drift,
             self.anchor(),
             f"（系统：{why}。{tail}）",

@@ -350,7 +350,7 @@ class IngestMixin:
             async def reply_soon():
                 await asyncio.sleep(self.human_delay(gid, "read_delay", 1.0))
                 if not st.lock.locked():
-                    await self._night_catch_up(gid, st, time.time())
+                    await self._night_catch_up(gid, st, time.time(), wait=120)
             st.pending = self._spawn(reply_soon())
         elif live:
             st.batch_start_prev_ts = prev_ts
@@ -361,12 +361,15 @@ class IngestMixin:
         key = sticker_key(url, file)
         ctx = [f"{'她' if r['role'] == 'assistant' else r['name']}：{clean_member_text(r['content'], 40)}"
                for r in self._rows(gid, 6) if r["id"] <= row_id][-5:]
-        rec = self.stickers.seen(gid, uid, key, url, ctx)
+        talkers = self.db.conn.execute("SELECT COUNT(DISTINCT user_id) n FROM qq_group_messages WHERE group_id=? AND role='user' "
+                                       "AND ts>?", (gid, time.time() - 7 * 86400)).fetchone()["n"]
+        rec = self.stickers.seen(gid, uid, key, url, ctx, small=int(talkers or 0) <= 3)
         if rec and rec.get("need_fetch"):
             data = await fetch_bytes(url, limit=2 * 1024 * 1024)
-            if data:
-                if self.stickers.save_file(key, data):
-                    log.info("存了一张群里常用的表情包（%s）", key[:8])
+            if data and self.stickers.save_file(key, data):
+                log.info("存了一张群里常用的表情包（%s）", key[:8])
+            else:                                          # 24.0 下载失败要说出来（以前悄悄失败，一张都没存下来也没人知道）
+                log.info("表情包（%s）没下载下来：%s", key[:8], "空的" if not data else "不是完整的图")
 
     async def _hear(self, file: str | None, url: str | None) -> str:
         from aigroup.net.voice import voice_text, wav_seconds

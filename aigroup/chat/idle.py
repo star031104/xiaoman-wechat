@@ -74,35 +74,86 @@ class IdleMixin:
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s 分享出错：%s", gid, e)
                 continue
+            topic = self.bubble_due(gid, now)
+            if not topic:
+                continue
             last = self.db.conn.execute(
-                "SELECT ts, role FROM qq_group_messages WHERE group_id=? ORDER BY id DESC LIMIT 1", (gid,)).fetchone()
-            if not last or last["role"] == "assistant":        # 群里从没人说过话 / 最后一句就是她：不自言自语
-                continue
-            if now - last["ts"] < float(g["idle_hours"]) * 3600:
-                continue
-            if now - float(self.db.get(f"qq_idle_{gid}", 0) or 0) < float(g["idle_gap_hours"]) * 3600:
-                continue
-            if self.ignored_count(gid, now) >= 2:              # 刚被冷落过：先别冒泡
-                continue
-            if random.random() >= float(g["idle_chance"]) * step_minutes / 60:
-                continue
+                "SELECT ts FROM qq_group_messages WHERE group_id=? ORDER BY id DESC LIMIT 1", (gid,)).fetchone()
+            hours = (now - float(last["ts"])) / 3600
             self.db.set(f"qq_idle_{gid}", now)
-            hours = (now - last["ts"]) / 3600
-            why = (f"群里已经安静了 {hours:.0f} 个多小时。你想冒个泡：可以分享你今天遇到的事、正在做的事，"
-                   "或者接着之前大家聊过的话题随口问一句。一两句话，自然一点，别说“大家好”“怎么没人说话”这种。"
+            if topic == "feed":                                 # 话题是刷到的东西：走分享（有评分卡和衰减）
+                try:
+                    await self.share(gid, st)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s 冒泡（分享）出错：%s", gid, e)
+                continue
+            why = (f"群里已经安静了 {hours:.0f} 个多小时。你心里一直有句话想说：{topic}。现在随口说出来，"
+                   "一两句话，自然一点，别说“大家好”“怎么没人说话”这种。"
                    f"聊天记录里最后那些话已经是 {hours:.0f} 个多小时以前的了，提到时别说成“刚才”“刚说”")
             async with st.lock:
                 try:
-                    await self.speak(gid, mentioned=False, owner_spoke=False, trigger=None, who="", why=why)
+                    if await self.speak(gid, mentioned=False, owner_spoke=False, trigger=None, who="", why=why):
+                        self.use_thoughts(gid, topic)
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s 冒泡失败：%s", gid, e)
 
-    async def _night_catch_up(self, gid: int, st: GroupState, now: float) -> bool:
+    def bubble_due(self, gid: int, now: float) -> str:
+        """24.0 冒泡重做（dsh-speak-up 的零成本骰子 + 必须有话题）：
+        群里静了 idle_hours 以上、最后一句不是她、隔上次冒泡 idle_gap_hours 以上、没被连着冷落，才每 30 分钟掷一次骰子
+        （基础 idle_chance / 2，连着没中每次 +10%、最多 40%；静了 6 小时以上 ×1.5）。中了还要有话题：
+        她憋着的一句（想法池）或者够格的刷到的；都没有就不冒（以前没话题也让模型硬找，7 天一次都没触发过）。
+        返回话题（想法池里的一句 / "feed"），不冒泡返回空。"""
+        g = self.gk(gid)
+        last = self.db.conn.execute(
+            "SELECT ts, role FROM qq_group_messages WHERE group_id=? ORDER BY id DESC LIMIT 1", (gid,)).fetchone()
+        if not last or last["role"] == "assistant":        # 群里从没人说过话 / 最后一句就是她：不自言自语
+            return ""
+        quiet = now - float(last["ts"])
+        if quiet < float(g["idle_hours"]) * 3600 or quiet > 3 * 86400:
+            return ""
+        if now - float(self.db.get(f"qq_idle_{gid}", 0) or 0) < float(g["idle_gap_hours"]) * 3600:
+            return ""
+        if self.ignored_count(gid, now) >= 2:              # 刚被冷落过：先别冒泡
+            return ""
+        key = f"qq_bubble_roll_{gid}"
+        roll = self.db.get(key) or {}
+        if now - float(roll.get("ts") or 0) < 30 * 60:
+            return ""
+        misses = int(roll.get("misses") or 0)
+        p = min(0.4, float(g["idle_chance"]) / 2 + 0.1 * misses) * (1.5 if quiet > 6 * 3600 else 1.0)
+        if random.random() >= p:
+            self.db.set(key, {"ts": now, "misses": misses + 1})
+            return ""
+        self.db.set(key, {"ts": now, "misses": 0})
+        pool = [x for x in (self.db.get(f"qq_thoughts_{gid}") or []) if now - float(x.get("ts") or 0) < 6 * 3600]
+        if pool:
+            return str(pool[-1].get("text") or "")
+        try:
+            if (hasattr(self, "feed_candidates") and not (self.share_pause(gid, now) if hasattr(self, "share_pause") else "")
+                    and any(c["score"] >= float(g.get("feed_min", 0.25)) for c in self.feed_candidates(gid))):
+                return "feed"
+        except Exception:  # noqa: BLE001
+            pass
+        log.info("群 %s：想冒个泡，但没什么想说的，算了", gid)
+        return ""
+
+    async def _night_catch_up(self, gid: int, st: GroupState, now: float, wait: float = 0) -> bool:
         night = self.db.get(f"qq_night_{gid}")
         if isinstance(night, dict):                        # 老格式：只记了一个人
             night = [night]
         if not night:
             return False
+        # 23.3 微信刚登回来时补消息比“接上”早几秒，那时发不出去（10-24 13:18:05“群消息没发出去：微信没在运行”），
+        # 这一句就丢了：先等到能发，没发出去就留着下次再补
+        for _ in range(int(wait / 2)):
+            if getattr(self.ob, "ready", True):
+                break
+            await asyncio.sleep(2)
+        if not getattr(self.ob, "ready", True):
+            log.info("群 %s：微信还没接上，补回先放着", gid)
+            return False
+        before = self.db.conn.execute("SELECT COALESCE(MAX(id), 0) m FROM qq_group_messages WHERE group_id=? AND role='assistant'",
+                                      (gid,)).fetchone()["m"]
         self.db.set(f"qq_night_{gid}", None)
         night = [x for x in night if now - float(x.get("ts") or 0) < 12 * 3600]
         if not night:
@@ -125,6 +176,11 @@ class IdleMixin:
                 await self.speak(gid, mentioned=True, owner_spoke=False, trigger=last.get("mid"), who=who, why=why)
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 早上补回失败：%s", gid, e)
+        after = self.db.conn.execute("SELECT COALESCE(MAX(id), 0) m FROM qq_group_messages WHERE group_id=? AND role='assistant'",
+                                     (gid,)).fetchone()["m"]
+        if after == before and not any(x.get("retry") for x in night):
+            self.db.set(f"qq_night_{gid}", [{**x, "retry": 1} for x in night])      # 23.3 没发出去：留着，下一轮再补一次
+            log.info("群 %s：补回没发出去，留着下次再补", gid)
         return True
 
     async def poke_back(self, gid: int, uid: int):

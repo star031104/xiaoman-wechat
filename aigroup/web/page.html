@@ -47,6 +47,25 @@ details.more.nums .minis{margin-top:var(--sp-3)}
 .gdots{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle}
 .gdots i{width:8px;height:8px;border-radius:50%;display:inline-block}
 #recentHer li:nth-child(n+6){display:none}
+/* 24.0 今天她做了什么 / 后台提醒 */
+.alerts:empty{display:none}
+.alerts .notice{flex-wrap:wrap;line-height:1.6}
+.alerts .notice b{font-weight:650}
+.alerts .notice .muted{color:inherit;opacity:.75}
+.notice.dry{background:var(--accent-soft);color:var(--accent-ink)}
+.td-sub{margin-top:var(--sp-3);font-size:var(--fs-sm);color:var(--ink-2);line-height:1.7}
+.td-sub .tag{margin:2px 4px 2px 0}
+.td-acts{margin-top:var(--sp-3)}
+.td-acts li .meta{white-space:nowrap}
+.cmp td.hi{color:var(--warn);font-weight:700}
+.cmp td.num,.cmp th.num{text-align:right;font-variant-numeric:tabular-nums}
+.eff>summary{list-style:none}.eff>summary::-webkit-details-marker{display:none}
+.eff>summary h3::after{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s;margin-left:4px;color:var(--ink-3)}
+.eff:not([open])>summary{padding-bottom:var(--pad)}
+.eff[open]>summary h3::after{transform:rotate(45deg)}
+.eff-h{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.eff-h .sp{flex:1}
+.eff-v{font-family:var(--mono);font-size:var(--fs-micro);word-break:break-all}
 
 /* ---------- 她的日子 ---------- */
 .lifep{white-space:pre-wrap;line-height:1.85}
@@ -298,6 +317,7 @@ body:not(.admin) .side .adm-gt{display:none}
 </div>
 
 <main id="main">
+<div class="alerts" id="alerts" role="status" aria-live="polite"></div>
 <!-- ================= 首页 ================= -->
 <section class="page on" id="p-home">
   <div class="home-h"><h2><span class="emo sec-emo"><span data-i="bars"></span></span>今天的群</h2><div class="seg" id="wbseg" hidden></div><span class="sp"></span><span class="meta" id="wbHint"></span></div>
@@ -331,6 +351,20 @@ body:not(.admin) .side .adm-gt{display:none}
     <div class="card c12" id="cmpCard" hidden>
       <div class="card-h"><h3><span data-i="bars"></span>几个群放一起看</h3><span class="sp"></span><span class="hint">她在哪边更放得开、说完有没有人接；数字大的加粗</span></div>
       <div class="card-b tblwrap"><table class="cmp" id="cmp"></table></div>
+    </div>
+    <div class="card c6" id="todayCard">
+      <div class="card-h"><h3><span data-i="send"></span><span id="tdT">今天她做了什么</span></h3><span class="sp"></span><span class="hint">按发送账本算：真发出去的才算</span></div>
+      <div class="card-b"><div class="minis" id="tdNums"></div><div class="td-sub" id="tdSub"></div>
+        <details class="more td-acts"><summary>最近发的 30 条</summary><ul class="rows scrollbox" id="tdActs"></ul></details></div>
+    </div>
+    <div class="card c6" id="trendCard">
+      <div class="card-h"><h3><span data-i="bars"></span>最近 7 天</h3><span class="sp"></span><span class="hint">她的占比超过 25% 标黄；花费和缓存是所有群一起算的</span></div>
+      <div class="card-b tblwrap"><table class="cmp" id="trend"></table></div>
+    </div>
+    <div class="card c12" id="effCard">
+      <details class="eff" id="effBox"><summary class="card-h eff-h" style="cursor:pointer"><h3><span data-i="sliders"></span>生效设置</h3><span class="meta" id="effN"></span><span class="sp"></span>
+        <label class="chk"><span class="switch"><input type="checkbox" id="effAll"><span></span></span>全部</label></summary>
+        <div class="card-b tblwrap"><table class="cmp" id="eff"></table></div></details>
     </div>
   </div>
   <div class="foot">小屋只在这台电脑上能打开 · 每 20 秒自动刷新</div>
@@ -885,8 +919,48 @@ async function loadState(){
   {const m=S.groups.length>1;$("groups").classList.toggle("multi",m);   // 好几个群：群卡片并排占一整行
     for(const [id,a,b] of [["recentCard","c8","c12"],["groupsCard","c4","c12"]]){$(id).classList.toggle(a,!m);$(id).classList.toggle(b,m)}}
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{GSEL=+b.dataset.open;go("chat")});
-  paintIcons();
+  paintIcons();loadToday();
 }
+/* ============ 24.0 今天她做了什么 / 7 天 / 后台提醒 / 生效设置 ============ */
+let TD=null;
+const KIND_CN={text:"文字",sticker:"表情包",image:"图片",voice:"语音",reply:"回复",poke:"戳一戳",news:"分享",photo:"照片",skip:"想分享没发"};
+const pctS=v=>v==null?"—":Math.round(v*100)+"%";
+const usdS=v=>v?"$"+(v<0.1?v.toFixed(3):v.toFixed(2)):"$0";
+const valS=v=>v===true?"开":v===false?"关":v==null?"—":Array.isArray(v)?v.join(" – "):typeof v==="object"?JSON.stringify(v):String(v);
+async function loadToday(){const gid=HSEL!=="all"?HSEL:"";
+  try{TD=await api("/api/today"+(gid?`?gid=${gid}`:""))}catch(e){TD=null;$("todayCard").hidden=$("trendCard").hidden=$("effCard").hidden=true;return}
+  $("todayCard").hidden=$("trendCard").hidden=$("effCard").hidden=false;paintToday()}
+function paintAlerts(){const A=[],H=TD.health||{},nm=(S&&S.persona&&S.persona.name)||"她";
+  if(TD.today.dry_run)A.push(`<div class="notice dry">${icon("info")}<span><b>演练中</b>：${esc(nm)}照常想、照常“说”，但不会真的发消息，只记进账本</span></div>`);
+  for(const [k,v] of Object.entries(H)){const since=v.since||v.ts;
+    A.push(`<div class="notice">${icon("info")}<span><b>${esc(k)}</b>：${esc(v.msg||"出错了")}${since?` <span class="muted">· 从 ${esc(fmtDay(since))} ${fmtTime(since)} 开始${v.n>1?`，出现 ${v.n} 次`:""}</span>`:""}</span></div>`)}
+  $("alerts").innerHTML=A.join("")}
+function paintToday(){paintAlerts();const T=TD.today,sd=T.sends||{},L=T.llm||{},ac=T.active||{},sh=T.shares||{};
+  $("tdT").textContent=multi()?`今天她在「${gname(TD.gid)}」做了什么`:"今天她做了什么";
+  const kinds=Object.entries(sd.by_kind||{}).map(([k,n])=>`${KIND_CN[k]||k} ${n}`).join(" · ");
+  $("tdNums").innerHTML=[[`${sd.sent||0} 条`,"发出去"+(kinds?`（${kinds}）`:"")],[`${sd.failed||0} 条`,"没发成"],
+    [`${ac.n||0} 次`,"主动开口"],[pctS(ac.rate),ac.done?`被接住（${ac.engaged}/${ac.done}）`:"被接住（还没算出来）"],
+    [`${sh.n||0} 次`,"分享"],[`${L.searches||0} 次`,"查资料"],[usdS(L.usd),`花费 · 调用 ${L.calls||0} 次`],[pctS(L.cache_hit),"缓存命中"]]
+    .map(([a,b])=>`<div><b>${esc(a)}</b><span>${esc(b)}</span></div>`).join("");
+  const sub=[];const why=Object.entries(sd.why||{});
+  if(why.length)sub.push(`没发成的原因：${why.map(([k,n])=>`<span class="tag warm">${esc(k)} ${n}</span>`).join("")}`);
+  const sk=Object.entries(sh.by_kind||{});if(sk.length)sub.push(`分享：${sk.map(([k,n])=>`<span class="tag">${esc(KIND_CN[k]||k)} ${n}</span>`).join("")}`+
+    (sh.items&&sh.items.length?` <span class="muted">最近：${esc((sh.items[sh.items.length-1].text||sh.items[sh.items.length-1].topic||"").slice(0,40))}</span>`:""));
+  sub.push(T.idle&&T.idle.last?`冷场时冒泡：${T.idle.today?"今天冒过":"今天还没冒"} <span class="muted">· 上次 ${ago(T.idle.last)}</span>`:"冷场时冒泡：还没冒过");
+  $("tdSub").innerHTML=sub.map(x=>`<div>${x}</div>`).join("");
+  const AC=T.actions||[];
+  $("tdActs").innerHTML=AC.length?AC.map(a=>`<li><div class="grow"><div>${esc(a.text||KIND_CN[a.kind]||a.kind)}</div><div class="meta">${fmtDay(a.ts)} ${fmtTime(a.ts)} · ${esc(KIND_CN[a.kind]||a.kind)}</div></div>${a.ok?'<span class="tag good">发了</span>':`<span class="tag warm">${esc(a.why||"没发成")}</span>`}</li>`).join(""):'<li class="empty">账本里还没有记录</li>';
+  const R=TD.trend||[];
+  $("trend").innerHTML=`<tr><th>日期</th><th class="num">群友</th><th class="num">她</th><th class="num">她占比</th><th class="num">被接住</th><th class="num">花费</th><th class="num">缓存</th></tr>`+
+    R.map((d,i)=>`<tr><th>${i===R.length-1?"今天":esc(d.day)}</th><td class="num">${d.msgs}</td><td class="num">${d.her}</td><td class="num ${d.her_share!=null&&d.her_share>0.25?"hi":""}">${pctS(d.her_share)}</td>`+
+      `<td class="num">${pctS(d.engaged_rate)}</td><td class="num">${usdS(d.usd)}</td><td class="num">${pctS(d.cache_hit)}</td></tr>`).join("");
+  paintEff()}
+function paintEff(){if(!TD)return;const all=$("effAll").checked,E=TD.effective||[],ch=E.filter(x=>x.changed),list=all?E:ch;
+  $("effN").textContent=ch.length?`${ch.length} 个和默认不一样`:"全是默认值";
+  $("eff").innerHTML=list.length?`<tr><th>设置</th><th>现在</th><th>默认</th><th>来自</th></tr>`+list.map(x=>`<tr><th>${esc(x.label)}</th><td class="eff-v ${x.changed?"win":""}">${esc(valS(x.value))}</td><td class="eff-v muted">${esc(valS(x.default))}</td>`+
+    `<td><span class="tag ${x.source==="小屋"?"ok":x.source==="配置文件"?"warm":"no"}">${esc(x.source)}${x.scope==="这个群"?"（只这个群）":""}</span></td></tr>`).join("")
+    :'<tr><td class="muted">都没改过，用的全是默认值</td></tr>'}
+$("effAll").onchange=paintEff;
 function gname(id){const g=(S&&S.groups||[]).find(x=>x.id==id);return g?g.name:String(id)}
 /* 2.2 好几个群：分段选择器 [值, 文字, 数字] */
 /* 5.0 群多了（超过 SEG_MAX 个选项）就换成下拉框，按钮一排放不下 */
@@ -910,7 +984,7 @@ function splitHead(t){t=String(t||"").trim();if(t.length<=16)return[t,""];
 const nameText=s=>String(s||"").replace(/[\u0F00-\u0FFF\uA980-\uA9DF\u2700-\u27BF\u2600-\u26FF\u2E80-\u2E99\u3000-\u303F\uFE00-\uFE0F\u200B-\u200F\u0300-\u036F\u1AB0-\u1AFF\u20D0-\u20FF]|[\u{1F300}-\u{1FAFF}]/gu,"").replace(/\s{2,}/g," ").trim()||String(s||"");
 function paintCharts(){const hb=HSEL!=="all"&&S.hours.by?S.hours.by[HSEL]:null,H=hb||S.hours;
   /* 17.0 工作台顶上一个群切换：图表、去聊天都跟着它 */
-  $("wbseg").hidden=!multi();if(multi())mkSeg($("wbseg"),[["all","全部群"],...S.groups.map(g=>[String(g.id),g.name,g.today])],HSEL,v=>{HSEL=v;if(v!=="all")GSEL=+v;paintCharts()});
+  $("wbseg").hidden=!multi();if(multi())mkSeg($("wbseg"),[["all","全部群"],...S.groups.map(g=>[String(g.id),g.name,g.today])],HSEL,v=>{HSEL=v;if(v!=="all")GSEL=+v;paintCharts();loadToday()});
   $("wbHint").textContent=HSEL==="all"?"":`下面的图只看「${gname(+HSEL)}」；点“看群聊”也会打开这个群`;
   const others=H.all.map((v,i)=>v-H.her[i]),ta=H.all.reduce((a,b)=>a+b,0),th=H.her.reduce((a,b)=>a+b,0);
   barChart($("hourChart"),[...Array(24).keys()],[{name:"群友",data:others,color:"var(--surface-3)"},{name:"她",data:H.her,color:"var(--s1)",overlay:true}],

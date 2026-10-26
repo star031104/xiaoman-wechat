@@ -301,9 +301,11 @@ class SocialMixin:
 
     # ================= 21.1 群里一句话调她的话量（Koala：控制要能随时调、由程序执行） =================
     QUIET = re.compile(r"(少说(点|几句|两句)|安静(点|会儿|一会)|闭嘴|别说了|别插嘴|话(好|太|真)多|太吵|消停|别刷屏|"
-                       r"(回答|回|说)了?(两|三)(次|遍)|说两遍|又说一遍|别抢|别接话)")
+                       r"(回答|回|说)了?(两|三)(次|遍)|说两遍|又说一遍|别抢|别接话|"
+                       r"(这个)?话题跳过|跳过了|换个话题|别聊这个)")              # 23.2 “这个话题跳过了哥”
     # 23.1 嫌她 / 看不懂她：她说完 60 秒内有人回这些，10 分钟里两次就先安静会儿
-    HUH = re.compile(r"^[？?]{1,4}$|^何意味|^啥意思|^什么鬼|你为什么|你在说啥|你在干嘛|答非所问|我求你了|求求你")
+    HUH = re.compile(r"^[？?]{1,4}$|^[？?]?何意味|^啥意思|^什么鬼|你为什么|你在说啥|你在干嘛|答非所问|我求你了|求求你|"
+                     r"我问你|一天问|天天问|每天都要问|又问|话题跳过|跳过了|换个话题")       # 23.2 “这是场地吗我问你”“一天问两三次这你受得了吗”
     SELF_HUSH = re.compile(r"闭嘴|闭麦|不说了|少说两句|我先不说|潜水了|安静了")
 
     def hush(self, gid: int, why: str, minutes: float | None = None, now: float | None = None):
@@ -391,6 +393,8 @@ class SocialMixin:
 
     # ================= 21.1 发不出去 / 掉线 =================
     def send_failed(self, gid: int):
+        if hasattr(self, "dry_run") and self.dry_run(gid):
+            return                                   # 24.0 演练模式里本来就不发
         k = f"qq_sendfail_{gid}"
         d = self.db.get(k) or {"streak": 0, "since": 0}
         d["streak"] = int(d.get("streak") or 0) + 1
@@ -406,6 +410,26 @@ class SocialMixin:
 
     def send_health(self, gid: int) -> dict:
         return dict(self.db.get(f"qq_sendfail_{gid}") or {})
+
+    # 24.0 后台出错要让人知道（10-26 向量接口 401 了一整天，语义召回悄悄退化成只用关键词，没人发现）
+    def note_health(self, name: str, msg: str):
+        d = dict(self.db.get("health_issues") or {})
+        old = d.get(name) or {}
+        d[name] = {"msg": str(msg)[:160], "since": old.get("since") or time.time(), "ts": time.time(),
+                   "n": int(old.get("n") or 0) + 1}
+        self.db.set("health_issues", d)
+        if not old:
+            log.warning("出问题了（%s）：%s", name, str(msg)[:160])
+
+    def clear_health(self, name: str):
+        d = dict(self.db.get("health_issues") or {})
+        if name in d:
+            log.info("好了（%s）：之前的问题没再出现", name)
+            d.pop(name, None)
+            self.db.set("health_issues", d)
+
+    def health_issues(self) -> dict:
+        return dict(self.db.get("health_issues") or {})
 
     def offline_note(self, gid: int, waited: float) -> str:
         """被叫到以后隔了很久才回（掉线 / 微信没开）：她是公开的 AI，可以自然地说一句刚才掉线了。"""

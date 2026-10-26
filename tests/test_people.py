@@ -107,7 +107,7 @@ def test_people_aliases(cfg, brain):
     gc.set_aliases(FRIEND, "小王同学，小满")                          # 她自己的名字不能当别人的别名
     assert gc.alias_hits("小满你好") == [] and gc.aliases_of(FRIEND) == ["小王同学", "小满"]
     _run(gc, _msg(FRIEND, "小王", "王小杰今天又迟到了", 5))
-    ros = gc.roster(GROUP, focus=[FRIEND, *gc.alias_hits("王小杰今天又迟到了")])   # 没说话的阿杰也想起来了
+    ros = gc.focus_block(GROUP, focus=[FRIEND, *gc.alias_hits("王小杰今天又迟到了")])   # 没说话的阿杰也想起来了（24.0 在 user 的“在聊的人”里）
     assert "阿杰的名片（大家也叫：王小杰、jj）" in ros and "说到这些名字" in ros
 
 

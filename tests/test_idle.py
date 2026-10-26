@@ -24,7 +24,12 @@ def test_idle_bubble(cfg, brain, monkeypatch):
     import aigroup.chat.group as gm
     monkeypatch.setattr(gm.random, "random", lambda: 0.0)
     asyncio.run(gc.idle_tick(60))
+    assert not ob.sent                                    # 24.0 没话题（想法池空、没刷到的）：不硬冒泡
+    brain.db.set(f"qq_bubble_roll_{GROUP}", None)
+    gc.hold_thought(GROUP, "那个展好像要排队预约", now=time.time() - 3600)
+    asyncio.run(gc.idle_tick(60))
     assert ob.sent and "安静了" in brain.llm.group_calls[-1][1]["content"]
+    assert "排队预约" in brain.llm.group_calls[-1][1]["content"]
     n = len(ob.sent)
     asyncio.run(gc.idle_tick(60))
     assert len(ob.sent) == n

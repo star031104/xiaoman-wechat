@@ -41,13 +41,19 @@ class AutobioMixin:
         ns = nt = ne = 0
         if g.get("self_ledger", True):
             for x in mine[:8]:
-                if self.memory.add_fact(gid, x, subject=-1, kind="experience", source="said"):
+                if self.memory.add_fact(gid, x, subject=-1, kind="experience", source="said") and self.memory.last_new:
                     ns += 1
         if g.get("stances", True):
             for ln in lines:
                 m = re.match(r"^态\s*[|｜]\s*([^|｜]{1,20})\s*[|｜]\s*(.{2,60})$", ln)
-                if m and self.memory.add_fact(gid, f"{m.group(1).strip()}：{m.group(2).strip()}", subject=-1, kind="opinion",
-                                              source="said"):
+                if not m:
+                    continue
+                topic = m.group(1).strip()
+                # 24.0 同一件事的立场只留最新的一条（“TES 不押”和“站 TES”以前同时有效）：同话题的旧立场标失效
+                old = [f["id"] for f in self.memory.facts(gid, subject=-1, limit=200)
+                       if f.get("kind") == "opinion" and str(f.get("text") or "").split("：")[0].strip() == topic]
+                if self.memory.add_fact(gid, f"{topic}：{m.group(2).strip()}", subject=-1, kind="opinion",
+                                        source="said", replaces=old) and self.memory.last_new:
                     nt += 1
         if g.get("timeline", True):
             now = self.brain.now()
@@ -63,7 +69,8 @@ class AutobioMixin:
                     day = day.replace(year=day.year - 1)
                 if (now - day).days > 30:
                     continue
-                if self.memory.add_fact(gid, m.group(3).strip(), subject=0, kind="event", now=day.timestamp(), source="said"):
+                if (self.memory.add_fact(gid, m.group(3).strip(), subject=0, kind="event", now=day.timestamp(), source="said")
+                        and self.memory.last_new):
                     ne += 1
         return ns, nt, ne
 

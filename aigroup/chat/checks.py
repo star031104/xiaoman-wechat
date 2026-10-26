@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -54,7 +55,10 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("source_gate", "self_consistency", "ask_repeat", "template", "addressee", "time_sense", "tease_risk",
-          "responsive", "room_read", "other_claims", "disputed", "image_guess", "answered", "media_claim", "catchphrase")
+          "responsive", "room_read", "other_claims", "disputed", "image_guess", "answered", "media_claim", "catchphrase",
+          "video_pending", "stale_ask", "pushback", "self_repeat", "critic")
+# 23.2 这些检查命中、又没被叫到：不重写，直接不说（重写以后还是同一个毛病，比如替别人答）
+DROP = "〔不说〕"
 
 # 这些词太常见，不算“说的是哪件事”
 STOP2 = COMMON2 | set("""我这 我那 这边 那边 一会 等会 今天 昨天 前天 这周 上周 最近 以前 之前 刚才 刚刚 上次 那天 周末 早上 晚上 中午
@@ -113,11 +117,60 @@ ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多�
                     r"(出了没|出来没|怎么样了|咋样了|后来呢|后来怎么|结果呢|赢没赢|发了没|弄完没|搞定没)")
 CARE_RX = re.compile(r"记得|别忘|注意|小心|多喝|早点睡|擦药|上药|别熬夜|好好休息|悠着点|慢点|别太累")
 CLOSE_RX = re.compile(r"别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了|"
-                      r"求你了|求求你|放过我|饶了我")
+                      r"求你了|求求你|放过我|饶了我|"
+                      r"之前发过|早就?发过|发过了|早发了|已经发了|早就?说过了|说过了|早就有了")      # 23.2 “老大那文档发了没”→“之前发过了”
 # 23.1 视频 / 语音：她看不到内容时，这些说法等于装看过
 MEDIA_PH = re.compile(r"^\[(视频|语音|直播|音乐|文件)\]$")
 WATCH_RX = re.compile(r"(刚看|看了|看完|看过|我看看|我看着|我看到|听了|听完|前面那段|后面那段|开头那段|结尾那段|中间那段|这一段|那一段|"
-                      r"字幕这段|这段字幕|砍一半|剪得|画面|配乐|这条视频|成片(挺|很|真|不错|好看)|这片子)")
+                      r"字幕这段|这段字幕|砍一半|剪得|画面|配乐|这条视频|成片(挺|很|真|不错|好看)|这片子|"
+                      r"这就去看|去看了|等着看|看成片|我去看|回头看|马上看|点开看看)")
+# 23.2 空承诺：“这就去看”“我看看”，视频还没看完就说
+PROMISE_RX = re.compile(r"这就去看|我去看|去看了|等(下|会儿?)看|回头看|马上看|晚点看|点开看看|我看看|看看去|这就看|等着看")
+PENDING_VIDEO = "你正在点开看"
+# 23.3 群友在纠正她（10-24：“你不识字吗”“al不是打了33分钟吗”“滔搏才是23分钟被推平”）
+CORRECT_RX = re.compile(r"不识字|看清楚|看错了?|你看错|说错了?|记错了?|搞错了?|不是.{0,14}吗|才是|明明是|应该是|哪来的|瞎说|乱说|"
+                        r"人家(叫|是)|写的是|不对吧?|错了")
+# 23.3 她被纠正后的顶嘴开头（“认字，广告太抢戏了”“没有啊”“我没说错”）
+PUSHBACK_RX = re.compile(r"^(认字|认识|没有啊?|我没(有|说错|看错)?|不是啊|可是|但是|那也|明明|本来就|我说的是|我是说|你才)")
+ADMIT_RX = re.compile(r"看错|记错|说错|搞错|我的锅|是我|对对|你说得对|确实|改一下|更正|哦是|啊是|原来是|是.{1,12}才对")
+# 23.3 她自嘲的那几个点（眼睛 / 脑子 / 记性）：2 小时内同一个别再拿出来
+SELF_MOCK = re.compile(r"眼睛|眼神|眼瞎|脑子|记性|反应慢|手残|嘴快")
+# 23.3 统一发前自检的“毛病清单”：每条都来自日报里确认过的事（加新的就往这里加一条，并在 tests/group/incidents.yaml 加一个例子）
+FAILURE_MODES = [
+    "替别人回答别人问别人的问题（“A，这个能……吗”不是问她）",
+    "没看过 / 打不开的视频、文章，却说得像看过（“前面那段可以砍”），或者空说“这就去看”",
+    "对图下断言、替发图的人说他在干嘛，图说明里没有（价目表说成“在看场地”）；图里的字像错别字时当真拿来开玩笑",
+    "被人指出说错了还顶嘴、找补、开玩笑带过，没先认一句",
+    "说了查到的资料里没有的数字、比分、时长、“第一次”这类说法",
+    "同一件事说第二遍（换个说法也算），或者回答别人已经被回答过的问题",
+    "大家在聊别的时候突然追问旧事，或者追问对方已经说过“发过了 / 别问了”的事",
+    "编自己的线下经历，或者编群友的状态、经历",
+    "同一个梗 / 自嘲点（小本本、记仇、眼睛不好）一天里反复用",
+    "前后矛盾：和她自己前面刚说的对不上",
+    "一股 AI 八股味：“看完了。”开头、“这句我认”、“最扎的是”、“不是……而是……”，一句话里堆好几种写作句式",
+]
+# 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
+PHRASE_FAMILIES = {
+    "记仇 / 小本本 / 不记": re.compile(r"小本本|记仇|不记(了|仇)|就不记|这(条|句|个)不记|记下了|记上了|记岔|当(你)?没听见|当没说|这(条|句)不算"),
+    # 24.0 日报里第二多的一族（10-24 / 10-25 一天 8 次）：“我去看 / 这就看 / 看完了”。能看的链接也一天最多说一次这种话
+    "我去看 / 看完了": re.compile(r"这就去看|我去看|去看了|等(下|会儿?)看|回头看|马上看|晚点看|点开看看|看看去|这就看|等着看|"
+                             r"^(看完了|刚看完|看完)[。，,！!：:]"),
+}
+
+def critic_index(v) -> int:
+    """24.0 自检给的毛病序号：5 / "5" / "第5条" / [5] / "5. 说了……" 都认（以前 26 次一次都没认出来）。"""
+    if isinstance(v, list):
+        v = v[0] if v else ""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return int(v)
+    m = re.search(r"\d+", str(v or ""))
+    if m:
+        return int(m.group(0))
+    for i, x in enumerate(FAILURE_MODES):               # 写了毛病的原文
+        if str(v) and str(v)[:8] in x:
+            return i + 1
+    return 0
+
 
 # ---- 好事 ----
 GOOD_NEWS = re.compile(r"(过了|上岸|拿到|中了|考上|录取|offer|涨薪|升职|赢了|通过|发表|毕业了|领证|成功了|抢到|做完了|搞定了|好耶|终于)", re.I)
@@ -165,6 +218,15 @@ def _values(text: str) -> set[str]:
         elif m.group(3):
             out.add(f"{int(m.group(3))}/{int(m.group(4))}")
     return out
+
+
+_TRAD = str.maketrans("價線場這號與費買賣門開關時間點電話會員個們來說現業營東車長張發樂動機網體學對給還進種錢圖們嗎錯辦見聽讀寫應覺麼樣頭過狀態為無專實際區氣",
+                      "价线场这号与费买卖门开关时间点电话会员个们来说现业营东车长张发乐动机网体学对给还进种钱图们吗错办见听读写应觉么样头过状态为无专实际区气")
+
+
+def _simp(text: str) -> str:
+    """23.2 图说明常是繁体（“羽毛球價目表”）：比对前统一成简体（只管常见字）。"""
+    return str(text or "").translate(_TRAD)
 
 
 def _said(word: str, text: str) -> bool:
@@ -387,7 +449,8 @@ class ChecksMixin:
                     continue
                 for n in self.names_of(gid, int(uid)):
                     if n and len(n) >= 2 and re.match(rf"^\s*(@)?{re.escape(n)}", tc) and re.search(r"[？?吗呢啥咋]", tc):
-                        return f"那句是{names.get(str(target_uid), '他')}在问{n}，不是问你：别抢着答"
+                        # 23.2 替别人答：重写了还是在替人答（10-23 20:53“学会了也没空写，我赌五毛”），没被叫到就直接不说
+                        return f"{DROP}那句是{names.get(str(target_uid), '他')}在问{n}，不是问你：别抢着答"
         return ""
 
     def _time_sense(self, text: str, target_row: dict | None, now: float) -> str:
@@ -533,8 +596,7 @@ class ChecksMixin:
         """刚有人只发了一张图（3 分钟内，后面没人解释），她却替他说他在干嘛 / 要干嘛（不是问句）。
         22.4：她自己判断“他为什么发”有把握高的（前面在聊、配了字），顺着说不拦；中 / 低还说成事实才拦。"""
         now = now or time.time()
-        if (image or {}).get("top") == "高":
-            return ""
+        sure = (image or {}).get("top") == "高"
         rows = [r for r in self._rows(gid, 4) if r["role"] == "user"]
         if not rows or now - float(rows[-1]["ts"]) > 180:
             return ""
@@ -542,12 +604,37 @@ class ChecksMixin:
         if not last.startswith("[图片"):
             return ""
         t = TAG.sub("", text)
+        others = " ".join(str(r["content"] or "") for r in self._rows(gid, 10) if r["role"] == "user")
         for clause in re.split(r"[，,。！!；;~～\n]", t):
             c = clause.strip()
-            if c and IMG_GUESS.search(c) and not ASKING.search(c):
-                return (f"图你只看了个大概：别替发图的人说他在干嘛（「{c[:20]}」）。问一句（“这是要买球？”），"
-                        "或者只接图里看得见的东西")
+            if not c or not IMG_GUESS.search(c) or ASKING.search(c):
+                continue
+            if sure and not self._img_ungrounded(gid, c, others):
+                continue                                   # 把握高、说的东西图里 / 群里真有：顺着说不拦
+            return (f"图你只看了个大概：别替发图的人说他在干嘛（「{c[:20]}」）。图里写着是什么就是什么，"
+                    "看不出他为什么发就问一句（“这是要买球？”），或者只接图里看得见的东西")
         return ""
+
+    def _img_ungrounded(self, gid: int, clause: str, src: str) -> bool:
+        """23.2 她对图下的断言里，说的东西图说明和群里最近的话里大多没有（价目表说成“8 号那场的场地”）。"""
+        c = clause
+        names: set[str] = set()
+        for uid, v in self.names(gid).items():
+            names.add(str(v))
+            try:
+                names.update(self.names_of(gid, int(uid)) if hasattr(self, "names_of") else [])
+            except (TypeError, ValueError):
+                pass
+        for n in sorted((n for n in names if n and len(n) >= 2), key=len, reverse=True):
+            c = c.replace(n, "")
+        c = re.sub(r"[\u4e00-\u9fff]总", "", c)                      # “X总这是在……”：称呼不算内容
+        s = _simp(src)
+        if any(v not in _values(s) for v in _values(c)):
+            return True                                    # 说了个图里、群里都没有的日子 / 数字（“8 号那场”）
+        terms = {x for x in content_terms(c) if not IMG_GUESS.search(x) and not re.search(r"[的了啊呢吧呀嘛哦么吗]", x)
+                 and x not in ("这是", "是在", "在看")}
+        good = {x for x in terms if _simp(x) in s}
+        return not good and len(terms) >= 2
 
     # ================= 23.1 回过了 / 装看过 / 口头禅 =================
     def note_answered(self, gid: int, row_id, now: float | None = None):
@@ -589,20 +676,118 @@ class ChecksMixin:
         if not hasattr(self, "today_lines"):
             return ""
         mine = {g for g in grams(text, 3) if not any(c in g for c in "的了是我你他她吗呢吧啊")}
-        if not mine:
-            return ""
         lines = self.today_lines(gid)
         users = " ".join(str(r["content"] or "") for r in self._rows(gid, 8) if r["role"] == "user")
+        t = TAG.sub("", text)
+        for fam, rx in PHRASE_FAMILIES.items():            # 23.2 换个说法也算同一个梗：一天一次
+            if rx.search(t) and not rx.search(users):
+                n = sum(1 for x in lines if rx.search(x))
+                if n >= 1:
+                    return f"「{fam}」这一类说法你今天已经用过 {n} 次了（换个词也算同一个梗）：别再用，说正事或者不说"
         for g in sorted(mine):
             n = sum(1 for x in lines if g in x)
             if n >= 2 and g not in users:
                 return f"「{g}」你今天已经说了 {n} 次了，再说就成口头禅了：换个说法，或者不说"
         return ""
 
+    def _video_pending(self, gid: int, text: str, now: float) -> str:
+        """23.2 群友刚发了 B 站视频、她还在“点开看”（字幕、画面还没整理完）：别空说“这就去看”，也别评内容。
+        看完以后会自己说（knowledge.watch_video）。10-23 群友发了讲她的视频，她只回“成片终于发了，这就去看”。"""
+        rows = [r for r in self._rows(gid, 8) if r["role"] == "user" and now - float(r["ts"]) < 600]
+        pend = [r for r in rows if PENDING_VIDEO in str(r["content"] or "")]
+        if not pend:
+            return ""
+        seen = [v for v in (self.db.get(f"qq_videos_{gid}") or []) if float(v.get("ts") or 0) >= float(pend[-1]["ts"])]
+        if seen:
+            return ""                                      # 已经看完了，可以聊内容
+        t = TAG.sub("", text)
+        if PROMISE_RX.search(t) or WATCH_RX.search(t) or re.search(r"视频|成片|片子|这期|这集", t):
+            return f"{DROP}视频你还在看（看完会让你说），现在别空说“这就去看”，也别评内容；等看完再说具体哪一段"
+        return ""
+
+    def _stale_ask(self, gid: int, text: str, mentioned: bool, now: float) -> str:
+        """23.2 大家在聊 A，她突然追问一件旧事 B（10-23 有人发工资表，她问“那文档发了没”——早发过了）。
+        问的东西最近 6 条群友消息里没有、6 小时内更早的群聊里有 → 先接现在的话题。"""
+        if mentioned:
+            return ""
+        rows = [r for r in self._rows(gid, 6) if now - float(r["ts"]) < 1800]        # 现在在聊的：最近 6 条里半小时内的
+        recent = " ".join(str(r["content"] or "") for r in rows if r["role"] == "user")
+        if not recent.strip():
+            return ""
+        for clause in re.split(r"[，,。！!；;~～\n]", TAG.sub("", text)):
+            c = clause.strip()
+            if not c or not ASK_RX.search(c):
+                continue
+            terms = content_terms(c)
+            if not terms or any(x in recent for x in terms):
+                continue
+            first = min((float(r["ts"]) for r in rows), default=now)
+            old = " ".join(str(r["content"] or "") for r in self.db.conn.execute(
+                "SELECT content FROM qq_group_messages WHERE group_id=? AND ts>? AND ts<?", (gid, now - 6 * 3600, first)).fetchall())
+            hit = sorted(x for x in terms if x in old)
+            if hit:
+                return (f"大家现在在聊别的，你突然追问之前的事（「{c[:20]}」）：先接现在的话题；"
+                        "那件事要是有人说过结果了（“发过了”“早说了”）就别再问")
+        return ""
+
+    def corrected_now(self, gid: int, texts: list, now: float) -> bool:
+        """23.3 这一批里有群友在纠正她刚说的（她 3 分钟内说过话、这句命中 CORRECT_RX、是回她的或没指别人），
+        而且这次纠正她还没认过：让她不受刹车认一句。"""
+        if not texts:
+            return False
+        last_her = self.db.conn.execute("SELECT ts FROM qq_group_messages WHERE group_id=? AND role='assistant' "
+                                        "ORDER BY id DESC LIMIT 1", (gid,)).fetchone()
+        if not last_her or now - float(last_her["ts"]) > 180:
+            return False
+        if now - float(self._st(gid).__dict__.get("admit_ts") or 0) < 180:
+            return False                                   # 刚认过一次了
+        for t in texts:
+            body = str(t[2] if len(t) > 2 else "")
+            if re.match(r"^\s*\[回复别人", body):
+                continue
+            if CORRECT_RX.search(TAG.sub("", body)):
+                return True
+        return False
+
+    def _pushback(self, gid: int, text: str, now: float) -> str:
+        """23.3 群友刚纠正了她，她这句却在顶（“认字，……”“没有啊”），也没认错 → 改成认一句。"""
+        rows = self._rows(gid, 6)
+        her_ts = max((float(r["ts"]) for r in rows if r["role"] == "assistant"), default=0)
+        corr = [r for r in rows if r["role"] == "user" and float(r["ts"]) > her_ts - 1 and now - float(r["ts"]) < 300
+                and CORRECT_RX.search(TAG.sub("", str(r["content"] or "")))]
+        if not corr or not her_ts:
+            return ""
+        t = TAG.sub("", text).strip()
+        if ADMIT_RX.search(t):
+            return ""
+        last = corr[-1]
+        directed = "[回复你" in str(last["content"] or "") or bool(int(last["to_her"] or 0))
+        if PUSHBACK_RX.match(t) or (directed and not ASKING.search(t)):
+            return (f"{last['name']}刚指出你说错了（「{str(last['content'])[:24]}」）：别顶嘴、别找补、别开玩笑带过，"
+                    "先认一句（“啊我看错了，是……”）；拿不准他对不对就问他哪看的")
+        return ""
+
+    def _self_repeat(self, gid: int, text: str, now: float) -> str:
+        """23.3 她自嘲的点 2 小时内又拿出来（10-24：16:41“眼睛被广告糊住了”→ 17:17“就是眼睛不太行”，冷场）。"""
+        t = TAG.sub("", text)
+        m = SELF_MOCK.search(t)
+        if not m:
+            return ""
+        rows = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>?",
+                                    (gid, now - 7200)).fetchall()
+        users = " ".join(str(r["content"] or "") for r in self._rows(gid, 6) if r["role"] == "user")
+        if m.group(0) in users:
+            return ""
+        if any(m.group(0) in str(r["content"] or "") for r in rows):
+            return f"「{m.group(0)}」这个自嘲点你两小时内刚用过：换个说法，或者不说"
+        return ""
+
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
-                       mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None) -> list[str]:
-        """返回要交给重写的问题（只包含开关是 on 的）；shadow 的只记录。"""
+                       mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None,
+                       recheck: bool = False) -> list[str]:
+        """返回要交给重写的问题（只包含开关是 on 的）；shadow 的只记录。
+        recheck（24.0）：重写以后再查一遍——只跑规则检查（不再调模型），不记日志。"""
         if not bubbles:
             return []
         text = " ".join(str(b) for b in bubbles if b and not str(b).startswith("[表情包"))
@@ -611,6 +796,8 @@ class ChecksMixin:
         now = time.time()
         found: list[tuple[str, str]] = []
         mode = {c: self.check_mode(gid, c) for c in CHECKS}
+        if recheck:
+            mode.update({"critic": "off", "self_consistency": "off"})
         claims = self_claims(text) if (mode["source_gate"] != "off" or mode["self_consistency"] != "off") else []
         if claims and mode["source_gate"] != "off":
             p = self.brain.persona
@@ -668,11 +855,33 @@ class ChecksMixin:
             w = self._catchphrase(gid, text)
             if w:
                 found.append(("catchphrase", w))
+        if mode["video_pending"] != "off":
+            w = self._video_pending(gid, text, now)
+            if w:
+                found.append(("video_pending", w))
+        if mode["stale_ask"] != "off":
+            w = self._stale_ask(gid, text, mentioned, now)
+            if w:
+                found.append(("stale_ask", w))
+        if mode["pushback"] != "off":
+            w = self._pushback(gid, text, now)
+            if w:
+                found.append(("pushback", w))
+        if mode["self_repeat"] != "off":
+            w = self._self_repeat(gid, text, now)
+            if w:
+                found.append(("self_repeat", w))
+        if mode["critic"] != "off":
+            w = await self._critic(gid, text, mentioned, [n for n, _ in found], web=web)
+            if w:
+                found.append(("critic", w))
         if mode["responsive"] != "off":
             w = self._responsive(text, target_row)
             if w:
                 found.append(("responsive", w))
         out = []
+        if recheck:
+            return [why for name, why in found if mode[name] == "on"]
         for name, why in found:
             self.check_log(gid, name, mode[name], text, why, gate_id)
             if mode[name] == "on":
@@ -680,6 +889,38 @@ class ChecksMixin:
             else:
                 log.info("群 %s 检查（只记录）%s：%s", gid, name, why)
         return out
+
+    async def _critic(self, gid: int, text: str, mentioned: bool, already: list[str], web: str = "") -> str:
+        """23.3 统一的发前自检：一个便宜模型拿着“出过的毛病清单”（FAILURE_MODES，每条都来自日报里确认过的事）
+        看这句该不该改。正则检查是初筛：已经命中了就不再问（省钱）；每小时有上限。
+        24.0：把她这次查到的资料也给它（以前看不到，把查到的真比分当成编的，让她改成“不写具体比分”）。"""
+        if already or not getattr(self, "brain", None) or not hasattr(self, "_allow"):
+            return ""
+        if not self._allow(f"critic_{gid}", int(self.gk(gid).get("critic_per_hour", 30) or 0)):
+            return ""
+        names = self.names(gid)
+        ctx = "\n".join(f"{'你' if r['role'] == 'assistant' else names.get(str(r['user_id']), r['name'])}：{str(r['content'] or '')[:80]}"
+                        for r in self._rows(gid, 10))
+        brief = re.sub(r"\s+", " ", str(web or "")).strip()[:1500]
+        prompt = ("你帮一个在朋友群里聊天的人看她要发的话有没有犯下面这些毛病（只看这些，没犯就是没犯，别挑剔说法）：\n"
+                  + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))
+                  + f"\n\n# 最近的群聊（最后几条最新）\n{ctx}\n\n"
+                  + (f"# 她这次刚查到的资料（第 5 条只看这里和群聊里有没有；这里写着的数字、比分照说不算毛病）\n{brief}\n\n"
+                     if brief else "# 她这次没查资料\n\n")
+                  + f"# 她要发的\n{text}\n\n"
+                  "只输出 JSON：{\"bad\": true/false, \"which\": 毛病序号（一个数字）, \"why\": \"一句话，引用她的原话\", "
+                  "\"fix\": \"怎么改，一句话\"}")
+        try:
+            out = await asyncio.wait_for(self.brain.llm.chat([{"role": "user", "content": prompt}], role="gate",
+                                                             temperature=0.0, max_tokens=160), 8)
+            d = json.loads(re.search(r"\{.*\}", out or "", re.S).group(0))
+        except Exception:  # noqa: BLE001
+            return ""
+        if d.get("bad") is not True:
+            return ""
+        k = critic_index(d.get("which"))
+        mode = FAILURE_MODES[k - 1] if 0 < k <= len(FAILURE_MODES) else "清单里的毛病"
+        return f"自检：{mode.split('（')[0]}——{str(d.get('why') or '')[:70]}；{str(d.get('fix') or '换个说法或者不说')[:60]}"
 
     async def _consistency(self, gid: int, claims: list[str]) -> str:
         """问一次便宜模型：这几句和她以前说过的自己的事有没有矛盾。没有自述账本就不问。"""

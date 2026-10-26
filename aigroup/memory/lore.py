@@ -48,6 +48,7 @@ def key_hit(key: str, text: str) -> bool:
 class Lore:
     def __init__(self, db, scan_depth: int = 6, max_entries: int = 4, budget: int = 400):
         self.db, self.scan_depth, self.max_entries, self.budget = db, scan_depth, max_entries, budget
+        self.blocked: set[str] = set()        # 24.0 不能当梗的词（群友的名字、外号）；GroupChat 每晚更新
         db.conn.executescript(SCHEMA)
         db.conn.commit()
 
@@ -57,6 +58,13 @@ class Lore:
         content = re.sub(r"\s+", " ", str(content or "")).strip()[:150]
         if not keys or len(content) < 2:
             return None
+        if source == "auto":
+            keys = [k for k in keys if k not in self.blocked]      # 24.0 群友的名字 / 外号不是梗
+            if not keys:
+                return None
+            from aigroup.memory.facts import forgotten_match
+            if forgotten_match(self.db, gid, "lore", keys=keys):  # 24.0 删过的梗不自动加回来
+                return None
         now = time.time()
         for r in self.db.conn.execute("SELECT id, keys, source FROM qq_lore WHERE group_id=?", (gid,)).fetchall():
             if set(json.loads(r["keys"])) & set(keys):            # 同一个梗：自动的更新内容，手写的不动
@@ -80,16 +88,20 @@ class Lore:
             out.append(x)
         return out
 
-    def active(self, gid: int, recent_text: str, now_id: int | None = None, rand: random.Random | None = None) -> list[dict]:
-        """这一刻该注入的词条。now_id：这个群现在最新的消息 id（算 sticky / cooldown 用）。"""
+    def active(self, gid: int, recent_text: str, now_id: int | None = None, rand: random.Random | None = None,
+               skip: set | None = None) -> list[dict]:
+        """这一刻该注入的词条。now_id：这个群现在最新的消息 id（算 sticky / cooldown 用）。
+        skip（24.0）：不给的词条 id（太久没人用的）：先跳过再算冷却，别白白占了冷却。"""
         if now_id is None:
             r = self.db.conn.execute("SELECT MAX(id) m FROM qq_group_messages WHERE group_id=?", (gid,)).fetchone()
             now_id = int(r["m"] or 0)
         rnd = rand or random
         picked, used = [], 0
         for e in self.entries(gid):
-            if e["status"] == "no":
+            if e["status"] == "no" or (skip and int(e["id"]) in skip):
                 continue
+            if self.blocked and e.get("source") == "auto" and set(e["keys"]) <= self.blocked:
+                continue                                          # 24.0 只剩名字当关键词的自动梗：不给
             since = now_id - int(e["fired_at"] or 0) if e["fired_at"] else 10 ** 9
             sticky_on = e["fired_at"] and since <= int(e["sticky"])
             hit = any(key_hit(k, recent_text) for k in e["keys"]) and not any(key_hit(x, recent_text) for x in e["exclude"])
@@ -134,7 +146,7 @@ class Lore:
         return out
 
     def prompt_block(self, gid: int, recent_text: str, stale: set | None = None) -> str:
-        es = [e for e in self.active(gid, recent_text) if not stale or int(e["id"]) not in stale]
+        es = self.active(gid, recent_text, skip=stale)
         if not es:
             return ""
         return ("# 群里的梗（刚聊到的，知道它是什么意思就行；刚提过的别再硬提）\n"

@@ -72,8 +72,9 @@ class Stickers:
         db.conn.executescript(SCHEMA)
         db.conn.commit()
 
-    def seen(self, gid: int, uid: int, key: str, url: str, context: list[str]) -> dict | None:
-        """群里有人发了一张表情包。返回这条记录（攒够次数、还没下载时 need_fetch=True）。"""
+    def seen(self, gid: int, uid: int, key: str, url: str, context: list[str], small: bool = False) -> dict | None:
+        """群里有人发了一张表情包。返回这条记录（攒够次数、还没下载时 need_fetch=True）。
+        small（24.0）：小群（只有两三个人在说话）：一个人发过 3 次也算（以前要 2 个不同的人，三人群一张都存不下来）。"""
         if not key:
             return None
         now = time.time()
@@ -91,8 +92,9 @@ class Stickers:
                                                  json.dumps(ctx, ensure_ascii=False), now, key))
         self.db.conn.commit()
         r = dict(self.db.conn.execute("SELECT * FROM qq_stickers WHERE key=?", (key,)).fetchone())
-        r["need_fetch"] = (not r["path"] and r["seen"] >= self.min_seen
-                           and len(json.loads(r["users"])) >= self.min_users and r["status"] != "no")
+        enough = (len(json.loads(r["users"])) >= self.min_users
+                  or (small and r["seen"] >= self.min_seen + 1))
+        r["need_fetch"] = (not r["path"] and r["seen"] >= self.min_seen and enough and r["status"] != "no")
         return r
 
     def save_file(self, key: str, data: bytes) -> str:

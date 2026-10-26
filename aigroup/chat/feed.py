@@ -140,6 +140,14 @@ class FeedMixin:
             return
         if not 8 <= self.brain.now().hour < 23:
             return
+        # 24.0 按需刷：今天已经分享过 / 今天不打算分享 / 正在歇着 / 池子里还有够格的，就不花钱刷（以前 150 条只用了 2 条）
+        day = f"{self.brain.now():%Y-%m-%d}"
+        plan = self.db.get(f"qq_share_at_{gid}_{day}")
+        done = int(self.db.get(f"qq_share_n_{gid}_{day}", 0) or 0) >= int(g.get("share_per_day", 1) or 0)
+        paused = self.share_pause(gid, now) if hasattr(self, "share_pause") else ""
+        ready = [c for c in self.feed_candidates(gid) if c["score"] >= float(g.get("feed_min", 0.25))]
+        if done or paused or (isinstance(plan, dict) and plan.get("skip")) or len(ready) >= 2:
+            return
         self.db.set(k, now)
         self._spawn(self.feed_refresh(gid))
 
