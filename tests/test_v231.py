@@ -65,8 +65,6 @@ def test_answered_check(cfg, brain):
 def test_media_claim_and_catchphrase(cfg, brain):
     gc, _ = _gc(cfg, brain)
     gc._record(GROUP, FRIEND, "小王", "[视频]", 1)
-    assert "打不开" in gc._media_claim(GROUP, "前面那段可以砍一半", time.time())
-    assert gc._media_claim(GROUP, "等你说说讲了啥", time.time()) == ""
     gc._record(GROUP, FRIEND, "小王", "[图片：一张截图]", 2)
     for i, t in enumerate(["我备忘录记岔了", "这条记进备忘录"]):
         gc._record(GROUP, 10001, "小满", t, 10 + i, role="assistant")
@@ -85,10 +83,3 @@ def test_rebuffed_plan_not_asked_again(cfg, brain):
     assert "对方不想说" in gc._ask_repeat(GROUP, "那场结果出了没，不说也行", FRIEND, now)
     assert gc._ask_repeat(GROUP, "晚上吃啥？", FRIEND, now) == ""
 
-
-def test_disputed_by_screenshot_even_with_web(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, 10001, "小满", "这活动9月底就结束了", 1, role="assistant")
-    gc._record(GROUP, FRIEND, "小王", "上面不是写着到10月31日吗", 2)
-    w = gc._disputed(GROUP, "买一赠一9月底就撤了", web="……买一赠一 9月底 结束……")
-    assert "看着图" in w

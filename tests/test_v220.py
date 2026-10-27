@@ -22,30 +22,14 @@ def _say(gc, brain, text, **kw):
     return asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who="", **kw))
 
 
-def test_source_gate_rewrites_invented_life(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0)
-    gc._record(GROUP, FRIEND, "小王", "ai 要来抢我们工作了", 1)
-    calls = []
-    orig = gc._rewrite
-
-    async def rw(messages, raw, hits, gid):
-        calls.append(hits)
-        return [["那你们得先教会它摸鱼"]]
-    gc._rewrite = rw
-    assert _say(gc, brain, "我这边稿子还没交呢，先担心担心我")
-    assert any("编了你自己没有的经历" in h for hs in calls for h in hs)
-    assert "摸鱼" in str(ob.sent[-1][1])
-    n = gc.db.conn.execute("SELECT COUNT(*) c FROM qq_check_log WHERE name='source_gate'").fetchone()["c"]
-    assert n == 1
-    gc._rewrite = orig
-
-
 def test_shadow_mode_only_logs(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, check_source_gate="shadow")
+    gc, ob = _gc(cfg, brain, cooldown_seconds=0, check_catchphrase="shadow", check_critic="off")
     gc._record(GROUP, FRIEND, "小王", "ai 要来抢我们工作了", 1)
-    assert _say(gc, brain, "我这边稿子还没交呢")
-    assert "稿子" in str(ob.sent[-1][1])
-    r = gc.db.conn.execute("SELECT mode FROM qq_check_log WHERE name='source_gate'").fetchone()
+    for i, t in enumerate(["我小本本记岔了", "这条记进小本本"]):
+        gc._record(GROUP, 10001, "小满", t, 10 + i, role="assistant")
+    assert _say(gc, brain, "行，小本本上再记一笔")
+    assert "小本本" in str(ob.sent[-1][1])
+    r = gc.db.conn.execute("SELECT mode FROM qq_check_log WHERE name='catchphrase'").fetchone()
     assert r["mode"] == "shadow"
 
 
@@ -64,19 +48,6 @@ def test_ask_ledger_repeat_and_closed(cfg, brain):
     assert "别再问了" in gc.asks_block(GROUP)
 
 
-def test_templates_across_days(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    now = time.time()
-    for i, t in enumerate(["行行行，改成不催版", "行行行，改成不记仇版", "行行行，你说得对", "那我开启安静模式"]):
-        gc._record(GROUP, 10001, "小满", t, 100 + i, role="assistant")
-        gc.db.conn.execute("UPDATE qq_group_messages SET ts=? WHERE qq_msg_id=?", (now - (i % 2) * 86400 - 60, 100 + i))
-    gc.db.conn.commit()
-    tpl = gc.her_templates(GROUP, now=now)
-    assert "行行行" in tpl and "改成…版 / …模式" in tpl
-    assert "行行行" in gc._template_hit(GROUP, "行行行，听你的", now)
-    assert "套路" in gc._template_hit(GROUP, "好，改成乖巧版", now)
-
-
 def test_addressee_time_tease_responsive_room(cfg, brain):
     gc, _ = _gc(cfg, brain)
     gc._record(GROUP, FRIEND, "小王", "今天好累", 1)
@@ -85,19 +56,6 @@ def test_addressee_time_tease_responsive_room(cfg, brain):
     assert "叫错人" in w
     assert gc._addressee(GROUP, "小王你也太拼了", FRIEND, None) == ""
     assert "那句是" in gc._addressee(GROUP, "我觉得是周五", FRIEND, {"content": "老张你周几回来？"})
-    old = {"ts": time.time() - 9 * 3600, "content": "我看完了", "role": "user"}
-    assert "小时以前" in gc._time_sense("你刚说看完了？", old, time.time())
-    assert gc._time_sense("看完感觉咋样", old, time.time()) == ""
-    assert "好事" in gc._responsive("恭喜！", {"role": "user", "content": "我面试过了！"})
-    assert gc._responsive("几面啊？", {"role": "user", "content": "我面试过了！"}) == ""
-    gc._record(GROUP, FRIEND, "小王", "别损了我很烦", 3)
-    assert "别损" in gc._tease_risk(GROUP, "笑死，你也有今天", FRIEND)
-    now = time.time()
-    for i in range(6):
-        gc._record(GROUP, FRIEND if i % 2 == 0 else FRIEND2, "x", f"第{i}句", 10 + i)
-        gc.db.conn.execute("UPDATE qq_group_messages SET ts=? WHERE qq_msg_id=?", (now - 60 + i * 10, 10 + i))
-    gc.db.conn.commit()
-    assert "一来一回" in gc.room_hot(GROUP, now)
 
 
 def test_autobio_apply_and_blocks(cfg, brain):
@@ -156,45 +114,6 @@ def test_daily_metrics_and_flavor(cfg, brain):
 
 
 # ---------------- 22.1 编别人的事 / 被质疑还嘴硬 ----------------
-def test_other_claims(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, FRIEND, "小王", "这个网站挺好玩", 1)
-    assert "编了小王的事" in gc._other_claims(GROUP, "你今天emo啥呢，睡一觉还没缓过来", FRIEND)
-    assert "编了小王的事" in gc._other_claims(GROUP, "小王别到时候又看纪录片看哭", None)
-    assert gc._other_claims(GROUP, "你今天咋了，还好吗", FRIEND) == ""              # 问一句不算
-    gc._record(GROUP, FRIEND, "小王", "昨晚又加班到十一点", 2)
-    assert gc._other_claims(GROUP, "小王你又加班了啊", None) == ""                 # 他自己说过
-
-
-def test_disputed(cfg, brain):
-    from aigroup.chat.checks import _values
-    assert _values("两点开打") == {"2点"} and "12点" in _values("你那个十二点是哪看的")
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, 10001, "小满", "两点开打，我盯着时间提醒你", 1, role="assistant")
-    gc._record(GROUP, FRIEND, "小王", "不是十二点吗", 2)
-    assert "不对" in gc._disputed(GROUP, "我查的是两点，你那个十二点是哪看的")
-    assert gc._disputed(GROUP, "我查的是两点", web="赛程：14:00 两点开赛") == ""      # 真查到了可以照说
-    assert gc._disputed(GROUP, "哦那我记错了，十二点") == ""
-    gc._record(GROUP, 10001, "小满", "这活动9月底就结束了", 3, role="assistant")
-    gc._record(GROUP, FRIEND2, "老张", "上面不是写着到10月31日吗", 4)
-    assert "9月底" in gc._disputed(GROUP, "那个31号是整体到期，买一赠一9月底就没了")
-
-
-def test_other_claims_carry_subject_and_concede(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, FRIEND, "小王", "[回复你的「小王别看哭」] 无敌好了", 1)
-    assert "编了小王的事" in gc._other_claims(GROUP, "小王你签运我还没看，别到时候又看纪录片看哭", None)
-    gc._record(GROUP, 10001, "小满", "两点开打", 2, role="assistant")
-    gc._record(GROUP, FRIEND, "小王", "不是十二点吗", 3)
-    assert gc._disputed(GROUP, "行，那十二点算你对") == ""
-
-
-def test_other_claims_ascii_word_boundary(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, FRIEND, "小王", "https://example.github.io/mirofish-demo/", 1)
-    assert "编了小王的事" in gc._other_claims(GROUP, "你今天emo啥呢", FRIEND)
-
-
 def test_kripp_alpha():
     from aigroup.eval.calib import kripp_alpha, to_human_scale
     h = [1, 2, 3, 4, 5, 3, 2, 4]
@@ -209,9 +128,6 @@ def test_image_only_is_not_a_bid_and_no_guessing(cfg, brain):
     gc._record(GROUP, 10001, "小满", "我宣布我已经学成了", 1, role="assistant")
     assert gc.bid_from(GROUP, FRIEND, "[图片]") == ""
     gc._record(GROUP, FRIEND, "小王", "[图片：照片，店里贴的羽毛球价目表，「羽毛球價目表」「RSL」]", 2)
-    assert "别替发图的人" in gc._image_guess(GROUP, "小王这是在看8号那场的场地啊")
-    assert gc._image_guess(GROUP, "这是要买球？") == ""
-    assert gc._image_guess(GROUP, "RSL 这么便宜") == ""
 
 
 def test_trim_desc():
@@ -259,7 +175,5 @@ def test_image_block_and_intent(cfg, brain):
                                     '"why": [{"guess": "觉得贵吐槽", "conf": "中"}, {"guess": "想买球", "conf": "low"}], "how": "问一句"}}')
     assert p["image"]["top"] == "中" and p["image"]["why"][1]["conf"] == "低"
     gc._record(GROUP, FRIEND, "小王", "[图片：照片，价目表]", 4)
-    assert "别替发图的人" in gc._image_guess(GROUP, "小王这是在挑球啊", image={"top": "中"})
-    assert gc._image_guess(GROUP, "小王这是在挑球啊", image={"top": "高"}) == ""     # 有把握（前面在聊买球）：可以顺着说
     gc._record(GROUP, 10001, "小满", "嗯", 5, role="assistant")
     assert gc.image_block(GROUP) == ""                                             # 她说过话以后的才算

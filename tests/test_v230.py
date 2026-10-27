@@ -51,6 +51,7 @@ def test_listener_ok_says_and_early_queues(cfg, brain):
     assert _say(gc, brain) and ob.sent and gc._st(GROUP).pitch is None     # “可以”就说，不再先放着
     ob.sent.clear()
     brain.llm.window = "early"
+    gc._st(GROUP).__dict__["answered"] = {}               # 26.0 回过的那条没被叫到会直接不说：这里只测听者
     assert not _say(gc, brain, "要不要加件衣服") and not ob.sent and gc._st(GROUP).pitch
 
 

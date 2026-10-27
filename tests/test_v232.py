@@ -43,24 +43,6 @@ def test_video_pending_and_about_her(cfg, brain):
     assert not gc.video_about_her(GROUP, {"title": "羽毛球教学", "gist": "正手发球", "keys": ["发球"]})
 
 
-def test_media_claim_promise_words(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, FRIEND, "小王", "[视频]", 1)
-    for t in ("成片来了，我看看", "这就去看", "行，等你调完看成片"):
-        assert "打不开" in gc._media_claim(GROUP, t, time.time()), t
-
-
-def test_image_assert_even_when_sure(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    gc._record(GROUP, FRIEND2, "老张", "周末打球不", 1)
-    gc._record(GROUP, FRIEND, "小王", "[图片：照片，拍的是一家店的羽毛球價目表，關鍵字「羽毛球價目表」「RSL」「VICTOR」，"
-                                      "圖中日期「2025年8月」]", 2)
-    w = gc._image_guess(GROUP, "小王这是在看8号那场的场地啊", image={"top": "高"})
-    assert "图里写着是什么就是什么" in w
-    assert gc._image_guess(GROUP, "小王这是在挑球啊", image={"top": "高"}) == ""      # 图里有球：顺着说
-    assert gc._image_guess(GROUP, "这是要买球？", image={"top": "高"}) == ""
-
-
 def test_catchphrase_family(cfg, brain):
     gc, _ = _gc(cfg, brain)
     gc._record(GROUP, FRIEND, "小王", "晚上吃啥", 1)

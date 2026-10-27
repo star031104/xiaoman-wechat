@@ -933,7 +933,7 @@ class GroupHome:
         return gid
 
     async def settings_get(self, req):
-        from aigroup.chat.settings import GLOBAL_ONLY
+        from aigroup.chat.settings import GLOBAL_ONLY, MAIN_KNOBS
         gid = self._knob_gid(req.query.get("gid"))
         over = self.db.get("web_overrides") or {}
         base = {**defaults_for(self.cfg.get('channel')), **chan_group(self.cfg)}
@@ -943,11 +943,12 @@ class GroupHome:
             if gid is None:
                 items.append({"key": k, "label": label, "kind": kind, "min": lo, "max": hi, "step": step, "hint": hint,
                               "value": self.gc.g.get(k), "base": base.get(k), "changed": k in over,
-                              "groups": [g for g in sorted(self.gc.groups) if k in (self.gc.gover.get(g) or {})]})
+                              "groups": [g for g in sorted(self.gc.groups) if k in (self.gc.gover.get(g) or {})],
+                              "main": k in MAIN_KNOBS})
             else:
                 items.append({"key": k, "label": label, "kind": kind, "min": lo, "max": hi, "step": step, "hint": hint,
                               "value": self.gc.gk(gid).get(k), "base": self.gc.g.get(k), "changed": k in gover,
-                              "global_only": k in GLOBAL_ONLY})
+                              "global_only": k in GLOBAL_ONLY, "main": k in MAIN_KNOBS})
         return web.json_response({"items": items, "gid": gid})
 
     async def settings_set(self, req):

@@ -44,24 +44,47 @@ def active_time(hours: list[int]) -> str:
     return f"常在{top}出现" if share >= 0.4 else ""
 
 
-def profile_line(name: str, prof: dict, fam: str, when: str, owner_note: str = "") -> str:
-    """一个人的画像拼成一行，给提示词用。"""
+FIELD_CHARS = 160      # 28.0 画像里每一项最多多少字（口头禅、兴趣、说话风格常常一项就三四百字）
+PERSON_CHARS = 1300    # 28.0 一个人的画像最多多少字（以前 3 个人就 6000 字，占 system 三分之一多）
+
+
+def _cut(v, n: int = FIELD_CHARS) -> str:
+    v = str(v)
+    if len(v) <= n:
+        return v
+    head = v[:n]
+    k = max(head.rfind("；"), head.rfind("、"), head.rfind("，"), head.rfind("/"))
+    return (head[:k] if k > n // 2 else head).rstrip("；、，/ ") + "…"
+
+
+def profile_line(name: str, prof: dict, fam: str, when: str, owner_note: str = "",
+                 cap: int = PERSON_CHARS) -> str:
+    """一个人的画像拼成一行，给提示词用。28.0：每项、每个人都有上限；称呼、别碰、熟悉度一定留着。"""
     p = prof or {}
-    bits = []
+    bits: list[tuple[bool, str]] = []                 # (一定要留, 内容)
     if owner_note:
-        bits.append(owner_note)
+        bits.append((True, owner_note))
     if p.get("印象"):
-        bits.append(str(p["印象"]))
+        bits.append((True, _cut(p["印象"])))
     for k in ("称呼", "性格", "说话风格", "口头禅", "兴趣", "看法", "近况", "群里关系", "和你", "怎么聊", "他的反应", "在意"):
         if p.get(k):
-            bits.append(f"{k}：{p[k]}")
+            bits.append((k in ("称呼", "近况", "和你"), f"{k}：{_cut(p[k])}"))
     if p.get("记得的事"):
         v = p["记得的事"]
-        bits.append("记得：" + ("；".join(map(str, v[:PROFILE_MEMORIES])) if isinstance(v, list) else str(v)))
+        mem = "；".join(_cut(x, 60) for x in v[:PROFILE_MEMORIES]) if isinstance(v, list) else _cut(v, 300)
+        bits.append((False, "记得：" + _cut(mem, 360)))
     if p.get("别碰"):
-        bits.append(f"别碰：{p['别碰']}")
-    bits.append(f"熟悉度：{fam}" + (f"，{when}" if when else ""))
-    return f"- {name}：" + "；".join(bits)
+        bits.append((True, f"别碰：{_cut(p['别碰'], 240)}"))
+    bits.append((True, f"熟悉度：{fam}" + (f"，{when}" if when else "")))
+    room = cap - sum(len(t) + 1 for must, t in bits if must)
+    keep = []
+    for must, t in bits:
+        if must:
+            keep.append(t)
+        elif len(t) + 1 <= room:
+            keep.append(t)
+            room -= len(t) + 1
+    return f"- {name}：" + "；".join(keep)
 
 
 PROFILE_KEYS = ["印象"] + PROFILE_FIELDS   # 小屋里能改的画像字段

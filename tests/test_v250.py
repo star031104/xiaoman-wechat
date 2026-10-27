@@ -65,15 +65,6 @@ def test_copy_check(cfg, brain):
     assert not gc._copied(GROUP, "他原话是“这周末去爬山的话记得带够水和吃的”")     # 引号里是在引用
 
 
-def test_misattrib(cfg, brain):
-    gc, _ = _gc(cfg, brain)
-    now = time.time()
-    gc._record(GROUP, FRIEND, "小王", "37.3都快正常体温了", 1, ts=now - 100)
-    gc._record(GROUP, FRIEND2, "老张", "37.3那是低烧啊", 2, ts=now - 20)
-    assert "小王" in gc._misattrib(GROUP, "37.3还是有点烧，老张你别拿它当正常体温", now)
-    assert not gc._misattrib(GROUP, "小王你别拿它当正常体温", now)
-
-
 def test_chunked_transcript_keeps_prefix(cfg, brain):
     gc, _ = _gc(cfg, brain)
     gc.g["context_chunk"] = 15
@@ -104,3 +95,12 @@ def test_self_pity_family():
     for t in ["你们仨都高级，就我一个打工的", "就我光秃秃一个小满", "我一个小AI哪敢跟你老板说话", "那我这妹妹也失宠了呗"]:
         assert rx.search(t), t
     assert SELF  # conftest 里的她
+
+
+def test_misattrib(cfg, brain):
+    gc, _ = _gc(cfg, brain)
+    now = time.time()
+    gc._record(GROUP, FRIEND, "小王", "37.3都快正常体温了", 1, ts=now - 100)
+    gc._record(GROUP, FRIEND2, "老张", "37.3那是低烧啊", 2, ts=now - 20)
+    assert "小王" in gc._misattrib(GROUP, "37.3还是有点烧，老张你别拿它当正常体温", now)
+    assert not gc._misattrib(GROUP, "小王你别拿它当正常体温", now)

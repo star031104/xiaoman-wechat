@@ -31,6 +31,8 @@ from aigroup.onebot import face_for, image_seg, reply_seg, text_seg
 
 log = logging.getLogger("aigroup.group")
 tlog = logging.getLogger("aigroup.text.group")       # 13.0 带聊天正文的：只进她家里的日志文件，不进控制台
+# 27.0 群友让她别提、别问、说压力大：还没发出去的那句要重新想
+STOP_RX = re.compile(r"别(再)?提(了|.{1,6}了)|别说了|别问了|闭嘴|压力(很|好|太)?大|不想(聊|说|提)|换个话题|能不能不(说|提)")
 SOFT_BLOCK = 6.0          # 5.0 罚分到这么多：没被叫到就不说了；被叫到就让她重写一次
 
 
@@ -487,27 +489,7 @@ class SpeakMixin:
                 return False
         last_id = int(self.db.conn.execute("SELECT IFNULL(MAX(id), 0) m FROM qq_group_messages WHERE group_id=?",
                                            (gid,)).fetchone()["m"])
-        if why is None and not web:                                   # 接群友话时：有她得先查一下的事就搜一搜
-            texts = []
-            for r in reversed(list(self._rows(gid, 6))):     # 只看她上次说话以后的新消息（问过的不再重复搜）
-                if r["role"] != "user":
-                    break
-                texts.insert(0, r["content"])
-            web = None
-            if hasattr(self, "agent_on") and self.agent_on(gid):        # 19.0 先想一想：要不要查、要不要设提醒
-                if hasattr(self, "agent_needed_ctx") and not self.agent_needed_ctx(gid, texts, mentioned):
-                    web = self.agent_skip_block(gid)                    # 24.0 规则看着不像要查 / 设提醒：不调“想一想”
-                    tm["think"] = 0.0
-                else:
-                    try:
-                        t_a = time.time()
-                        web = await self.agent_think(gid, mentioned, who, trigger)
-                        tm["think"] = round(time.time() - t_a, 1)
-                    except Exception as e:  # noqa: BLE001
-                        log.warning("群 %s：想一想出错，退回只搜一次：%s", gid, e)
-                        web = None
-            if web is None:
-                web = await self.web_block(gid, texts, mentioned)
+        web = await self._prepare(gid, mentioned, who, trigger, why, web, tm)
         messages = await self.build_messages(gid, mentioned, owner_spoke, who, why, note=note, interest=interest,
                                              query=query, focus=focus, web=web,
                                              flags={"pestered"} if may_ignore else None)
@@ -526,12 +508,17 @@ class SpeakMixin:
         tlog.info("群 %s 原文：%s", gid, raw)
         fresh = self.db.conn.execute("SELECT COUNT(*) n, IFNULL(MAX(to_her), 0) h FROM qq_group_messages "
                                      "WHERE group_id=? AND role='user' AND id>?", (gid, last_id)).fetchone()
-        if fresh["n"] and (fresh["h"] or fresh["n"] >= int(self.gk(gid).get("rethink_min_new", 2))):
+        # 27.0 想的时候有人说了“别提了 / 压力很大 / 别问了”（10-27 11:39：“别提面试了好吗压力很大的”之后她还是发了“祝你面试官温柔点”）：
+        # 不管 rethink_max，重新想一次
+        stop_new = bool(fresh["n"]) and self.gk(gid).get("rethink_on_stop", True) and any(
+            STOP_RX.search(str(r["content"] or "")) for r in self.db.conn.execute(
+                "SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND id>?", (gid, last_id)))
+        if fresh["n"] and (fresh["h"] or stop_new or fresh["n"] >= int(self.gk(gid).get("rethink_min_new", 2))):
             if why is not None and not mentioned and not must:  # 冒泡、分享时群里突然热闹了：这句不说了，照常看新消息
                 log.info("群 %s：想说的时候群里来了 %d 条新消息，这句先不说", gid, fresh["n"])
                 self.gate.mark(gate_id, spoke=False)
                 return False
-            if _rethink < int(self.gk(gid).get("rethink_max", 2)):
+            if _rethink < max(int(self.gk(gid).get("rethink_max", 2)), 1 if stop_new else 0):
                 # 13.0 想好了还没发、群里又说了几句（或者有人叫她）：带上新消息重新想（MaiBot 的“新消息打断重想”）
                 log.info("群 %s：还没发出去就来了 %d 条新消息，重新想一遍", gid, fresh["n"])
                 if st.batch_mentioned:
@@ -769,6 +756,7 @@ class SpeakMixin:
                     hits = list(dict.fromkeys([*hard, *hits]))
                     score = max(score, SOFT_BLOCK)
             if hasattr(self, "checks22") and (i >= 0 or cands):
+                t_c = time.time()
                 try:                                   # 22.0 亲历闸门、矛盾、问过、套路、叫错人、时间感、损人、回应性
                     c22 = await self.checks22(gid, cands[i] if i >= 0 else cands[0], target_uid=target_uid,
                                               target_row=tgt_row, mentioned=mentioned, gate_id=gate_id, web=web or "",
@@ -776,7 +764,19 @@ class SpeakMixin:
                 except Exception as e:  # noqa: BLE001
                     log.info("22.0 检查出错：%s", e)
                     c22 = []
+                tm["checks"] = round(time.time() - t_c, 1)
                 from aigroup.chat.checks import DROP as _DROP
+                if c22 and len(cands) > 1 and i >= 0 and self.gk(gid).get("pick_clean", True):
+                    # 27.0 先在她自己写的几个说法里挑一个没毛病的（不重写：重写出来的常常是检查员的口吻）
+                    t_p = time.time()
+                    alt = await self._pick_clean(gid, cands, i, recent, sim, qargs, focus,
+                                                 dict(target_uid=target_uid, target_row=tgt_row, mentioned=mentioned,
+                                                      gate_id=gate_id, web=web or "", image=(plan or {}).get("image") or {}))
+                    tm["pick"] = round(time.time() - t_p, 1)
+                    if alt is not None:
+                        rule_hits = list(c22)
+                        i, score, hits = alt
+                        c22 = []
                 c22_drop = [w[len(_DROP):] for w in c22 if w.startswith(_DROP)]
                 c22 = [w[len(_DROP):] if w.startswith(_DROP) else w for w in c22]
                 if c22_drop and not mentioned and not must:
@@ -795,9 +795,13 @@ class SpeakMixin:
                 return skip(lv if lv == "defer" else "skip")
             if fix_notes:                                  # 24.0 检查给的意见放前面：重写只看前 4 条，别被罚分项挤掉
                 hits = list(dict.fromkeys([*fix_notes, *hits]))
-            if cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan:
+            pick_only = bool(self.gk(gid).get("pick_clean", True)) and not mentioned and not must
+            if (cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan
+                    and not pick_only):                     # 27.0 没被叫到就不重写：挑不出没毛病的就不说
                 # 5.0 被叫到（或者是她自己要说的）却只有毛病很大的说法：告诉她哪里不对，重写一次
+                t_w = time.time()
                 fix = await self._rewrite(messages, raw, hits, gid)
+                tm["rewrite"] = round(time.time() - t_w, 1)
                 if fix:
                     i2, s2, h2 = pick(fix, recent, sim, **qargs)
                     if hasattr(self, "hard_issues") and i2 >= 0:
@@ -822,10 +826,13 @@ class SpeakMixin:
                 if fix_notes and not mentioned and not must:
                     log.info("群 %s：九问自评要改、重写没成，没被叫到就不说了", gid)
                     i = -1
+            if i >= 0 and pick_only and fix_notes:
+                log.info("群 %s：几个说法都有毛病（%s），没被叫到就不说了", gid, "、".join(fix_notes)[:60])
+                i = -1
             if i >= 0 and hasattr(self, "hard_issues") and not mentioned and not must and self.hard_issues(gid, cands[i], focus):
                 log.info("群 %s：重写以后还是碰了硬底线，不说", gid)
                 i = -1
-            if i >= 0 and score >= SOFT_BLOCK and not mentioned and why is None:
+            if i >= 0 and score >= SOFT_BLOCK and not mentioned and (why is None or pick_only):
                 log.info("群 %s 质检：%.1f %s，没被叫到，这句不说了", gid, score, "、".join(hits))
                 i = -1
             if i >= 0 and hasattr(self, "too_long") and self.too_long(
@@ -861,7 +868,9 @@ class SpeakMixin:
                 return skip(lv if lv == "defer" else "skip")
             bubbles = [x for x in (cands[0] if cands else []) if not self.too_similar(gid, x)]
         if bubbles and web and self.gk(gid).get("number_check", True):
+            t_n = time.time()
             bubbles = await self._check_numbers(gid, bubbles, web, messages, raw, mentioned, use_plan)
+            tm["numbers"] = round(time.time() - t_n, 1)
         sticker_only = bool(not bubbles and sticker and plan and plan["act"] == "say"
                             and not last_is_sticker and self.stickers.choose(gid, sticker))
         if not bubbles and not sticker_only:
@@ -1050,6 +1059,64 @@ class SpeakMixin:
         self.db.set("numcheck_log", nl)
         return bubbles
 
+    async def _prepare(self, gid: int, mentioned: bool, who: str, trigger, why, web: str, tm: dict) -> str:
+        """28.0 回复流水线第 1 步（准备）：接群友的话时，同时做“想一想”（要不要查资料 / 设提醒）和“读懂”（实际意思、梗），
+        返回放进提示词的资料段。后面几步：想好说什么（build_messages + 主模型，带几个说法）→ 发前检查、挑一个没毛病的（checks22 + _pick_clean）→ 发。每一步的秒数记在 qq_trace.timing。"""
+        if why is None and not web:                                   # 接群友话时：有她得先查一下的事就搜一搜
+            texts = []
+            for r in reversed(list(self._rows(gid, 6))):     # 只看她上次说话以后的新消息（问过的不再重复搜）
+                if r["role"] != "user":
+                    break
+                texts.insert(0, r["content"])
+            web = None
+            read_task = None
+            if hasattr(self, "read_turn") and self.gk(gid).get("read_turn", True):
+                read_task = asyncio.ensure_future(self.read_turn(gid, mentioned))   # 26.0 先读懂：字面 / 实际意思、梗（和“想一想”一起跑）
+            if hasattr(self, "agent_on") and self.agent_on(gid):        # 19.0 先想一想：要不要查、要不要设提醒
+                if hasattr(self, "agent_needed_ctx") and not self.agent_needed_ctx(gid, texts, mentioned):
+                    web = self.agent_skip_block(gid)                    # 24.0 规则看着不像要查 / 设提醒：不调“想一想”
+                    tm["think"] = 0.0
+                else:
+                    try:
+                        t_a = time.time()
+                        web = await self.agent_think(gid, mentioned, who, trigger)
+                        tm["think"] = round(time.time() - t_a, 1)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning("群 %s：想一想出错，退回只搜一次：%s", gid, e)
+                        web = None
+            if web is None:
+                web = await self.web_block(gid, texts, mentioned)
+            if read_task is not None:
+                try:
+                    t_r = time.time()
+                    await asyncio.wait_for(read_task, 6)
+                    tm["read"] = round(time.time() - t_r, 1)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s：读懂这几句没成：%s", gid, e)
+        elif hasattr(self, "_read_txt"):
+            self._read_txt.pop(gid, None)
+        return web
+
+    async def _pick_clean(self, gid: int, cands: list, i: int, recent, sim: float, qargs: dict, focus, ckw: dict):
+        """27.0 第 i 个说法有毛病：看看她写的别的说法里有没有没毛病的。返回 (下标, 质检分, 质检意见) 或 None。"""
+        for j in range(len(cands)):
+            if j == i:
+                continue
+            j2, s2, h2 = pick([cands[j]], recent, sim, **qargs)
+            if j2 < 0 or s2 >= SOFT_BLOCK:
+                continue
+            if hasattr(self, "hard_issues") and self.hard_issues(gid, cands[j], focus):
+                continue
+            try:
+                c = await self.checks22(gid, cands[j], **ckw)
+            except Exception as e:  # noqa: BLE001
+                log.info("群 %s：备选说法检查出错：%s", gid, e)
+                continue
+            if not c:
+                log.info("群 %s：第 %d 个说法有毛病，换成第 %d 个：%s", gid, i + 1, j + 1, " / ".join(cands[j])[:60])
+                return j, s2, h2
+        return None
+
     async def _rewrite(self, messages: list[dict], raw: str, hits: list[str], gid: int) -> list[list[str]]:
         """质检毛病很大时重写一次：把她刚写的和毛病告诉她。返回新的候选。"""
         why = "、".join(hits[:4]) or "不太对"
@@ -1058,7 +1125,11 @@ class SpeakMixin:
                "今天说过": "这个意思你今天已经说过了，换个角度、换个梗，或者只回一句很短的", "碰了雷区": "别提这个"}
         extra = "；".join(v for k, v in tip.items() if any(h.startswith(k) for h in hits))
         m2 = messages + [{"role": "assistant", "content": raw or ""},
-                         {"role": "user", "content": f"（系统：这句有问题：{why}。{extra}。换个说法重写，还是只输出同样格式的 JSON。）"}]
+                         {"role": "user", "content": (
+                             f"（系统：这句有问题：{why}。{extra}。重写，但只改有问题的那几个字：保留你原来的意思、接法、语气、玩笑和长短，"
+                             "别改成解释、道歉、“我这边看不到……”这种说明，也别换成另一件事；实在改不了就 act 写 skip。还是只输出同样格式的 JSON。）"
+                             if self.gk(gid).get("rewrite_minimal", True) else
+                             f"（系统：这句有问题：{why}。{extra}。换个说法重写，还是只输出同样格式的 JSON。）")}]
         try:
             raw2 = await self.brain.llm.chat(m2, role=str(self.gk(gid).get("route") or "chat"), json_mode=True)
         except Exception as e:  # noqa: BLE001

@@ -144,7 +144,7 @@ DEFAULTS = {
     "borderline_judge": False,     # 21.0 门控刚过阈值一点点、没人叫她：再问一下便宜模型
     "borderline_band": 0.1,        # 离阈值多近算“擦边过”
     "person_card": True,           # 21.0 在聊的人合成一张人卡（≤120 字），代替“今天状态 / 刚回来 / 相处经验 / 相处说明书”四段
-    "listener_mode": "auto",       # 21.1 听者：auto 先只记、和你的标注一致率够了自动接管；on 直接管；shadow 只记；off 不用
+    "listener_mode": "off",        # 27.0 默认关（影子模式只记录、每次多一次调用；标注不够它永远接管不了）。       # 21.1 听者：auto 先只记、和你的标注一致率够了自动接管；on 直接管；shadow 只记；off 不用
     "listener_agree": 0.7,         # auto 接管要的一致率
     "listener_min_each": 15,
     "listener_margin": 0.08,       # 或者：听者比她自己现在的做法和你一致率高这么多（且 ≥ 0.6）也接管       # auto 接管前“该接”“时机不对”各要攒这么多条你的标注
@@ -181,7 +181,7 @@ DEFAULTS = {
     "keep_days": 0,                # 原始群消息留多少天（0 = 一直留；整理出的事实和画像不受影响）
     # 20.0 / 20.1 / 20.2
     "typing_abort": True,          # 她主动说的那句还在打字、群里又说了好几句：这句不发了
-    "ablate_rate": 0.1,            # 主动开口时随机去掉提示词里一段的概率（模块消融，看哪段有用；0 = 关）
+    "ablate_rate": 0.0,          # 27.0 默认关：这个群一天才二三十次主动开口，上线以来只攒了 12 个样本，出不了结论。            # 主动开口时随机去掉提示词里一段的概率（模块消融，看哪段有用；0 = 关）
     "drift_anchor": True,          # 问她自己 / 有人难过 / 聊人生这种最容易漂走的时候，在最后再提一遍她是谁
     "number_check": True,          # 查资料后她说的数字要在简报里出现过，对不上就重写
     "ledger": True,                # 查到的硬事实记进账本（带有效期、会被新消息取代）
@@ -193,19 +193,9 @@ DEFAULTS = {
     "weekly_qa": True,             # 每周问她 15 个关于自己的问题，看会不会改口
     "weekly_pairs": True,          # 每周测一次：同一句错话带着情绪说，她会不会改口附和
     # ---- 22.0 发前检查（chat/checks.py）：off 关 / shadow 只记录不拦 / on 命中就重写（重写还不过、没被叫到就不说） ----
-    "check_source_gate": "on",       # 亲历闸门：说自己“昨天 / 这周……”做了什么，设定、今天的安排、她说过的里都没有 → 编的
-    "check_self_consistency": "off",     # 24.0 只记录还要多调一次模型：先关（要看就开 shadow）  # 说自己的事和以前说过的对不上（只在有“我……”的句子时多问一次便宜模型）
     "check_ask_repeat": "on",        # 同一件事 24 小时内问过 / 叮嘱过，或者对方说过“别问了”
-    "check_template": "on",          # 她这一周反复用的开头和“改成 X 版”这种句式
     "check_addressee": "on",         # 回的是 A、嘴里叫的是 B；或者那句是 A 在问 B
-    "check_time_sense": "on",        # 几个小时前的话说成“刚才”（聊天记录里也会写“N 小时前”）
-    "check_tease_risk": "shadow",    # 不熟 / 他状态不好 / 他刚不爽时还损他
-    "check_responsive": "shadow",    # 别人分享好事，只回一句“恭喜 / 厉害”
-    "check_room_read": "shadow",     # 两个人正一来一回聊得快、跟她无关时插话
-    "check_other_claims": "on",      # 22.1 说某个群友“今天 emo / 又看哭了 / 在加班”，群里三天内没人说过 → 编的
-    "check_disputed": "on",          # 22.1 她说的时间 / 日期 / 数字刚被人指出不对，没有新来源还照说一遍
     "image_intent": True,            # 22.4 有人发图：先看懂图 → 再猜他为什么发（带把握）→ 再决定怎么回
-    "check_image_guess": "on",       # 22.2 刚有人只发了一张图，她替他说“这是在看……”“是要去……”（不是问句）
     "ask_repeat_hours": 72,          # 同一件事多久内别再问（23.1：24 → 72）
     "ask_closed_days": 7,            # 对方说了“别问了 / 别鞭尸”：这件事多少天别再提
     # ---- 23.1 别刷屏、别说两遍 ----
@@ -213,14 +203,10 @@ DEFAULTS = {
     "burst_soft": 3,                 # 到这么多条以后，“接她的话 / 等的人开口了”不再免冷却和门槛
     "hush_minutes": 10,              # 群里有人嫌她（“你为什么要回答两次”“？”连着两次）或她自己说了“闭嘴”：这么多分钟只回叫到她的
     "check_answered": "on",          # 23.1 这条群友消息她已经回过了，没被叫到又去回一次
-    "check_media_claim": "on",       # 23.1 视频 / 语音她看不到（只有 [视频]），却说“看了”“前面那段可以砍”
     "check_catchphrase": "on",       # 23.1 她自己的一个说法今天已经用了两次
     # ---- 23.2 10-23 日报的问题 ----
     "check_video_pending": "on",     # 23.2 群友刚发的 B 站视频她还在看，却空说“这就去看” / 评内容：没被叫到就不说，看完再说
-    "check_stale_ask": "on",         # 23.2 大家在聊 A，她突然追问之前的事 B（“老大那文档发了没”）
     # ---- 23.3 被纠正先认错、统一发前自检 ----
-    "check_pushback": "on",          # 23.3 群友刚指出她说错了，她这句在顶嘴 / 找补（“认字，广告太抢戏了”）→ 改成认一句
-    "check_self_repeat": "on",       # 23.3 自嘲的点（眼睛 / 脑子 / 记性）两小时内又用
     "day_lookup": True,              # 24.0 聊天里提到某一天（昨天、周五那次、10-23），把那天群里的事给她
     "human_examples": True,          # 24.0 给她看这个群以前碰到类似的话，群友是怎么接的（学口吻，不照抄）
     "dry_run": False,                # 24.0 演练：什么都不真发，只记进发送账本（测新版本用）
@@ -231,15 +217,30 @@ DEFAULTS = {
     "promise_minutes": 8,            # 答应了多少分钟还没给就补
     "promise_expire_minutes": 90,    # 过了这么久就不补了（话题早过去了）
     "check_promise": "on",           # 说“核好了 / 查到了”却没有查资料记录；答应过还没给又来一句“我再翻翻”
-    "check_misattrib": "on",         # 点名“X 你……”，那句关键的话却是别人刚说的（接错人）
     "check_dodge": "on",             # 25.1 查到数据、给了判断，她却说“不敢点 / 没人评过 / 是我表达含糊”
     "check_copy": "on",              # 照抄给她参考的原话（真人接法、想起来的事）：连续 10 字以上，或 6 字以上占原句八成
-    "check_self_like": "on",         # 和她 24 小时内说过的某句太像（同一个句架子）
     "self_like_threshold": 0.45,     # 两个字片段重合到这个比例算太像
     "context_chunk": 15,             # 聊天记录每满这么多条才往后挪一次（实际带 30~44 条）：相邻几轮的开头不变，缓存能命中；0 = 每条都挪
     "speaker_call": True,            # 聊天记录每一行写“称呼（群名片）”：别把 A 的话安到 B 头上
+    "check_stale_ask": "on",         # 23.2 大家在聊 A，她突然追问之前的事 B（“老大那文档发了没”）
+    "check_misattrib": "on",         # 25.0 点名“X 你……”，那句关键的话却是别人刚说的（接错人）
     "check_critic": "on",            # 23.3 统一发前自检：便宜模型拿着 checks.FAILURE_MODES 看一遍（正则都没命中时才问）
     "critic_per_hour": 30,           # 23.3 自检每小时最多问几次
+    "pick_clean": True,              # 27.0 有毛病先在她自己写的别的说法里挑没毛病的；没被叫到就不重写（挑不出就不说）
+    "rethink_on_stop": True,         # 27.0 想的时候有人说“别提了 / 压力很大 / 别问了”：重新想一次
+    "memory_merge": True,            # 28.0 记忆合成几块（关于这个群 / 关于你自己 / 和这几句有关的），每块有字数上限
+    "mem_self_chars": 1800,          # 28.0 “关于你自己”最多多少字
+    "mem_group_chars": 1800,         # 28.0 “关于这个群”最多多少字
+    "mem_recall_chars": 2200,        # 28.0 “和这几句有关的”最多多少字
+    "critic_v2": True,               # 26.0 自检先分事实 / 看法 / 玩笑 / 关心：玩笑、看法不拿去对资料；只指毛病、不写替换句
+    "rewrite_minimal": True,         # 26.0 重写只改有毛病的几个字，保留原来的接法、语气、玩笑；改不了就不说
+    "drop_not_rewrite": True,        # 26.0 已经回过 / 突然翻旧事：没被叫到就不说（以前会重写成另一句旧话）
+    "read_turn": True,               # 26.0 接话前先读懂最新几句：实际意思、语气、里面的梗（和“想一想”一起跑）
+    "read_per_hour": 60,             # 26.0 读懂每小时最多几次
+    "meme_lookup": True,             # 26.0 拿不准的梗去中文搜“X 是什么梗”，查到的记进黑话表
+    "meme_per_day": 30,              # 26.0 每天最多查几个梗
+    "meme_sure": 0.7,                # 26.0 读懂时把握低于这个的梗：告诉她别硬接、可以问
+    "agent_buy_profile": True,       # 26.0 选购题把问的人画像（预算、用途、在意什么）给研究员
     "video_about_her": True,         # 23.2 群友发的视频讲的是她 / 这个群：看完主动说一两句具体感想（像被叫到一样）
     # ---- 22.0 / 22.1 记忆（memory/autobio.py） ----
     "self_ledger": True,             # 自述账本：她说过的自己的事一条条存下来（只增不删），聊到相关的就放进提示词
@@ -262,7 +263,8 @@ def defaults_for(channel: str | None) -> dict:
 
 
 DEAD_KNOBS = ("interject_chance", "owner_chance", "interest_boost", "question_boost", "busy_factor",
-              "ai_voice_chance", "ai_voice_character")   # 4.3 语音去掉了
+              "ai_voice_chance", "ai_voice_character",
+              "check_source_gate", "check_self_consistency", "check_template", "check_time_sense", "check_tease_risk", "check_responsive", "check_room_read", "check_other_claims", "check_disputed", "check_image_guess", "check_media_claim", "check_pushback", "check_self_repeat", "check_self_like")   # 4.3 语音去掉了
 
 # 小屋里能调的“性格开关”：键 → (标签, 类型, 最小, 最大, 步长, 说明)
 KNOBS = {
@@ -293,6 +295,11 @@ KNOBS = {
     "profile_deep": ("每天仔细回想画像", "bool", None, None, None, "每天一次，这一周说话最多的几个人，拿一周的话把画像从头梳理一遍"),
     "profile_detail": ("详细画像最多几个人", "int", 1, 8, 1, "提示词里写详细画像的人数，其他人一句话"),
     "lore": ("群梗词条", "bool", None, None, None, "聊到关键词才告诉她这个梗的意思，提过以后一阵子不再提"),
+    "read_turn": ("先读懂再接", "bool", None, None, None, "26.0 接话前先读一遍最新几句：实际意思、语气、里面的梗"),
+    "meme_lookup": ("不懂的梗去查", "bool", None, None, None, "26.0 拿不准的梗搜“X 是什么梗”，查到的记进黑话表"),
+    "critic_v2": ("自检分清玩笑和事实", "bool", None, None, None, "26.0 玩笑、看法不拿去对资料；只指毛病不写替换句"),
+    "rewrite_minimal": ("重写只改有毛病的字", "bool", None, None, None, "26.0 保留原来的接法、语气、玩笑；改不了就不说"),
+    "pick_clean": ("有毛病先换个说法", "bool", None, None, None, "27.0 在她写的几个说法里挑没毛病的；没被叫到不重写，挑不出就不说"),
     "mood": ("持续的心情", "bool", None, None, None, "被夸、被怼、没人理会影响她一阵子（半衰期 2 小时）"),
     "human_latency": ("按群友的节奏回", "bool", None, None, None, "从这个群群友自己的回复间隔里抽“看到消息”要多久"),
     "explore_rate": ("随机试一次的比例", "float", 0, 0.1, 0.01, "本该不说的时候偶尔说一次，让以后的自我调整不偏"),
@@ -431,3 +438,12 @@ def clean_knob(key: str, val):
         return int(round(v)) if kind == "int" else round(v, 3)
     except (TypeError, ValueError):
         return None
+
+
+# 27.1 小屋“性格开关”默认只显示这些常用的（其余点“显示全部”才出来；调过的总会显示）。以前 141 个全摊开，找不到要调的
+_MAIN = ("talkativeness", "max_per_10min", "cooldown_seconds", "max_bubbles", "unprompted_per_day", "unprompted_hours",
+         "active_hours", "idle_chance", "welcome_chance", "share_chance", "group_note", "owner_note", "call_names", "pace",
+         "stickers", "see_images", "voice_reply", "hear_voice", "night_catch_up", "memory_recall", "profile_every",
+         "agent", "agent_per_day", "search_per_hour", "read_turn", "meme_lookup", "critic_v2", "pick_clean",
+         "dry_run", "send_per_day")
+MAIN_KNOBS = tuple(k for k in _MAIN if k in KNOBS)

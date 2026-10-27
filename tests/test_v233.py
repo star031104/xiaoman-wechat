@@ -37,7 +37,7 @@ def test_critic(cfg, brain):
         return out["v"]
     brain.llm.chat = chat
     w = asyncio.run(gc._critic(GROUP, "AL吧，24分钟就没了", False, []))
-    assert w.startswith("自检：说了查到的资料里没有的数字") and "别报具体时长" in w
+    assert w.startswith("自检：当成事实说了查到的资料") and "别报具体时长" not in w     # 26.0 不再带替换句
     assert asyncio.run(gc._critic(GROUP, "x", False, ["pushback"])) == ""      # 规则已经命中：不再问
     out["v"] = '{"bad": false}'
     assert asyncio.run(gc._critic(GROUP, "AL吧", False, [])) == ""

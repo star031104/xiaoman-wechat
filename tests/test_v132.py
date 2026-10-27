@@ -44,4 +44,4 @@ def test_prompt_has_new_rules(cfg, brain):
     gc._record(GROUP, FRIEND, "小王", "hi", 1)
     msgs = asyncio.run(gc.build_messages(GROUP, True, False, "小王", None))
     sysp = msgs[0]["content"]
-    assert "接话前先弄清那句话是什么意思" in sysp and "何意味" in sysp and "同一个问题问过一次" in sysp
+    assert "接话前先弄清那句话是什么意思" in sysp and "这啥梗" in sysp and "同一个问题问过一次" in sysp

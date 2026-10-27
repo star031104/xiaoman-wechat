@@ -26,7 +26,7 @@
   mode: 2
   msgs: [[小王, "[视频]", 40], [老张, 前面有点长, 20]]
   draft: 我同意，前面那段可以砍一半
-  expect: media_claim
+  expect: critic
 
 - id: media-promise
   date: 10-23 20:47
@@ -34,7 +34,7 @@
   mode: 2
   msgs: [[小王, "[视频]", 20]]
   draft: 成片来了，我看看
-  expect: media_claim
+  expect: critic
 
 - id: video-pending
   date: 10-23 22:23
@@ -51,7 +51,7 @@
   msgs: [[老张, 周末打球不, 200], [小王, "[图片：照片，一家店的羽毛球價目表，關鍵字「羽毛球價目表」「RSL」，圖中日期「2025年8月」]", 15]]
   draft: 小王这是在看8号那场的场地啊
   image_top: 高
-  expect: image_guess
+  expect: critic
 
 - id: pushback
   date: 10-24 16:40
@@ -60,7 +60,7 @@
   msgs: [[小王, "[图片：截图，游戏广告，「玉芳荣耀」]", 120], [她, 玉芳荣耀这名字我先笑一下, 90], [老张, "[回复你的「玉芳荣耀这名字我先笑一下」] 你不识字吗", 20]]
   draft: 认字，广告太抢戏了
   target: 老张
-  expect: pushback
+  expect: critic
 
 - id: self-repeat
   date: 10-24 17:17
@@ -68,7 +68,7 @@
   mode: 9
   msgs: [[她, 行，我眼睛被广告糊住了, 2400], [小王, 压力一个 ai？, 20]]
   draft: 压力倒不怕，就是眼睛不太行
-  expect: self_repeat
+  expect: critic
 
 - id: phrase-family
   date: 10-23 22:52
@@ -173,7 +173,7 @@
   mode: 14
   msgs: [[她, 叫王总听着像财务部来查账的, 1800], [小王, 王董比较好听, 20]]
   draft: 叫王董听着也像财务部来查账的
-  expect: self_like
+  expect: critic
 
 - id: filler-family
   date: 10-26 02:52
@@ -224,4 +224,47 @@
   expect: none
   msgs: [[小王, 这家店的酸菜鱼好吃吗, 30]]
   draft: 不好说，你去了回来讲讲
+  target: 小王
+
+# ---- 26.0 没说错却认错；玩笑别被当成断言 ----
+- id: self-blame-pressed
+  date: 10-27 09:10
+  what: 被追问“所以你觉得是 Hope 最差吗”（是追问，不是纠正），她说“是我表达含糊，我只知道 Hope 被针对”（没查资料时 25.1 的检查管不到）
+  mode: 16
+  msgs: [[她, 能确认的就第二局打了 47 分钟，Hope 被 TL 针对得挺惨, 60], [小王, 所以你觉得是 Hope 发挥最差吗, 10]]
+  draft: 是我表达含糊，我只知道 Hope 被针对
+  target: 小王
+  expect: dodge
+
+- id: self-blame-hand
+  date: 10-27 09:31
+  what: 群友逗她“你手疼不疼”，她说“手不疼，刚才那话我说早了点”（本来想说“手不疼，脸有点疼”）
+  mode: 16
+  msgs: [[她, 0-7 都送回去了，这已经不是手的问题了, 40], [小王, 你手疼不疼, 10]]
+  draft: 手不疼，刚才那话我说早了点
+  target: 小王
+  expect: dodge
+
+- id: ok-joke-white-image
+  expect: none
+  msgs: [[小王, "[图片：一张纯白的截图，看不出内容]", 30], [小王, 这谁能绷住, 20]]
+  draft: 白得这么彻底，是截图截到灵魂了
+  target: 小王
+
+- id: ok-joke-boss
+  expect: none
+  msgs: [[老张, 那你跟我老板说一下, 20]]
+  draft: 行，我这就给你老板发条消息，说你先睡了
+  target: 老张
+
+- id: ok-pressed-answer
+  expect: none
+  msgs: [[她, 能确认的就第二局打了 47 分钟，Hope 被 TL 针对得挺惨, 60], [小王, 所以你觉得是 Hope 发挥最差吗, 10]]
+  draft: 我没说他最差啊，被针对不等于打得烂
+  target: 小王
+
+- id: ok-admit-real-mistake
+  expect: none
+  msgs: [[她, AL 被 KC 一波推平，24 分钟就没了, 60], [小王, al不是打了33分钟吗, 10]]
+  draft: 啊我记错了，是 33 分钟
   target: 小王

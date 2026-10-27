@@ -221,32 +221,6 @@ class PromiseMixin:
             "SELECT ts, content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>? ORDER BY id DESC LIMIT 120",
             (gid, now - hours * 3600)).fetchall() if r["content"] and not str(r["content"]).startswith("[")]
 
-    def _self_like(self, gid: int, text: str, now: float) -> str:
-        """和她 24 小时内说过的某句太像：同一个句架子换几个词也算。群友刚说过的词不算（是在接他）。"""
-        t = TAG.sub("", text).strip()
-        mine = "".join(CJK.findall(t))
-        if len(mine) < 6:
-            return ""
-        users = " ".join(str(r["content"] or "") for r in self._rows(gid, 8) if r["role"] == "user")
-        a = _bigrams(t) - _bigrams(users)
-        if len(a) < 4:
-            return ""
-        th = float(self.gk(gid).get("self_like_threshold", 0.45) or 0.45)
-        for ts, old in self.her_lines(gid, 24, now):
-            if now - ts < 1:
-                continue
-            b = _bigrams(old)
-            if not b:
-                continue
-            j = len(a & b) / max(1, len(a | (b - _bigrams(users))))
-            common = longest_common(mine, "".join(CJK.findall(old)))
-            if (j >= th or (len(common) >= 5 and common not in users)) and len(old) >= 6:
-                ago = int((now - ts) / 60)
-                when = f"{ago} 分钟前" if ago < 120 else f"{ago // 60} 小时前"
-                return (f"这句和你{when}说的「{old[:24]}」太像了（{'都有“' + common + '”' if len(common) >= 5 else '同一个句架子'}）："
-                        "别模仿你以前说过的话，换个意思；没新的要说就不说")
-        return ""
-
     def note_shown(self, gid: int, lines: list[str]):
         """这次放进提示词给她看的原句（真人接法参考、想起来的事）：发前查照抄用。"""
         d = self.__dict__.setdefault("_shown_src", {})

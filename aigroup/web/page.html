@@ -793,7 +793,7 @@ $("theme").onclick=()=>{const dark=document.documentElement.dataset.theme?docume
   theme=dark?"light":"dark";try{localStorage.setItem("gtheme",theme)}catch(e){}applyTheme(theme)};
 
 /* ============ 标签页 ============ */
-let cur="home";
+let cur="home",KALL=false;
 /* 18.0 顶栏：首页 / 她的日子 / 她 是“角色视图”；群聊、群友、学到的、管理三页在“工作台”里，左边有侧栏 */
 const WB=["chat","ppl","learn","knobs","llm","log"];let WBLAST="chat";
 function go(p,to){if(!$("p-"+p))p="home";cur=p;if(!S&&p!=="home")loadState();const wb=WB.includes(p);if(wb)WBLAST=p;
@@ -1405,9 +1405,11 @@ async function loadKnobs(){
     $("kNote").textContent=gm?`这里调的只对「${gname(+KG)}」生效，盖在全局上面；没单独调过的跟着全局走。灰掉的只能在全局里调。`:"几个群热闹程度不一样？切到某一个群，单独调它的话痨度、冒泡时段这些。"}
   $("resetAll").textContent=gm?"这个群全部跟回全局":"全部恢复";
   const listed=new Set(KGROUPS.flatMap(g=>g[1])),rest=Object.keys(K).filter(k=>!listed.has(k));
-  const GR=[...KGROUPS,...(rest.length?[["其他",rest]]:[])].map(([t,keys])=>[t,keys.filter(k=>K[k])]).filter(g=>g[1].length);
+  const nmore=Object.values(K).filter(x=>!x.main&&!x.changed).length;      /* 27.1 默认只看常用的 + 调过的 */
+  const GR=[...KGROUPS,...(rest.length?[["其他",rest]]:[])].map(([t,keys])=>[t,keys.filter(k=>K[k]&&(KALL||K[k].main||K[k].changed))]).filter(g=>g[1].length);
   $("kdir").innerHTML=GR.map(([t,keys],i)=>{const n=keys.filter(k=>K[k].changed).length;return `<button type="button" data-kg="${i}">${esc(t)}${n?`<span class="n">${n}</span>`:""}</button>`}).join("");
   $("kdir").querySelectorAll("[data-kg]").forEach(b=>b.onclick=()=>{const el=$("kg_"+b.dataset.kg);if(el)el.scrollIntoView({behavior:"smooth",block:"start"})});
+  if(nmore){$("kdir").insertAdjacentHTML("beforeend",`<button type="button" id="kAll">${KALL?"只看常用的":"显示全部（还有 "+nmore+" 个）"}</button>`);$("kAll").onclick=()=>{KALL=!KALL;loadKnobs()}}
   $("kChangedN").textContent=Object.values(K).filter(x=>x.changed).length||"";
   $("knobs").innerHTML=GR.map(([t,keys],gi)=>`<div class="kgroup" id="kg_${gi}"><div class="sec-t">${esc(t)}</div><div class="knobs">${keys.map(k=>{const it=K[k];
     const dis=gm&&it.global_only?"disabled":"";

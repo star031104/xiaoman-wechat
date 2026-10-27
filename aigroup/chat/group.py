@@ -15,6 +15,7 @@ GroupChat 由这些 Mixin 组成（每个文件管一件事，彼此通过 self 
     DigestMixin    memory/digest.py   整理：群里的事和梗、画像、群日报
     ListenerMixin  chat/listener.py   21.1 独立的听者：她主动插话前，另一个模型判时机
     SocialMixin    chat/social.py     21.0 九问自评记录、等等队列、擦边再问、人卡、四条硬底线
+    MemeMixin      chat/meme.py       26.0 先读懂（实际意思、语气、梗）+ 不懂的梗去查
 
 设置都在 chat/settings.py；每个群的运行时状态在 chat/state.py。
 """
@@ -30,6 +31,7 @@ from collections import ChainMap
 from aigroup.agent.mixin import AgentMixin
 from aigroup.chat.checks import ChecksMixin
 from aigroup.chat.promise import PromiseMixin
+from aigroup.chat.meme import MemeMixin
 from aigroup.memory.autobio import AutobioMixin
 from aigroup.chat.feedback import SCHEMA as EFFECT_SCHEMA
 from aigroup.chat.feed import FeedMixin
@@ -91,7 +93,7 @@ MSG_COLUMNS = {"to_her": "INTEGER NOT NULL DEFAULT 0",   # 这条是在叫她（
 
 class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, LifeMixin, PromptMixin, PeopleMixin, DigestMixin,
                 NetMixin, GrowMixin, EvalMixin, StyleMixin, InsightMixin, AgentMixin, HumaneMixin, SocialMixin,
-                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, DiaryMixin, PromiseMixin):
+                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, DiaryMixin, PromiseMixin, MemeMixin):
     """她在群里的一切：收消息 → 判断要不要说 → 说 → 看效果；空闲时冒泡、整理记忆。
 
     这个类只负责把各部分装起来、放共用的小工具；具体的活在各个 Mixin 里（见文件开头的说明）。
@@ -161,6 +163,7 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Li
         self._grow_init()
         self._checks_init()
         self._promise_init()
+        self._meme_init()
         self._outbox_init()                                 # 24.0 统一的发送口：演练、静音、每天上限、发送账本
         from aigroup.net.where import Where
         self.where = Where(self.db, cfg.tz)                 # 4.4 群友在哪、那边天气

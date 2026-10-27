@@ -54,20 +54,23 @@ async def critic_recall() -> None:
     """拿真的大模型跑统一自检：回归集里每一条“该认出”的，自检认出没有；“不该命中”的有没有误伤。"""
     import yaml
     sys.path.insert(0, str(ROOT))
-    from aigroup.chat.checks import FAILURE_MODES
+    from aigroup.chat.checks import critic_prompt, critic_verdict
     from aigroup.core.config import load_config
-    from aigroup.llm.client import LLM
+    from aigroup.llm.client import LLM, parse_json
     cases = yaml.safe_load((ROOT / "tests" / "incidents.yaml").read_text(encoding="utf-8"))
     cfg = load_config(ROOT / "config.yaml")
     llm = LLM(cfg)
     hit = miss = fp = 0
     for c in cases:
         ctx = "\n".join(f"{w}：{t}" for w, t, _ in c.get("msgs") or [])
-        prompt = ("你帮一个在朋友群里聊天的人看她要发的话有没有犯下面这些毛病（只看这些）：\n"
-                  + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))
-                  + f"\n\n# 最近的群聊\n{ctx}\n\n# 她要发的\n{c['draft']}\n\n只输出 JSON：{{\"bad\": true/false, \"which\": 序号}}")
-        out = await llm.chat([{"role": "user", "content": prompt}], role="gate", temperature=0.0, max_tokens=60)
-        bad = '"bad": true' in (out or "").replace("'", '"').lower() or '"bad":true' in (out or "").lower()
+        mine = "\n".join(f"- {t}" for w, t, _ in c.get("msgs") or [] if w == "她")        # 27.1 线上自检也看她今天说过的
+        prompt = critic_prompt(ctx, c["draft"], str(c.get("web") or ""), mine=mine)          # 26.0 和线上同一份提示词
+        try:
+            out = await llm.chat([{"role": "user", "content": prompt}], role="gate", temperature=0.0, max_tokens=200)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ? {c['id']} 没问成：{e}")
+            continue
+        bad = bool(critic_verdict(parse_json(out, {}) or {}))
         if c.get("expect") == "none":
             fp += bad
             print(f"  {'✗ 误伤' if bad else '✓'} {c['id']}")
@@ -83,6 +86,7 @@ def main():
     ap.add_argument("--llm", action="store_true")
     ap.add_argument("--record", default="")
     ap.add_argument("--hotfix", action="store_true")
+    ap.add_argument("--all", action="store_true", help="连 QQ 群、有希的测试一起跑")
     a = ap.parse_args()
     py = sys.executable
     ok = all([

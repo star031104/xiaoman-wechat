@@ -223,8 +223,8 @@ class Learner:
 
     def jargon_in(self, gid: int, text: str, k: int = 10) -> list[dict]:
         rows = self.db.conn.execute(
-            "SELECT term, meaning, status, users, by_user FROM qq_jargon WHERE group_id=? AND status!='no' AND meaning!='' "
-            "AND (is_jargon=1 OR status='ok') ORDER BY count DESC", (gid,)).fetchall()
+            "SELECT term, meaning, status, users, by_user, is_jargon FROM qq_jargon WHERE group_id=? AND status!='no' AND meaning!='' "
+            "AND (is_jargon IN (1, 2) OR status='ok') ORDER BY count DESC", (gid,)).fetchall()
         low = (text or "").lower()
 
         def by(r):
@@ -234,7 +234,8 @@ class Learner:
                 d = {}
             return d if isinstance(d, dict) else {}
         return [{"term": r["term"], "meaning": r["meaning"], "by": by(r)} for r in rows if r["term"].lower() in low
-                and (r["status"] == "ok" or (len(json.loads(r["users"] or "[]")) >= MIN_USERS and not self._is_name(r["term"])))][:k]
+                and (r["status"] == "ok" or r["is_jargon"] == 2         # 26.0 查过的网络梗：一个人用也算
+                     or (len(json.loads(r["users"] or "[]")) >= MIN_USERS and not self._is_name(r["term"])))][:k]
 
     def _is_name(self, term: str) -> bool:
         t = str(term or "").strip()
@@ -258,7 +259,7 @@ class Learner:
         jg = self.jargon_in(gid, recent_text)
         if not jg:
             return ""
-        return ("# 群里的黑话（下面的意思是你猜的，仅供理解聊天，不一定对）\n"
+        return ("# 群里的黑话和网络梗（下面的意思是猜的或者查的，仅供理解聊天，不一定对）\n"
                 + "\n".join(f"- {j['term']}：{j['meaning']}" + (
                     "（不同人用法不一样：" + "；".join(f"{k}用它指{v}" for k, v in j["by"].items()) + "，按在聊的人的意思理解）"
                     if j.get("by") else "") for j in jg))

@@ -579,6 +579,24 @@ class AgentMixin:
         return "\n\n".join(parts)
 
     # ---------------- 研究层 ----------------
+    def _asker_note(self, gid: int, qtype: str) -> str:
+        """26.0 “该不该买 / 适不适合我”：把问的人画像里能用的几项给研究员（预算、用途、在意什么），按他来挑。"""
+        if qtype != "buy" or not self.gk(gid).get("agent_buy_profile", True) or not hasattr(self, "person"):
+            return ""
+        row = next((r for r in reversed(list(self._rows(gid, 8))) if r["role"] == "user"), None)
+        if not row:
+            return ""
+        try:
+            prof = (self.person(int(row["user_id"]), gid) or {}).get("profile") or {}
+        except Exception:  # noqa: BLE001
+            return ""
+        keep = {k: v for k, v in prof.items() if v and not str(k).startswith("别碰")}
+        if not keep:
+            return ""
+        txt = "；".join(f"{k}：{str(v)[:60]}" for k, v in list(keep.items())[:8])[:400]
+        return (f"\n\n（问的人是 {row['name']}，你对他的了解：{txt}。“适不适合他”按这些挑；"
+                "聊天里他自己说的预算、用途优先；对他的了解里没有的写进 verdict.assume。）")
+
     async def _agent_research(self, gid: int, goal: str, depth: str, mentioned: bool, question: str = "",
                               window: tuple[str, str] | None = None, qtype: str = "") -> str | None:
         g = self.gk(gid)
@@ -613,7 +631,8 @@ class AgentMixin:
                     now=self._now_text(), name=self.brain.persona.name,
                     rounds=f"这次最多查 {rounds} 轮，一般 {max(1, rounds - 1)} 轮就该交卷。")},
                 {"role": "user", "content": P.RESEARCH_USER.format(goal=goal + window_text(window) + P.type_note(qtype)
-                                                                   + self._source_note(gid, goal + " " + question, qtype),
+                                                                   + self._source_note(gid, goal + " " + question, qtype)
+                                                                   + self._asker_note(gid, qtype),
                                                                    context=self.transcript(gid, 6))}]
         from aigroup.agent.tools import DEPTH, QUESTION
         QUESTION.set(question or goal)
