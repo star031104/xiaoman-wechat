@@ -224,6 +224,17 @@ DEFAULTS = {
     "dry_run": False,                # 24.0 演练：什么都不真发，只记进发送账本（测新版本用）
     "send_per_day": 300,             # 24.0 每个群每天最多发多少条（所有路一起算，防止哪里出循环刷屏）
     "agent_prefilter": True,         # 24.0 “想一想”之前先用规则筛（没有问句、时间、数字、比赛、链接这类信号就不调）
+    # ---- 25.0 承诺对账、像自己以前、照抄、接错人、聊天记录分块滑窗（chat/promise.py） ----
+    "promise_ledger": True,          # 她说“我去看看 / 我翻翻 / 晚点告诉你”时记一笔，到点没给结果就补（再查一次，查不到就认）
+    "promise_minutes": 8,            # 答应了多少分钟还没给就补
+    "promise_expire_minutes": 90,    # 过了这么久就不补了（话题早过去了）
+    "check_promise": "on",           # 说“核好了 / 查到了”却没有查资料记录；答应过还没给又来一句“我再翻翻”
+    "check_misattrib": "on",         # 点名“X 你……”，那句关键的话却是别人刚说的（接错人）
+    "check_copy": "on",              # 照抄给她参考的原话（真人接法、想起来的事）：连续 10 字以上，或 6 字以上占原句八成
+    "check_self_like": "on",         # 和她 24 小时内说过的某句太像（同一个句架子）
+    "self_like_threshold": 0.45,     # 两个字片段重合到这个比例算太像
+    "context_chunk": 15,             # 聊天记录每满这么多条才往后挪一次（实际带 30~44 条）：相邻几轮的开头不变，缓存能命中；0 = 每条都挪
+    "speaker_call": True,            # 聊天记录每一行写“称呼（群名片）”：别把 A 的话安到 B 头上
     "check_critic": "on",            # 23.3 统一发前自检：便宜模型拿着 checks.FAILURE_MODES 看一遍（正则都没命中时才问）
     "critic_per_hour": 30,           # 23.3 自检每小时最多问几次
     "video_about_her": True,         # 23.2 群友发的视频讲的是她 / 这个群：看完主动说一两句具体感想（像被叫到一样）
@@ -362,6 +373,10 @@ KNOBS = {
     "agent_mention_deep_cap": ("被叫到时深查最多几秒", "int", 10, 60, 1, ""),
     "agent_stop_on_covered": ("证实了就停", "bool", None, None, None, "研究员写的“要证实”的都有资料了就交卷"),
     "agent_verify_cites": ("核对引用", "bool", None, None, None, "简报里的来源必须是这次真搜到的"),
+    "promise_ledger": ("答应了要给结果", "bool", None, None, None, "说了“我去看看 / 晚点告诉你”到点还没给，就再查一次补上；查不到就认一句"),
+    "promise_minutes": ("答应了多久没给就补", "int", 3, 60, 1, "分钟"),
+    "context_chunk": ("聊天记录分块挪", "int", 0, 30, 5, "每满这么多条才往后挪一次，缓存命中更多；0 = 每条都挪"),
+    "speaker_call": ("聊天记录写称呼", "bool", None, None, None, "每一行写“称呼（群名片）”，免得把 A 的话安到 B 头上"),
     "agent_filler_gen": ("先回一句用她自己的话", "bool", None, None, None, "要查一会儿时先短回一句，用她的口气现写"),
     "favors": ("记人情账", "bool", None, None, None, "每晚记谁帮过她、夸过她、求过她、她答应过谁；人卡里提一句，合适时自然地还"),
     "anchor_volume": ("说多了加人格锚点", "int", 0, 100, 5, "她今天在这个群说了这么多句以后，每次在最后提一遍她是谁（聊久了人设会退回默认）"),

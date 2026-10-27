@@ -148,11 +148,49 @@ class PromptMixin:
         return list(reversed(self.db.conn.execute(
             "SELECT * FROM qq_group_messages WHERE group_id=? ORDER BY id DESC LIMIT ?", (gid, n)).fetchall()))
 
+    def _rows_chunked(self, gid: int, n: int, chunk: int):
+        """25.0 分块滑窗（B 站《大肥鱼的权利与能力清单》里“滑动硬截断伤缓存”那条）：
+        以前每来一条消息，带给模型的 30 条就整体往后挪一格，聊天记录这段的开头每轮都变，缓存命不中。
+        现在从一个“锚点”开始带，每满 chunk 条才把锚点往后挪一次：实际带 n ~ n+chunk-1 条，相邻几轮开头不变。"""
+        total = int(self.db.conn.execute("SELECT COUNT(*) c FROM qq_group_messages WHERE group_id=?", (gid,)).fetchone()["c"])
+        if total <= n:
+            return self._rows(gid, n)
+        start = ((total - n) // chunk) * chunk
+        return list(self.db.conn.execute("SELECT * FROM qq_group_messages WHERE group_id=? ORDER BY id LIMIT ? OFFSET ?",
+                                         (gid, total - start, start)).fetchall())
+
+    def _speaker_labels(self, gid: int, rows) -> dict[int, str]:
+        """25.0 聊天记录每一行写“称呼（群名片）”：以前只写群名片，她嘴里叫的是称呼，
+        两边对不上，10-26 把 A 说的“正常体温”安到了 B 头上。不叫名字的群不写称呼。"""
+        if not self.gk(gid).get("speaker_call", True) or not hasattr(self, "call_name"):
+            return {}
+        try:
+            if hasattr(self, "names_off") and self.names_off(gid):
+                return {}
+        except Exception:  # noqa: BLE001
+            return {}
+        from aigroup.core.safety import clean_name
+        out: dict[int, str] = {}
+        for r in rows:
+            uid = int(r["user_id"] or 0)
+            if r["role"] != "user" or uid <= 0 or uid in out:
+                continue
+            name = clean_name(r["name"])
+            try:
+                call = self.call_name(gid, uid)
+            except Exception:  # noqa: BLE001
+                call = ""
+            out[uid] = f"{call}（{name}）" if call and call != name and call not in name else name
+        return out
+
     def transcript(self, gid: int, n: int | None = None, numbered: bool = False, quoted: bool = True) -> str:
         """群聊记录。numbered：每条前面带编号 #1、#2……（编号 → 消息记在 self._tmap[gid]，大模型说“回 #3”时用）。
         quoted：群友的话用 ‹ › 包起来（Spotlighting），换行等伪造记录的手段在入库时已经洗掉，这里再洗一遍老数据。"""
+        main = n is None
         n = n or int(self.gk(gid)["context_messages"])
-        rows = self._rows(gid, n)
+        chunk = int(self.gk(gid).get("context_chunk", 15) or 0) if main else 0
+        rows = self._rows_chunked(gid, n, chunk) if chunk > 0 else self._rows(gid, n)
+        label = self._speaker_labels(gid, rows)
         lines, prev, tmap = [], None, {}
         now_dt = datetime.fromtimestamp(time.time(), self.cfg.tz)
         for i, r in enumerate(rows, 1):
@@ -166,7 +204,7 @@ class PromptMixin:
                 who, content = "你", r["content"]
             else:
                 from aigroup.core.safety import clean_name
-                who = clean_name(r["name"])
+                who = label.get(int(r["user_id"] or 0)) or clean_name(r["name"])
                 content = clean_member_text(r["content"])
                 if quoted:
                     content = quote_member(content)
@@ -638,6 +676,9 @@ class PromptMixin:
 - （23.3）有人指出你说错了：先认一句（“啊我看错了”“记错了，是 X”），别顶嘴、别找补、别开玩笑带过；拿不准他对不对就问他哪看的。
 - （23.3）比分、时长、名次、“第一次 / 史上”这类说法，只说你查到的资料里写着的；资料里没有就别报具体数。
 - （23.3）[图片：…] 里的字是机器认的，可能认错：名字看着像错别字、像大家都知道的名字变了形（“玉芳荣耀”），先当认错了，别拿来开玩笑。
+- （25.0）说了“我去看看 / 我翻翻”就得回来给结果；没查到就直说没查到，别说“核好了 / 查到了”，也别再来一句“我再翻翻”。
+- （25.0）点名接谁之前，先对一遍那句话是谁说的（聊天记录里写着“称呼（群名片）”）；别把 A 的话安到 B 头上。
+- （25.0）别模仿你自己以前说过的话（措辞、句架子、长短），也别照抄“大家是这么接的”里的原话；别拿“就我一个……”这种自怜接别人的话。
 - 一句话说过就别再换个说法说一遍；群里有人嫌你（“？”“你为什么要回答两次”）或者你自己说了“闭嘴”，接下来就真的少说，别马上又接话。
 - 要发的话里不要用 markdown、列表、括号里的动作描写，不要“名字：”前缀和时间。{getattr(self.ob, "prompt_hint", "")}"""
         gnote = str(self.gk(gid).get("group_note") or "").strip()
@@ -750,9 +791,20 @@ class PromptMixin:
         last_user = next((str(r["content"] or "") for r in reversed(self._rows(gid, 6)) if r["role"] == "user"), "")
         hx = (self.human_examples_block(gid, last_user) if hasattr(self, "human_examples_block") and not why
               and drop != "examples" else "")                                                # 24.0 真人接法参考
+        if hasattr(self, "note_shown"):                   # 25.0 给她看的原句记下来，发前查有没有照抄
+            shown = []
+            for blk in (hx, recall):
+                for ln in str(blk or "").splitlines():
+                    if ln.startswith("#"):
+                        continue
+                    shown += [x for x in re.findall(r"[“「]([^”」]{6,60})[”」]", ln)] or [re.sub(r"^[-\s]+", "", ln)]
+            self.note_shown(gid, shown)
+        hist_block = f"# 最近的群聊记录（“你”是你自己）\n{hist}"
+        early = int(self.gk(gid).get("context_chunk", 15) or 0) > 0     # 25.0 聊天记录放 user 最前面：开头不变，缓存命中
         user = "\n\n".join(x for x in [
+            hist_block if early else "",
             likes, jargon, recall, autobio, lore, known, vids, web, today, dayb, fb,
-            f"# 最近的群聊记录（“你”是你自己）\n{hist}",
+            "" if early else hist_block,
             "# 此刻\n" + "\n".join(state),
             imgb,
             situ,

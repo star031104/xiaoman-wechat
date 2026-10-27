@@ -978,6 +978,13 @@ class SpeakMixin:
             st.replies.append(now)
             if hasattr(self, "note_answered") and tgt_row:
                 self.note_answered(gid, tgt_row.get("id"), now)           # 23.1 这条回过了
+            if hasattr(self, "note_sent"):                                  # 25.0 承诺对账：答应了记一笔，给了结果就销账
+                try:
+                    self.note_sent(gid, sent_txt, target_uid,
+                                   question=str((tgt_row or {}).get("content") or (query if mentioned else "") or "")[:160],
+                                   now=now)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s 记答应的事出错：%s", gid, e)
             if hasattr(self, "hush") and self.SELF_HUSH.search(" ".join(sent_txt)):
                 self.hush(gid, "她自己说了先不说", now=now)
             st.last_msg_ts = now

@@ -55,6 +55,12 @@ class IdleMixin:
                         continue
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s 等等再说出错：%s", gid, e)
+            if hasattr(self, "promise_tick"):                    # 25.0 答应了要给的结果：到点还没给就补
+                try:
+                    if await self.promise_tick(gid, st, now):
+                        continue
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s 补答应的事出错：%s", gid, e)
             if not in_active:
                 continue
             if hasattr(self, "celebrate_tick") and await self.celebrate_tick(gid, st):   # 生日、节日：说一声

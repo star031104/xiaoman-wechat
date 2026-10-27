@@ -557,6 +557,8 @@ class AgentMixin:
         k = f"agent_filler_{gid}"
         if time.time() - float(self.db.get(k, 0) or 0) < 600:
             return
+        if hasattr(self, "open_promises") and self.open_promises(gid):
+            return                                   # 25.0 刚答应过还没给：别再来一句“我去看看”
         self.db.set(k, time.time())
         text = ""
         if self.gk(gid).get("agent_filler_gen", True) and goal:
@@ -581,6 +583,8 @@ class AgentMixin:
             from aigroup.onebot import text_seg
             mid = await self.ob.send_group(gid, [text_seg(text)])
             self._record(gid, self.ob.self_id or 0, self.brain.persona.name, text, mid, role="assistant")
+            if hasattr(self, "note_sent"):               # 25.0 先回的这句也是答应：记一笔，查完给了结果就销账
+                self.note_sent(gid, [text], question=goal)
         except Exception as e:  # noqa: BLE001
             log.info("群 %s：“等我看看”没发出去：%s", gid, e)
 

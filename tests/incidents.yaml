@@ -125,3 +125,69 @@
   msgs: [[小王, 新视频发了, 60]]
   draft: 看完了。最扎的是结尾，不是剧情而是配乐
   expect: critic
+
+# ---- 25.0（10-26 日报 P2～P5） ----
+- id: claim-checked-no-source
+  date: 10-26 13:18
+  what: 没查到赛程却说“核好了”，还报了开赛时间和赛制
+  mode: 12
+  msgs: [[小王, "CFO打t1、blg打kc、los打tsw、tlaw打al", 70]]
+  draft: 核好了，01:00 CFO打T1，02:00 BLG打KC，后两场是BO3
+  expect: promise
+
+- id: promise-again
+  date: 10-26 12:50
+  what: 刚说完“我这就去看看啊”，又来一句“还没核完，我翻翻再给你准数”
+  mode: 12
+  msgs: [[小王, "@你 明天凌晨四场再预测一下", 80], [她, 我这就去看看啊, 60]]
+  draft: 还没核完，我翻翻再给你准数
+  expect: promise
+
+- id: bet-unknown-match
+  date: 10-26 02:02
+  what: 被逼着押三场，押了根本没比赛的队
+  mode: 5
+  msgs: [[小王, "@你 后面三场比赛，你每把都必须选一只队伍支持胜利", 60]]
+  draft: 押完，BLG、T1、GEN，就这么定
+  expect: critic
+
+- id: wrong-person
+  date: 10-26 16:01
+  what: “正常体温”是小王说的，她冲老张说“你别拿它当正常体温”
+  mode: 13
+  msgs: [[小王, 37.3都快正常体温了, 100], [老张, 37.3那是低烧啊, 20]]
+  draft: 37.3还是有点烧，老张你别拿它当正常体温
+  expect: misattrib
+
+- id: self-pity
+  date: 10-26 22:36
+  what: 十分钟里第二句自怜（“就我一个打工的”→“就我光秃秃一个小满”）
+  mode: 14
+  msgs: [[她, 你们仨都高级，就我一个打工的, 500], [小王, 大家都是总裁, 20]]
+  draft: 你们一个个都有头有脸，就我光秃秃一个小满
+  expect: catchphrase
+
+- id: self-like
+  date: 10-26 22:09
+  what: 半小时前说过“像财务部来查账的”，又套同一个句架子
+  mode: 14
+  msgs: [[她, 叫王总听着像财务部来查账的, 1800], [小王, 王董比较好听, 20]]
+  draft: 叫王董听着也像财务部来查账的
+  expect: self_like
+
+- id: filler-family
+  date: 10-26 02:52
+  what: “我瞅眼赛程去”之后又“我去翻翻赛程”（换了说法的“我去看”）
+  mode: 9
+  msgs: [[她, 我瞅眼赛程去, 3000], [小王, 后面那两场谁会赢, 30]]
+  draft: 我去翻翻赛程
+  expect: catchphrase
+
+- id: ok-first-promise
+  expect: none
+  msgs: [[小王, "@你 明天几点开打", 10]]
+  draft: 我去翻翻赛程
+- id: ok-right-person
+  expect: none
+  msgs: [[小王, 37.3都快正常体温了, 100], [老张, 37.3那是低烧啊, 20]]
+  draft: 小王你别拿它当正常体温，37.3还是有点烧

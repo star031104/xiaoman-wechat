@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 
 CHECKS = ("source_gate", "self_consistency", "ask_repeat", "template", "addressee", "time_sense", "tease_risk",
           "responsive", "room_read", "other_claims", "disputed", "image_guess", "answered", "media_claim", "catchphrase",
-          "video_pending", "stale_ask", "pushback", "self_repeat", "critic")
+          "video_pending", "stale_ask", "pushback", "self_repeat", "promise", "self_like", "copy", "misattrib", "critic")
 # 23.2 这些检查命中、又没被叫到：不重写，直接不说（重写以后还是同一个毛病，比如替别人答）
 DROP = "〔不说〕"
 
@@ -148,13 +148,20 @@ FAILURE_MODES = [
     "同一个梗 / 自嘲点（小本本、记仇、眼睛不好）一天里反复用",
     "前后矛盾：和她自己前面刚说的对不上",
     "一股 AI 八股味：“看完了。”开头、“这句我认”、“最扎的是”、“不是……而是……”，一句话里堆好几种写作句式",
+    "说“核好了 / 查到了”其实没查到（这次的资料里没有），或者答应了“我去看看”又不给结果、再说一遍“我再翻翻”",
+    "接错人：把 A 说的话安到 B 头上（“B 你别拿它当正常体温”，说正常体温的是 A）",
+    "像自己以前说过的话：同一个意思、同一种自怜 / 自嘲换个说法又来（“就我一个打工的”“就我光秃秃一个”），或者照抄别人的原话",
 ]
 # 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
 PHRASE_FAMILIES = {
     "记仇 / 小本本 / 不记": re.compile(r"小本本|记仇|不记(了|仇)|就不记|这(条|句|个)不记|记下了|记上了|记岔|当(你)?没听见|当没说|这(条|句)不算"),
     # 24.0 日报里第二多的一族（10-24 / 10-25 一天 8 次）：“我去看 / 这就看 / 看完了”。能看的链接也一天最多说一次这种话
     "我去看 / 看完了": re.compile(r"这就去看|我去看|去看了|等(下|会儿?)看|回头看|马上看|晚点看|点开看看|看看去|这就看|等着看|"
-                             r"^(看完了|刚看完|看完)[。，,！!：:]"),
+                             r"^(看完了|刚看完|看完)[。，,！!：:]|"
+                             # 25.0 10-26 换了说法就抓不到：“我瞅眼赛程去”“我去翻翻”“我戳下赛程看看”“还没核完，我翻翻”
+                             r"瞅(一?眼|瞅)|我(去|先|再)?翻(一?翻|一下)|戳(一?下)(赛程|看)|我(去|先|再)?核(一?下|对)|还没(核|查|翻)完"),
+    # 25.0 10-26 夜里三句没人接的自怜（“就我一个打工的”“就我光秃秃一个小满”“我一个小AI哪敢”“我这妹妹也失宠了”）
+    "自怜": re.compile(r"就我(一个|光秃秃|没有|最惨|啥都没)|光秃秃|我(一个|就是个|只是个)小AI|失宠|没人疼|没人理我|就我是个?打工的"),
 }
 
 def critic_index(v) -> int:
@@ -871,6 +878,23 @@ class ChecksMixin:
             w = self._self_repeat(gid, text, now)
             if w:
                 found.append(("self_repeat", w))
+        # ---- 25.0 承诺对账 / 说查到要有记录、像自己以前、照抄、接错人（chat/promise.py） ----
+        if mode["promise"] != "off" and hasattr(self, "_promise_check"):
+            w = self._promise_check(gid, text, web, now)
+            if w:
+                found.append(("promise", w))
+        if mode["misattrib"] != "off" and hasattr(self, "_misattrib"):
+            w = self._misattrib(gid, text, now)
+            if w:
+                found.append(("misattrib", w))
+        if mode["copy"] != "off" and hasattr(self, "_copied"):
+            w = self._copied(gid, text)
+            if w:
+                found.append(("copy", w))
+        if mode["self_like"] != "off" and hasattr(self, "_self_like") and not any(n == "catchphrase" for n, _ in found):
+            w = self._self_like(gid, text, now)
+            if w:
+                found.append(("self_like", w))
         if mode["critic"] != "off":
             w = await self._critic(gid, text, mentioned, [n for n, _ in found], web=web)
             if w:
@@ -899,8 +923,10 @@ class ChecksMixin:
         if not self._allow(f"critic_{gid}", int(self.gk(gid).get("critic_per_hour", 30) or 0)):
             return ""
         names = self.names(gid)
-        ctx = "\n".join(f"{'你' if r['role'] == 'assistant' else names.get(str(r['user_id']), r['name'])}：{str(r['content'] or '')[:80]}"
-                        for r in self._rows(gid, 10))
+        rows10 = self._rows(gid, 10)
+        lab = self._speaker_labels(gid, rows10) if hasattr(self, "_speaker_labels") else {}     # 25.0 带称呼，认得出谁说的
+        ctx = "\n".join(f"{'你' if r['role'] == 'assistant' else (lab.get(int(r['user_id'] or 0)) or names.get(str(r['user_id']), r['name']))}"
+                        f"：{str(r['content'] or '')[:80]}" for r in rows10)
         brief = re.sub(r"\s+", " ", str(web or "")).strip()[:1500]
         prompt = ("你帮一个在朋友群里聊天的人看她要发的话有没有犯下面这些毛病（只看这些，没犯就是没犯，别挑剔说法）：\n"
                   + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))

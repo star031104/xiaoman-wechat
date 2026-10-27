@@ -29,6 +29,7 @@ from collections import ChainMap
 
 from aigroup.agent.mixin import AgentMixin
 from aigroup.chat.checks import ChecksMixin
+from aigroup.chat.promise import PromiseMixin
 from aigroup.memory.autobio import AutobioMixin
 from aigroup.chat.feedback import SCHEMA as EFFECT_SCHEMA
 from aigroup.chat.feed import FeedMixin
@@ -90,7 +91,7 @@ MSG_COLUMNS = {"to_her": "INTEGER NOT NULL DEFAULT 0",   # 这条是在叫她（
 
 class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, LifeMixin, PromptMixin, PeopleMixin, DigestMixin,
                 NetMixin, GrowMixin, EvalMixin, StyleMixin, InsightMixin, AgentMixin, HumaneMixin, SocialMixin,
-                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, DiaryMixin):
+                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, DiaryMixin, PromiseMixin):
     """她在群里的一切：收消息 → 判断要不要说 → 说 → 看效果；空闲时冒泡、整理记忆。
 
     这个类只负责把各部分装起来、放共用的小工具；具体的活在各个 Mixin 里（见文件开头的说明）。
@@ -159,6 +160,7 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Li
         self.photos.llm = brain.llm   # 偶尔晒照片
         self._grow_init()
         self._checks_init()
+        self._promise_init()
         self._outbox_init()                                 # 24.0 统一的发送口：演练、静音、每天上限、发送账本
         from aigroup.net.where import Where
         self.where = Where(self.db, cfg.tz)                 # 4.4 群友在哪、那边天气

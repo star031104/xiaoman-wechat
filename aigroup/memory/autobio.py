@@ -65,7 +65,7 @@ class AutobioMixin:
                     day = now.replace(month=int(m.group(1)), day=int(m.group(2)), hour=12, minute=0, second=0, microsecond=0)
                 except ValueError:
                     continue
-                if day > now:                              # 跨年：12 月的事 1 月整理
+                if day.date() > now.date():                # 跨年：12 月的事 1 月整理（25.0：上午整理今天的事不算“将来”）
                     day = day.replace(year=day.year - 1)
                 if (now - day).days > 30:
                     continue
