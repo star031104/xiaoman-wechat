@@ -580,41 +580,41 @@ class AgentMixin:
                 return brief_block(recent[0]["goal"], recent[0]["brief"], fresh=False) + ("\n\n" + led if led else "")
             return led
         from aigroup.agent.loop import parse_args
-        acts, research = [], None
+        acts, researches, reused_l = [], [], []
+        n_par = max(1, int(self.gk(gid).get("agent_parallel", 2) or 1))
         for tc in calls:
             name, args = tc["function"]["name"], parse_args(tc["function"].get("arguments"))
             tlog.info("群 %s 想一想：%s %s", gid, name, json.dumps(args, ensure_ascii=False)[:120])
-            if name == "research" and research is None and str(args.get("goal") or "").strip():
-                research = args
+            if name == "research" and len(researches) < n_par and str(args.get("goal") or "").strip():
+                # 30.1 一次要查两件（“核实截图”+“判断有没有诚意”）：两件一起查，以前只查第一件
                 same = self._similar_brief(gid, str(args.get("goal") or ""))
                 if same is not None:                      # 24.0 半小时内刚查过同一件事：直接用那份简报，不再查一遍
                     log.info("群 %s：「%s」%d 分钟前刚查过，直接用", gid, same["goal"][:30], (time.time() - same["ts"]) / 60)
-                    research = None
-                    self.__dict__.setdefault("_reused_brief", {})[gid] = brief_block(same["goal"], same["brief"], fresh=False)
+                    reused_l.append(brief_block(same["goal"], same["brief"], fresh=False))
+                else:
+                    researches.append(args)
             elif name == "reminder_set":
                 acts.append(self.remind_set(gid, args, int(asker["user_id"]), asker["name"]))
             elif name == "reminder_list":
                 acts.append(self.remind_list(gid))
             elif name == "reminder_cancel":
                 acts.append(self.remind_cancel(gid, args))
-        parts = []
-        reused = (self.__dict__.get("_reused_brief") or {}).pop(gid, "")
-        if reused:
-            parts.append(reused)
+        parts = list(reused_l)
         if acts:
             parts.append("# 你刚办的事（回话时顺口确认一下，时间说清楚；没办成的就说没办成）\n" + "\n".join(f"- {a}" for a in acts))
-        if research:
-            block = await self._agent_research(gid, str(research["goal"]).strip()[:120],
-                                               "deep" if research.get("depth") == "deep" else "quick", mentioned,
-                                               question=str(asker["content"] or "")[:128],
-                                               window=time_window(research.get("after"), research.get("before")),
-                                               qtype=str(research.get("type") or ""))
-            if block is None:
+        if researches:
+            blocks = await asyncio.gather(*[
+                self._agent_research(gid, str(r["goal"]).strip()[:120], "deep" if r.get("depth") == "deep" else "quick", mentioned,
+                                     question=str(asker["content"] or "")[:128],
+                                     window=time_window(r.get("after"), r.get("before")),
+                                     qtype=str(r.get("type") or ""), filler=k == 0)
+                for k, r in enumerate(researches)], return_exceptions=True)
+            blocks = [b if isinstance(b, (str, type(None))) else None for b in blocks]
+            if all(b is None for b in blocks):
                 old = await self.web_block(gid, [r["content"] for r in users[-4:]], mentioned)
                 if old:
                     parts.append(old)
-            elif block:
-                parts.append(block)
+            parts += [b for b in blocks if b]
         return "\n\n".join(parts)
 
     # ---------------- 研究层 ----------------
@@ -637,7 +637,7 @@ class AgentMixin:
                 "聊天里他自己说的预算、用途优先；对他的了解里没有的写进 verdict.assume。）")
 
     async def _agent_research(self, gid: int, goal: str, depth: str, mentioned: bool, question: str = "",
-                              window: tuple[str, str] | None = None, qtype: str = "") -> str | None:
+                              window: tuple[str, str] | None = None, qtype: str = "", filler: bool = True) -> str | None:
         g = self.gk(gid)
         day_key = self._agent_day_key(gid)
         if int(self.db.get(day_key, 0) or 0) >= int(g.get("agent_per_day", 60)):
@@ -653,8 +653,8 @@ class AgentMixin:
             cap = ("agent_mention_judge_cap", 40) if qtype in ("judge", "buy") else \
                 ("agent_mention_deep_cap", 25) if deep else ("agent_mention_quick_cap", 12)
             deadline = min(deadline, float(g.get(cap[0], cap[1])))
-        filler = None
-        if mentioned and g.get("agent_filler", True) and deep:
+        want_filler, filler = filler, None
+        if want_filler and mentioned and g.get("agent_filler", True) and deep:
             # 21.1 先用她自己的口气短回一句，查完再补。23.3 查得快就不发这句（10-24“我去手机查一下哈”+ 答案连着 5 条）：
             # 过 agent_filler_after 秒还没查完才发
             after = float(g.get("agent_filler_after", 10) or 0)

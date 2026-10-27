@@ -674,7 +674,7 @@ class WeChatBot:
                            "nickname": (d.contacts.get(m.sender) or {}).get("nick") or name},
                 "message": segs}
 
-    async def fetch_image(self, url: str, wait: float = 8.0) -> bytes | None:
+    async def fetch_image(self, url: str, wait: float = 8.0, wait_full: float = 25.0) -> bytes | None:
         """13.1 wximg:<群>:<文件名>:<时间> → 解开的图片字节。刚收到的图可能还没下载完：等一会儿再找。"""
         try:
             _, chat, name, ts = url.split(":", 3)
@@ -688,15 +688,22 @@ class WeChatBot:
             code = self.opts.get("img_code")
             st = self._images = ImageStore(self.data.account_dir, self.data.account_dir.name,
                                            self.opts.get("data_dir") or None, int(code) if code else None)
-        t_end = time.monotonic() + wait
+        t0 = time.monotonic()
+        self.last_was_thumb = False
         while True:
+            # 30.1 原图还在下（解开是半截 / 一片白）：先等原图，别马上拿缩略图去看（10-27 21:05 缩略图被看成了“某某 通知 请查收”）
+            late = time.monotonic() - t0 > wait_full
             try:
-                out = await asyncio.to_thread(st.load, chat, name, float(ts or 0))
+                out = await asyncio.to_thread(st.load, chat, name, float(ts or 0), late)
             except Exception as e:  # noqa: BLE001
                 log.debug("读图片失败：%s", e)
                 out = None
-            if out or time.monotonic() > t_end:
+            if out:
+                self.last_was_thumb = bool(getattr(st, "thumb", False))
                 return out
+            if late or time.monotonic() - t0 > (wait_full if getattr(st, "partial", False) else wait):
+                if late or not getattr(st, "partial", False):
+                    return None
             await asyncio.sleep(2)
 
     def split_ats(self, text: str, chat: str, ats: list[str]) -> list[dict]:

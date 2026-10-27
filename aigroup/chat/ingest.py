@@ -418,8 +418,10 @@ class IngestMixin:
         return desc
 
     async def _look(self, url: str, who: str = "群友", gid: int | None = None) -> str:
+        thumb = False
         if str(url).startswith("wximg:") and hasattr(self.ob, "fetch_image"):      # 13.1 微信本地的图（30.0 没下完的不算）
             data = await self.ob.fetch_image(url)
+            thumb = bool(getattr(self.ob, "last_was_thumb", False))
         else:
             data = await fetch_bytes(url)
         if not data:
@@ -448,7 +450,9 @@ class IngestMixin:
         try:
             desc = (await self.brain.llm.describe_image(
                 base64.b64encode(data).decode(), "",
-                prompt=GROUP_IMAGE_PROMPT.format(who=who, names=names or "（不知道）")))
+                prompt=GROUP_IMAGE_PROMPT.format(who=who, names=names or "（不知道）")
+                + ("\n\n（30.1 这是一张很小的缩略图，原图没下下来：只写看得清的大概是什么；看不清的字一个也别写、别猜，别写人名；"
+                   "最后加一句“缩略图，看不清细节”。）" if thumb else "")))
             desc = trim_desc(desc, 180)          # 22.2 以前硬截 100 字，会截在引号中间（“電話「5478”）
             if desc:
                 self.db.set(key, desc)

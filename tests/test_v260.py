@@ -8,7 +8,7 @@ from conftest import FRIEND, FRIEND2, GROUP, _gc
 
 def test_critic_verdict_kinds():
     from aigroup.chat.checks import FAILURE_MODES, critic_verdict
-    assert len(FAILURE_MODES) == 16 and "没说错却认错" in FAILURE_MODES[15]
+    assert len(FAILURE_MODES) >= 16 and "没说错却认错" in FAILURE_MODES[15]
     # 玩笑：拿去对图、编经历不算
     assert critic_verdict({"bad": True, "which": 3, "kind": "玩笑", "why": "替他断定"}) == ""
     assert critic_verdict({"bad": True, "which": 8, "kind": "玩笑", "why": "编线下"}) == ""

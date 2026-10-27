@@ -181,14 +181,22 @@ class ImageStore:
                 return ps
         return []
 
-    def load(self, chat: str, name: str, ts: float) -> bytes | None:
-        """原图解不开（比如 wxgf 又没有 ffmpeg）就用缩略图。"""
+    def load(self, chat: str, name: str, ts: float, thumb: bool = True) -> bytes | None:
+        """原图解不开（比如 wxgf 又没有 ffmpeg）就用缩略图。
+        30.1 thumb=False：原图 / 高清图还没下完时不拿缩略图凑；self.partial = 有原图但还没下完；self.thumb = 这次给的是缩略图。"""
+        self.partial = self.thumb = False
         for p in self.paths_for(chat, name, ts):
+            is_t = p.name.endswith("_t.dat")
+            if is_t and not thumb and self.partial:
+                continue
             data = p.read_bytes()
             k = self._find_key() if data[:6] == MAGIC_V2 else None
             out = decrypt(data, k[0] if k else None, k[1] if k else None)
             if out and looks_loaded(out):
+                self.thumb = is_t
                 return out
+            if not is_t:
+                self.partial = True
             if out:
                 log.info("这张图解开了但像是没下完（%s）：换下一张 / 等一会儿", p.name[-12:])
             log.debug("这张图没解开：%s", p.name)

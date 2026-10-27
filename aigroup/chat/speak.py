@@ -24,6 +24,7 @@ from aigroup.chat.plan import (
     parse_group_reply,
     to_segments,
 )
+from aigroup.chat.checks import ASK_RX
 from aigroup.chat.quality import make_typo, pick
 from aigroup.chat.trace import new_trace
 from aigroup.onebot import face_for, image_seg, reply_seg, text_seg
@@ -303,10 +304,14 @@ class SpeakMixin:
         thr, keep, tie = threshold_ex(probs, min(1.0, talk), spoke)
         burst = sum(1 for r in recent if r[1] == "assistant")      # 23.1 她最近 5 分钟发了几条
         hush = self.hushed(gid, now) if hasattr(self, "hushed") else ""
-        corrected = bool(not mentioned and hasattr(self, "corrected_now") and self.corrected_now(gid, texts, now))
+        # 30.1 被 @ 着纠正（“别当真？？官方声明都出来了”）也要先认一句，以前只在没被叫到时看
+        corrected = bool(hasattr(self, "corrected_now") and self.corrected_now(gid, texts, now))
+        asked = bool(guess and guess.split(":")[0] in ("to", "bid") and self.gk(gid).get("asked_bypass", True)
+                     and any(ASK_RX.search(str(t[2]).strip()) or "你觉得" in str(t[2]) or "你怎么看" in str(t[2]) for t in texts[-2:]))
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
-                         rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected)
+                         rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected,
+                         asked=asked)
         if corrected and ok:
             st.talk_note = (st.talk_note or "") + ("（23.3）刚才有人指出你说错了：先认一句（“啊我看错了”“记错了，是 X”），"
                                                      "一句就够，别辩解、别找补、别开玩笑带过；他说得对不对拿不准就问他来源")
@@ -723,8 +728,10 @@ class SpeakMixin:
             avoid = self.avoid_words(gid, focus, target_uid)
             if hasattr(self, "spec_avoid"):               # 19.1 相处说明书里“别拿来开玩笑的”
                 avoid += self.spec_avoid(gid, list(dict.fromkeys([*(focus or []), *([target_uid] if target_uid else [])])))
+            serious = bool(mentioned or web or (plan and plan.get("move") in ("回答", "判断", "纠正")))
             qargs = dict(avoid=avoid, detector=self.detector,
-                         ai_open=bool(getattr(b.persona, "ai_open", False)), stale=stale, no_names=no_names, echo=echo)
+                         ai_open=bool(getattr(b.persona, "ai_open", False)), stale=stale, no_names=no_names, echo=echo,
+                         count_penalty=not (serious and self.gk(gid).get("serious_keep_full", True)))
             sim = float(self.gk(gid).get("similar_threshold", 0.75))
             from aigroup.chat import quality as _q
             _q.OFF = set(self.gk(gid).get("rules_off") or [])           # 21.1 小屋里关掉的规则
@@ -912,7 +919,7 @@ class SpeakMixin:
             bubbles = shape_bubbles(bubbles, self.recent_sizes(gid), random.random(),
                                     long=bool(plan and plan.get("len") == "long"))
         # ---- 偶尔打错一个字，再补一句“*正确的字” ----
-        if bubbles and random.random() < float(self.gk(gid).get("typo_rate", 0)):
+        if bubbles and not (mentioned or web) and random.random() < float(self.gk(gid).get("typo_rate", 0)):   # 30.1 认真答事实时不打错字
             j = random.randrange(len(bubbles))
             ty = make_typo(bubbles[j])
             if ty:

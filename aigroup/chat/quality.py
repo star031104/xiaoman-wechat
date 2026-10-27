@@ -165,7 +165,8 @@ def template_kinds(text: str) -> list[str]:
 
 
 def check_bubbles(bubbles: list[str], recent: list[str] | None = None, sim: float = 0.75, avoid=None,
-                  detector=None, ai_open: bool = False, stale=None, no_names=None, echo=None) -> tuple[float, list[str]]:
+                  detector=None, ai_open: bool = False, stale=None, no_names=None, echo=None,
+                  count_penalty: bool = True) -> tuple[float, list[str]]:
     total, hits = 0.0, []
     for b in bubbles:
         s, h = check(b, recent, sim, avoid, detector, ai_open, stale, no_names, echo)
@@ -173,16 +174,19 @@ def check_bubbles(bubbles: list[str], recent: list[str] | None = None, sim: floa
         hits += [x for x in h if x not in hits]
     if len(bubbles) >= 3 and len(set(len(b) // 10 for b in bubbles)) == 1:
         total += 0.5                                  # 三条一样长，像列表
-    if len(bubbles) >= 2:
+    if len(bubbles) >= 2 and count_penalty:
+        # 30.1 被叫到 / 查过资料 / 在答事实和看法时不罚：10-27 两次都因为这 0.3 分选了压缩版（“形式合格实质回避”）
         total += 0.3 * (len(bubbles) - 1)             # 5.0 大多数时候一条就够：一样好的候选里挑条数少的
     return total, hits
 
 
 def pick(cands: list[list[str]], recent: list[str] | None = None, sim: float = 0.75, avoid=None,
-         detector=None, ai_open: bool = False, stale=None, no_names=None, echo=None) -> tuple[int, float, list[str]]:
+         detector=None, ai_open: bool = False, stale=None, no_names=None, echo=None,
+         count_penalty: bool = True) -> tuple[int, float, list[str]]:
     """几个候选（每个是要发的几条）→ (挑中的下标, 罚分, 命中的规则)。都不能发返回 (-1, …)。
     罚分一样时选靠前的（第一个是模型自己最想说的）。"""
-    scored = [(check_bubbles(c, recent, sim, avoid, detector, ai_open, stale, no_names, echo), i) for i, c in enumerate(cands) if c]
+    scored = [(check_bubbles(c, recent, sim, avoid, detector, ai_open, stale, no_names, echo, count_penalty), i)
+              for i, c in enumerate(cands) if c]
     if not scored:
         return -1, HARD, ["没有候选"]
     ok = [(s, h, i) for (s, h), i in scored if s < HARD]
