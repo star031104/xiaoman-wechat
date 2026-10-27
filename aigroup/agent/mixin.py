@@ -346,7 +346,10 @@ def brief_block(goal: str, d: dict, fresh: bool = True) -> str:
         lines.append(f"结论：{d['answer_short']}")
     word = {"high": "", "medium": "（大概）", "low": "（不太确定）"}
     if d.get("claims"):
-        lines += [f"- {c['text']}{word.get(c['confidence'], '')}" for c in d["claims"]]
+        def _one(c):                             # 30.2 只有一家来源这么说：标出来，别拿去纠正别人
+            sites = {str(s.get("site") or "").strip().lower() for s in (c.get("sources") or []) if isinstance(s, dict)}
+            return "（只有一家这么说）" if len(sites - {""}) == 1 and c.get("confidence") == "high" else ""
+        lines += [f"- {c['text']}{word.get(c['confidence'], '')}{_one(c)}" for c in d["claims"]]
     else:
         lines += [f"- {p}" for p in d.get("answer_points") or []]
     if not d.get("answer_points") and not d.get("premise"):

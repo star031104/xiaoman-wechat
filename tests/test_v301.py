@@ -23,7 +23,7 @@ def test_asked_bypasses_burst():
 
 
 def test_failure_modes_new():
-    assert len(FAILURE_MODES) == 18
+    assert len(FAILURE_MODES) >= 18
     assert critic_verdict({"bad": True, "which": 17, "kind": "看法", "why": "只有评语"})
     assert critic_verdict({"bad": True, "which": 18, "kind": "事实", "why": "说成传闻"})
 

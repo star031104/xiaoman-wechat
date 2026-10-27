@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS qq_asks (           -- 22.0 她问过 / 叮嘱过谁�
 CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
-CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "promise", "dodge", "copy", "stale_ask",
+CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
           "misattrib", "critic")
 # 23.2 这些检查命中、又没被叫到：不重写，直接不说（重写以后还是同一个毛病，比如替别人答）
 DROP = "〔不说〕"
@@ -140,12 +140,16 @@ PENDING_VIDEO = "你正在点开看"
 CORRECT_RX = re.compile(r"不识字|看清楚|看错了?|你看错|说错了?|记错了?|搞错了?|不是.{0,14}吗|才是|明明是|应该是|哪来的|瞎说|乱说|"
                         r"人家(叫|是)|写的是|不对吧?|错了|"
                         r"难道.{0,12}(也|还|都).{0,8}吗|(都.{0,2}|早就?)(出来了|发了|承认了|道歉了|官宣了|公布了)(?![吗没么嘛])")   # 30.1 “难道这些也别当真吗”“声明都出来了”
+# 30.2 “原文在这 / 看这个 / 图在这 / 你看下面”：指着一个东西让她看
+POINTER_RX = re.compile(r"(原文|原图|图|截图|链接|视频|证据|声明|这个)(就)?在这(里|儿)?|^\s*(你)?(看|瞅)(这个|这张|这条|下面|上面)|^\s*喏")
+SEEN_RX = re.compile(r"(原文|原图|图|截图|链接|视频|声明|你发的)?我?(看了|看过|看完|瞅了|读了)|^\s*看了")
+HAS_MEDIA_RX = re.compile(r"\[(图片|视频|链接|分享|文件|表情包|卡片|小程序|聊天记录)|https?://")
 # 23.3 她自嘲的那几个点（眼睛 / 脑子 / 记性）：2 小时内同一个别再拿出来
 SELF_MOCK = re.compile(r"眼睛|眼神|眼瞎|脑子|记性|反应慢|手残|嘴快")
 # 23.3 统一发前自检的“毛病清单”：每条都来自日报里确认过的事（加新的就往这里加一条，并在 tests/group/incidents.yaml 加一个例子）
 FAILURE_MODES = [
     "替别人回答别人问别人的问题（“A，这个能……吗”不是问她）",
-    "没看过 / 打不开的视频、文章，却说得像看过（“前面那段可以砍”），或者空说“这就去看”",
+    "没看过 / 打不开的视频、文章，却说得像看过（“前面那段可以砍”），或者空说“这就去看”；群友说“原文在这 / 看这个”但聊天里没有图和链接，她却说“我看了”",
     "对图认真下断言、替发图的人说他在干嘛，图说明里没有（价目表说成“在看场地”），群友会当真的那种；图里的字像错别字时当真拿来开玩笑（一听就是玩笑、夸张、反问的不算，比如“截到灵魂了”）",
     "群友拿出事实指出她说错了、她也确实错了，还顶嘴、找补、开玩笑带过（被逗、被曲解、被故意抬杠时笑着说清楚不算，那时也不用认错）",
     "当成事实说了查到的资料和群聊里都没有的数字、比分、时长、“第一次”这类说法（她自己的看法、倾向、判断不算；资料里“你看了数据以后的判断”照说不算）",
@@ -162,6 +166,7 @@ FAILURE_MODES = [
     "没说错却认错、道歉（“是我表达含糊”“我说早了点”“认错”）：被追问、被逗的时候",
     "资料里有具体事实，她却只给空评语、结论（“形式合格实质回避”“不算诚意”“问题很大”），不说让她这么判断的那件具体的事（谁、什么时候、做了什么、说了哪句）",
     "把资料里已经证实的事（当事方 / 官方已经道歉、处罚、表态）说成“传闻 / 先别当真 / 没实锤”，或者凭日期、格式自己猜截图真假（资料里有“没发过 / 拒绝置评”才算有依据）",
+    "拿资料里没证实的说法（标了大概 / 不太确定 / 只有一家这么说，或者资料里根本没有）去纠正别人，或者在别人表态时说教（“骂归骂”“别把两件事混一起”“理性看待”）",
 ]
 # 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
 PHRASE_FAMILIES = {
@@ -172,6 +177,10 @@ PHRASE_FAMILIES = {
                              # 25.0 10-26 换了说法就抓不到：“我瞅眼赛程去”“我去翻翻”“我戳下赛程看看”“还没核完，我翻翻”
                              r"瞅(一?眼|瞅)|我(去|先|再)?翻(一?翻|一下)|戳(一?下)(赛程|看)|我(去|先|再)?核(一?下|对)|还没(核|查|翻)完"),
     # 25.0 10-26 夜里三句没人接的自怜（“就我一个打工的”“就我光秃秃一个小满”“我一个小AI哪敢”“我这妹妹也失宠了”）
+    # 30.2 10-27 晚 4 分钟里三次“先纠一下 / 得纠一下 / 先纠个时间”
+    "纠一下": re.compile(r"(先|得|要|我)?纠(一下|个|正一下)|先更正|更正一下"),
+    # 30.2 回放里连着两次“大半夜的你先睡 / 别再刷了”：关心睡觉一天一次就够
+    "催睡": re.compile(r"(快|赶紧|先|早点|你先|该|去)睡(吧|觉|了)?(?!醒)|别熬(夜)?了?|别再?刷了|大半夜的"),
     "自怜": re.compile(r"就我(一个|光秃秃|没有|最惨|啥都没)|光秃秃|我(一个|就是个|只是个)小AI|失宠|没人疼|没人理我|就我是个?打工的"),
 }
 
@@ -206,7 +215,7 @@ def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool
                   + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))
                   + "\n\n先判断她这句是哪种话：事实（会被当真的说法）/ 看法（她的判断、倾向、锐评）/ 玩笑（夸张、反问、调侃、自嘲、损人）/ 关心。\n"
                   "- 玩笑：只看第 1、4、6、7、9、13、14 条和会不会伤人（被纠正时拿玩笑带过算第 4 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
-                  "- 看法：只看里面当成事实说的数字有没有依据，和第 17、18 条（只有评语没有撑着的事实 / 把证实的事说成传闻）；看法本身不算毛病，更不要让她“别下结论”\n"
+                  "- 看法：只看里面当成事实说的数字有没有依据，和第 17、18、19 条（只有评语没有撑着的事实 / 把证实的事说成传闻 / 拿没证实的去纠正人、说教）；看法本身不算毛病，更不要让她“别下结论”\n"
                   "- 事实：照清单全看\n"
                   "例子（照这个尺度）：\n"
                   "- 群友发白图，她说“白得这么彻底，是截图截到灵魂了” → 玩笑，没毛病\n"
@@ -216,6 +225,7 @@ def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool
                   "- 群友说“al不是打了33分钟吗”，她回“啊我记错了，是 33 分钟” → 没毛病（认错改口不算说第二遍）\n"
                   "- 群友问别人“老王这个能开发票吗”，她抢着答 → 第 1 条\n"
                   "- 她前面说过“今晚早点躺”，这句又说“今晚就别熬了” → 第 6 条（关心、叮嘱换个说法也算说第二遍）\n"
+                  "- 她前面说过“我小本本记岔了”，群友又问了一件别的事，她说“我不记得了，你问老张” → 没毛病（回答新问题时说不记得不算说第二遍）\n"
                   "- 群友说自己发烧 37.3，她说“跑完步 37.3 那叫状态好” → 第 13 条（把话理解错、安错了）\n"
                   "- 资料里没有，她说“T1现在1-1，输DK那局是领先被翻的” → 第 5 条（当事实说的比分）\n\n"
                   + f"# 最近的群聊（最后几条最新）\n{ctx}\n\n"
@@ -600,6 +610,20 @@ class ChecksMixin:
                 return f"「{g}」你今天已经说了 {n} 次了，再说就成口头禅了：换个说法，或者不说"
         return ""
 
+    def _seen_missing(self, gid: int, text: str, now: float) -> str:
+        """30.2 群友刚说“原文在这 / 看这个”，可她这边没收到东西，她却说“我看了”（10-27 23:17“原文我看了”）。"""
+        if not SEEN_RX.search(TAG.sub("", text)):
+            return ""
+        rows = self.db.conn.execute("SELECT user_id, content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
+                                    "ORDER BY id DESC LIMIT 6", (gid, now - 180)).fetchall()
+        for r in rows:
+            body = re.sub(r"^(\s*@\S+\s*)+", "", TAG.sub("", str(r["content"] or "")))
+            if POINTER_RX.search(body) and not HAS_MEDIA_RX.search(str(r["content"] or "")):
+                if self.pointer_missing(gid, [(None, r["user_id"], str(r["content"] or ""))], now):
+                    return ("他说“在这 / 看这个”，可你这边根本没收到（聊天里没有图、链接、文件）：别说“我看了 / 回头看”，"
+                            "就回“没刷出来，你再发一下？”")
+        return ""
+
     def _video_pending(self, gid: int, text: str, now: float) -> str:
         """23.2 群友刚发了 B 站视频、她还在“点开看”（字幕、画面还没整理完）：别空说“这就去看”，也别评内容。
         看完以后会自己说（knowledge.watch_video）。10-23 群友发了讲她的视频，她只回“成片终于发了，这就去看”。"""
@@ -614,6 +638,19 @@ class ChecksMixin:
         if PROMISE_RX.search(t) or WATCH_RX.search(t) or re.search(r"视频|成片|片子|这期|这集", t):
             return f"{DROP}视频你还在看（看完会让你说），现在别空说“这就去看”，也别评内容；等看完再说具体哪一段"
         return ""
+
+    def pointer_missing(self, gid: int, texts: list, now: float) -> bool:
+        """30.2 群友说“原文在这 / 看这个 / 图在这”，可她这边没收到东西（他最近 2 分钟没有图、链接、文件、分享）。
+        10-27 23:16 群友说“@你 原文在这”，图没过来，她答“原文我看了”。"""
+        if not texts:
+            return False
+        last = texts[-1]
+        body = re.sub(r"^(\s*@\S+\s*)+", "", TAG.sub("", str(last[2] if len(last) > 2 else "")))
+        if not POINTER_RX.search(body) or HAS_MEDIA_RX.search(str(last[2])):
+            return False
+        rows = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND user_id=? AND role='user' AND ts>? "
+                                    "ORDER BY id DESC LIMIT 6", (gid, last[1], now - 120)).fetchall()
+        return not any(HAS_MEDIA_RX.search(str(r["content"] or "")) for r in rows)
 
     def corrected_now(self, gid: int, texts: list, now: float) -> bool:
         """23.3 这一批里有群友在纠正她刚说的（她 3 分钟内说过话、这句命中 CORRECT_RX、是回她的或没指别人），
@@ -708,6 +745,7 @@ class ChecksMixin:
             ("answered", lambda: "" if mentioned else self._answered(gid, target_row, now)),
             ("catchphrase", lambda: self._catchphrase(gid, text)),
             ("video_pending", lambda: self._video_pending(gid, text, now)),
+            ("seen_missing", lambda: self._seen_missing(gid, text, now)),
             ("promise", lambda: self._promise_check(gid, text, web, now) if hasattr(self, "_promise_check") else ""),
             ("dodge", lambda: self._dodge(text, web, gid)),
             ("copy", lambda: self._copied(gid, text) if hasattr(self, "_copied") else ""),

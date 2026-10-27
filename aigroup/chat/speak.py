@@ -505,6 +505,11 @@ class SpeakMixin:
         last_id = int(self.db.conn.execute("SELECT IFNULL(MAX(id), 0) m FROM qq_group_messages WHERE group_id=?",
                                            (gid,)).fetchone()["m"])
         web = await self._prepare(gid, mentioned, who, trigger, why, web, tm)
+        if hasattr(self, "pointer_missing"):
+            last_u = [(r["qq_msg_id"], r["user_id"], str(r["content"] or "")) for r in self._rows(gid, 3) if r["role"] == "user"][-1:]
+            if last_u and self.pointer_missing(gid, last_u, time.time()):
+                note += ("（30.2）他说“在这 / 看这个”，可你这边根本没收到（聊天里没有图、链接、文件）：先回一句“没刷出来，你再发一下？”，"
+                         "别说“我看了 / 回头看”；你自己查到的可以补一句，说清是“我自己查的”。")
         t_b = time.time()
         messages = await self.build_messages(gid, mentioned, owner_spoke, who, why, note=note, interest=interest,
                                              query=query, focus=focus, web=web,
@@ -789,6 +794,7 @@ class SpeakMixin:
                                                           gate_id=gate_id, web=web or "", image=(plan or {}).get("image") or {}))
                     tm["pick"] = round(time.time() - t_p, 1)
                     if alt is not None:
+                        log.info("群 %s：第 %d 个说法有毛病，换成第 %d 个：%s", gid, i + 1, alt[0] + 1, " / ".join(cands[alt[0]])[:60])
                         rule_hits = list(c22)
                         i, score, hits = alt
                         c22 = []
@@ -1154,7 +1160,6 @@ class SpeakMixin:
                 log.info("群 %s：备选说法检查出错：%s", gid, e)
                 continue
             if not c:
-                log.info("群 %s：第 %d 个说法有毛病，换成第 %d 个：%s", gid, i + 1, j + 1, " / ".join(cands[j])[:60])
                 return j, s2, h2
         return None
 

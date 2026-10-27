@@ -116,7 +116,13 @@ class HumaneMixin:
     def her_today(self, gid: int | None = None, now=None) -> list[dict]:
         """她今天说过的话（gid 为空：所有群一起，人是同一个）。"""
         now = now or self.brain.now()
-        t0 = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        # 30.2 “今天”从早上 5 点算（夜里聊到一两点还是同一天；以前 0 点一过梗和叮嘱就清零，23:50 说过的 0:05 又来一遍）
+        h = int(self.gk(gid).get("day_start_hour", 5) if gid is not None else 5)
+        start = now.replace(hour=h, minute=0, second=0, microsecond=0)
+        if now < start:
+            from datetime import timedelta
+            start -= timedelta(days=1)
+        t0 = start.timestamp()
         q = "SELECT id, ts, group_id, content FROM qq_group_messages WHERE role='assistant' AND ts>=?"
         args: list = [t0]
         if gid is not None:
