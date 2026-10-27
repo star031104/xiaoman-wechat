@@ -107,6 +107,29 @@ def derive(code: int, wxid: str) -> tuple[bytes, int]:
     return hashlib.md5(f"{code}{wxid}".encode()).hexdigest()[:16].encode(), code & 0xFF
 
 
+def looks_loaded(data: bytes) -> bool:
+    """30.0 解出来的图是不是完整的：没下载完的原图解开是半截（底下一片灰白），缩略图占位常常整张是白的。
+    10-27 群友连发两张截图，她都说“全白”。打不开 / 截断了 / 几乎一个颜色 → 当成还没下好。没有 Pillow 时不判断。"""
+    try:
+        import io
+
+        from PIL import Image, ImageStat
+    except Exception:  # noqa: BLE001
+        return True
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()                                   # 截断的 JPEG / PNG 在这里报错
+        if im.width * im.height < 120 * 120:          # 小图（表情、图标）不判断颜色
+            return True
+        g = im.convert("L")
+        g.thumbnail((64, 64))
+        st = ImageStat.Stat(g)
+        # 几乎一个颜色、而且是白或灰（没下完的样子）才算；纯红纯黑这种真图不拦
+        return not (st.stddev[0] < 3.0 and (st.mean[0] > 235 or 110 < st.mean[0] < 150))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class ImageStore:
     """按消息里的图片名找到 .dat、解开。钥匙第一次用的时候找（找不到就一直不看图，不影响别的）。"""
 
@@ -164,8 +187,10 @@ class ImageStore:
             data = p.read_bytes()
             k = self._find_key() if data[:6] == MAGIC_V2 else None
             out = decrypt(data, k[0] if k else None, k[1] if k else None)
-            if out:
+            if out and looks_loaded(out):
                 return out
+            if out:
+                log.info("这张图解开了但像是没下完（%s）：换下一张 / 等一会儿", p.name[-12:])
             log.debug("这张图没解开：%s", p.name)
         return None
 

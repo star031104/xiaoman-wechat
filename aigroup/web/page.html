@@ -263,6 +263,17 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .home-h .emo{width:34px;height:34px;border-radius:12px;display:inline-grid;place-items:center;background:var(--honey-soft);color:var(--honey)}
 body:not(.admin) .side .adm-gt{display:none}
 .mt{margin-top:var(--sp-3)}
+/* 30.0 手机上：表格能横着滑、按钮和开关目录换行、卡片内边距收一点、输入框不撑出屏幕 */
+@media (max-width:560px){
+  table{display:block;overflow-x:auto;max-width:100%}
+  .kdir{display:flex;flex-wrap:wrap;gap:6px}
+  .spot .btn{margin:4px 4px 0 0}
+  .card-b{padding-left:12px;padding-right:12px}
+  .card-h{flex-wrap:wrap;gap:6px}
+  .card-h .hint{flex-basis:100%}
+  input.input,textarea{max-width:100%}
+  .tools{flex-wrap:wrap;gap:6px}
+}
 </style>
 </head>
 <body>
@@ -883,7 +894,7 @@ async function loadState(){
   $("hDot").className="dot"+(S.quiet?" sleep":S.qq.ready?"":" off");
   const pills=[];
   const W=S.wechat||{};
-  const downHint=CH==="wechat"?(W.running===false?"微信没在运行":"微信没接上")
+  const downHint=CH==="wechat"?(W.not_logged_in?"微信掉登录了":W.running===false?"微信没在运行":"微信没接上")
     :"QQ 没接上（NapCat 断了？）";
   const downTip=W.error||(CH==="wechat"?"打开微信并登录她的小号，会自动接上；还不行就跑 scripts\\wxdiag.bat"
     :"程序会自己重连；NapCat 没了的话掉线 2 分钟后会自动重开。要扫码时二维码会弹出来，用她的小号扫；5 分钟还没好就看 data/logs/napcat.log，或托盘图标右键 → 重启");
@@ -935,6 +946,8 @@ async function loadToday(){const gid=HSEL!=="all"?HSEL:"";
   try{TD=await api("/api/today"+(gid?`?gid=${gid}`:""))}catch(e){TD=null;$("todayCard").hidden=$("trendCard").hidden=$("effCard").hidden=true;return}
   $("todayCard").hidden=$("trendCard").hidden=$("effCard").hidden=false;paintToday()}
 function paintAlerts(){const A=[],H=TD.health||{},nm=(S&&S.persona&&S.persona.name)||"她";
+  const WX=(S&&S.wechat)||{};
+  if(CH==="wechat"&&WX.not_logged_in)A.push(`<div class="notice">${icon("info")}<span><b>微信掉登录了</b>（微信官方夜里常这样）：打开 <a href="../wechat/" target="_blank">微信网页窗口</a>（小屋的用户名密码），点“我知道了”→“登录”，再在${esc(nm)}的手机微信上确认，几秒后会自动接上</span></div>`);
   if(TD.today.dry_run)A.push(`<div class="notice dry">${icon("info")}<span><b>演练中</b>：${esc(nm)}照常想、照常“说”，但不会真的发消息，只记进账本</span></div>`);
   for(const [k,v] of Object.entries(H)){const since=v.since||v.ts;
     A.push(`<div class="notice">${icon("info")}<span><b>${esc(k)}</b>：${esc(v.msg||"出错了")}${since?` <span class="muted">· 从 ${esc(fmtDay(since))} ${fmtTime(since)} 开始${v.n>1?`，出现 ${v.n} 次`:""}</span>`:""}</span></div>`)}
@@ -1381,10 +1394,10 @@ const KGROUPS=[["说话多少",["talkativeness","max_per_10min","max_bubbles","c
   ["听者与分寸（21.1）",["listener_mode","listener_agree","listener_margin","listener_min_each","listener_panel","move_cooldown","move_cooldown_minutes","length_match","length_max_ratio","talk_control","talk_control_hours","share_target","mention_read_cap","offline_note_minutes","agent_mention_quick_cap","agent_mention_deep_cap","agent_stop_on_covered","agent_verify_cites","agent_filler_gen","favors","anchor_volume"]],
   ["先放着再说、硬底线（21.0）",["pitch_queue","pitch_min_seconds","pitch_max_seconds","pitch_quiet_seconds","pitch_max_new","borderline_judge","borderline_band","person_card","hard_rules"]],
   ["B 站视频和天气",["watch_videos","video_frames","weather","weather_care"]],
-  ["20.x 说话时机、守住人格、联网整合",["typing_abort","drift_anchor","ablate_rate","number_check","ledger","feed","feed_min","rel_tone"]],
+  ["20.x 说话时机、守住人格、联网整合",["typing_abort","drift_anchor","number_check","ledger","feed","feed_min","rel_tone"]],
   ["每周评测",["weekly_eval"]]];
 let K={},KG="all";
-const kfmt=(it,v)=>it.kind==="bool"?(v?"开":"关"):it.kind==="str"?v:/chance|talkativeness|typo_rate|explore_rate|ablate_rate/.test(it.key)?Math.round(v*100)+"%":/factor|boost|pace/.test(it.key)?"×"+(+v).toFixed(2).replace(/\.?0+$/,""):String(v);
+const kfmt=(it,v)=>it.kind==="bool"?(v?"开":"关"):it.kind==="str"?v:/chance|talkativeness|typo_rate|explore_rate/.test(it.key)?Math.round(v*100)+"%":/factor|boost|pace/.test(it.key)?"×"+(+v).toFixed(2).replace(/\.?0+$/,""):String(v);
 async function loadEval(){let E;try{E=await api("/api/eval")}catch(e){return}
   const H=(E.hist||[]).slice(-12);
   $("evHist").innerHTML=H.length?`<div class="small muted" style="margin-bottom:6px">每周平均分（淡色的是用旧人设时评的）${E.running?" · 正在评…":""}</div>`+
@@ -1476,12 +1489,9 @@ async function loadChecks(){let r;try{r=await api(`/api/checks?gid=${LSEL}`)}cat
     ["带情绪就附和",pc(pr.softer_rate),pr.n?`${pr.n} 对，第二次立场变软的比例（目标 ≤ 10%）`:"每周一测一次"],
     ["转述的数字对不上",String(nc.bad||0),`这一周查资料后说的话里，数字和简报对不上的次数（${nc.fixed||0} 次改过来了）`]]
     .map(([a,b,d])=>`<div class="stat"><div class="l">${a}</div><div class="v">${esc(b)}</div><div class="d">${esc(d)}</div></div>`).join("");
-  const st=r.style||{},ab=r.ablate||{};let h=vecHtml(r.vector||{},r.vector_prev||{});
+  const st=r.style||{};let h=vecHtml(r.vector||{},r.vector_prev||{});
   if(st.ok)h+=`<div class="field"><label>说话像不像群友 <span style="font-weight:400">· 她和 ${st.n_people} 个群友比（z 分数，超过 ±2 标黄）</span></label><div class="chips">${Object.values(st.items).map(x=>`<span class="tag ${Math.abs(x.z)>2?"warn":""}">${esc(x.name)} 她 ${x.her} / 大家 ${x.people}（z ${x.z}）</span>`).join("")}</div></div>`;
   else h+=`<div class="small muted">${esc(st.why||"")}</div>`;
-  if(ab.mods&&!ab.mods.some(m=>m.n))h+=`<div class="small muted" style="margin-top:10px">提示词哪段有用：还没有数据（她主动说话时有 ${Math.round((r.rate||0)*100)}% 的概率随机去掉一段，攒够每段 30 次以后出结论）</div>`;
-  else if(ab.mods)h+=`<div class="field" style="margin-top:10px"><label>提示词哪段有用 <span style="font-weight:400">· 她主动说话时有 ${Math.round((r.rate||0)*100)}% 的概率随机去掉一段，比被接率（不去掉时 ${pc(ab.base&&ab.base.rate)}，${(ab.base&&ab.base.n)||0} 次）</span></label>
-    <ul class="rows">${ab.mods.map(m=>`<li><span>${esc(m.name)}</span><span class="small muted">去掉时 ${m.n} 次 · 被接 ${pc(m.rate)}${m.chars?` · 约 ${m.chars} 字`:""}</span><span class="tri tag ${m.verdict==="帮倒忙"?"warn":m.verdict==="有用"?"ok":""}">${esc(m.verdict)}</span></li>`).join("")}</ul></div>`;
   if((pr.items||[]).length)h+=`<details style="margin-top:10px"><summary class="small">情绪测试的例子</summary><ul class="rows">${pr.items.slice(0,6).map(x=>`<li><span class="small">${esc(x.claim)}：平常「${esc(x.a)}」→ 带情绪「${esc(x.b)}」${x.softer?" ⚠ 变软":""}</span></li>`).join("")}</ul></details>`;
   if((qa.items||[]).length)h+=`<details style="margin-top:6px"><summary class="small">问她自己的问题</summary><ul class="rows">${qa.items.map(x=>`<li><span class="small">${esc(x.q)} → 「${esc(x.a)}」 ${esc(x.consistent)}${x.changed?" · 改口了":""}</span></li>`).join("")}</ul></details>`;
   $("checksMore").innerHTML=h}

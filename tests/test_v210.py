@@ -108,7 +108,6 @@ def test_person_card(cfg, brain):
     msgs = asyncio.run(gc.build_messages(GROUP, False, False, "", None, query="加班", focus=[FRIEND]))
     u = msgs[1]["content"]
     assert "# 在聊的人" in u and "# 和小王相处" not in u                  # 人卡代替分开的几段
-    assert gc.pick_ablation(GROUP, False, None) == ""                   # conftest 把消融关了
 
 
 def test_hard_issues(cfg, brain):

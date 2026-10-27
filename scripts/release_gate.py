@@ -86,7 +86,6 @@ def main():
     ap.add_argument("--llm", action="store_true")
     ap.add_argument("--record", default="")
     ap.add_argument("--hotfix", action="store_true")
-    ap.add_argument("--all", action="store_true", help="连 QQ 群、有希的测试一起跑")
     a = ap.parse_args()
     py = sys.executable
     ok = all([

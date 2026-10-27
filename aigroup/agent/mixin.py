@@ -411,6 +411,45 @@ class AgentMixin:
         llm = self.brain.llm
         return bool(self.gk(gid).get("agent", False)) and hasattr(llm, "tool_profiles") and bool(llm.tool_profiles())
 
+    async def topic_watch(self, gid: int, force: bool = False) -> list[str]:
+        """30.0 群里这几天一直在聊、还会有新进展的事（一项正在进行的比赛、在找的工作、在追的番、在等的发布……）：
+        每天看一次是哪一两件，各查一次最新进展，记进账本（之后被问到不用现查，也不会把旧消息当新的说）。
+        不写死领域：从她这一周查过的问题和群里三天的聊天里让模型挑。每天最多 topic_watch_max 件。"""
+        key = f"topic_watch_{gid}_{self.brain.now():%Y-%m-%d}"
+        if (not force and self.db.get(key)) or not self.gk(gid).get("topic_watch", True) or not self.agent_on(gid):
+            return []
+        self.db.set(key, True)
+        week = time.time() - 7 * 86400
+        goals = [str(x.get("goal") or "")[:80] for x in (self.db.get("agent_log") or [])
+                 if isinstance(x, dict) and int(x.get("gid") or 0) == gid and float(x.get("ts") or 0) > week][-20:]
+        rows = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
+                                    "AND content NOT LIKE '[%' ORDER BY id DESC LIMIT 80", (gid, time.time() - 3 * 86400)).fetchall()
+        chat = " / ".join(str(r["content"] or "")[:40] for r in reversed(rows))[:2400]
+        if len(goals) + len(rows) < 8:
+            return []
+        n = int(self.gk(gid).get("topic_watch_max", 2) or 0)
+        prompt = (f"这是一个朋友群。下面是群里这几天的聊天（节选）和群里的 AI 群友这一周查过的问题。挑出群里这几天一直在聊、"
+                  f"接下来还会有新进展、值得每天看一眼的事（最多 {n} 件）：比如一项正在进行的比赛 / 赛季、正在追的连载、"
+                  "一件还没结果的事（在等的发布、在投的岗位方向）。只是一次性聊过、问过的不算；没有就返回空列表。\n"
+                  "每件写：topic（几个字）、query（今天去搜什么，具体到能搜到最新进展，比如“S16 世界赛 今天 赛果 下一轮对阵”）。\n\n"
+                  "# 查过的问题\n" + "\n".join(f"- {g}" for g in goals) + f"\n\n# 聊天节选（从早到晚）\n{chat}\n\n"
+                  '只输出 JSON：{"topics": [{"topic": "...", "query": "..."}]}')
+        d = await self.brain.llm.json([{"role": "user", "content": prompt}], default={}, role="helper")
+        picked = []
+        for t in ((d.get("topics") if isinstance(d, dict) else None) or [])[:n]:
+            if not isinstance(t, dict) or not str(t.get("query") or "").strip():
+                continue
+            q, topic = str(t["query"]).strip()[:80], str(t.get("topic") or "").strip()[:20]
+            try:
+                await self._agent_research(gid, q, "quick", False, question=topic or q, qtype="recent")
+                picked.append(topic or q)
+            except Exception as e:  # noqa: BLE001
+                log.info("群 %s 跟进「%s」出错：%s", gid, topic, e)
+        if picked:
+            log.info("群 %s 每天跟进：%s", gid, "、".join(picked))
+            self.db.set(f"topic_watch_last_{gid}", {"ts": time.time(), "topics": picked})
+        return picked
+
     def _agent_day_key(self, gid: int) -> str:
         return f"agent_n_{gid}_{self.brain.now():%Y-%m-%d}"
 

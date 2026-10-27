@@ -218,8 +218,6 @@ class EvalMixin:
                 log.info("讨好测试出错：%s", e)
         try:
             out["style"] = {str(g): T.style_z(self.db, g) for g in sorted(self.groups)}
-            from aigroup.eval.ablate import ablation_stats
-            out["ablate"] = ablation_stats(self.db)
             nl = [x for x in (self.db.get("numcheck_log") or []) if float(x.get("ts") or 0) > time.time() - 7 * 86400]
             used = sum(1 for x in (self.db.get("agent_log") or []) if float(x.get("ts") or 0) > time.time() - 7 * 86400)
             out["numcheck"] = {"bad": len(nl), "fixed": sum(1 for x in nl if x.get("fixed")), "briefs": used}

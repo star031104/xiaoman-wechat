@@ -177,7 +177,6 @@ DEFAULTS = {
     "keep_days": 0,                # 原始群消息留多少天（0 = 一直留；整理出的事实和画像不受影响）
     # 20.0 / 20.1 / 20.2
     "typing_abort": True,          # 她主动说的那句还在打字、群里又说了好几句：这句不发了
-    "ablate_rate": 0.0,          # 27.0 默认关：这个群一天才二三十次主动开口，上线以来只攒了 12 个样本，出不了结论。            # 主动开口时随机去掉提示词里一段的概率（模块消融，看哪段有用；0 = 关）
     "drift_anchor": True,          # 问她自己 / 有人难过 / 聊人生这种最容易漂走的时候，在最后再提一遍她是谁
     "number_check": True,          # 查资料后她说的数字要在简报里出现过，对不上就重写
     "ledger": True,                # 查到的硬事实记进账本（带有效期、会被新消息取代）
@@ -215,13 +214,18 @@ DEFAULTS = {
     "check_promise": "on",           # 说“核好了 / 查到了”却没有查资料记录；答应过还没给又来一句“我再翻翻”
     "check_dodge": "on",             # 25.1 查到数据、给了判断，她却说“不敢点 / 没人评过 / 是我表达含糊”
     "check_copy": "on",              # 照抄给她参考的原话（真人接法、想起来的事）：连续 10 字以上，或 6 字以上占原句八成
-    "self_like_threshold": 0.45,     # 两个字片段重合到这个比例算太像
     "context_chunk": 15,             # 聊天记录每满这么多条才往后挪一次（实际带 30~44 条）：相邻几轮的开头不变，缓存能命中；0 = 每条都挪
     "speaker_call": True,            # 聊天记录每一行写“称呼（群名片）”：别把 A 的话安到 B 头上
     "check_stale_ask": "on",         # 23.2 大家在聊 A，她突然追问之前的事 B（“老大那文档发了没”）
     "check_misattrib": "on",         # 25.0 点名“X 你……”，那句关键的话却是别人刚说的（接错人）
     "check_critic": "on",            # 23.3 统一发前自检：便宜模型拿着 checks.FAILURE_MODES 看一遍（正则都没命中时才问）
     "critic_per_hour": 30,           # 23.3 自检每小时最多问几次
+    "topic_watch": True,             # 30.0 群里这几天一直在聊、还会有新进展的事：每天 10 点后各查一次最新进展，记进账本
+    "topic_watch_max": 2,            # 30.0 每天最多跟进几件
+    "spot_autotune": True,           # 30.0 按一周的抽查自动调：梗错得多就提高读懂的把握要求；“原本那句更好”多就让自检先只记录
+    "cold_sticker": True,            # 30.0 她刚才主动说的几句都没人接、这次又是主动说：有合适的表情包就只发表情包
+    "sticker_on_sticker": 0.5,       # 30.0 别人刚发表情包时，她也回表情包的概率（以前是 0：真人常常表情包对表情包）
+    "prefer_short": True,            # 30.0 主动说时几个说法差不多好、第一个比群友长一半以上：挑短的
     "drop_bad_bubble": True,         # 29.0 毛病只在其中一条里：去掉那条、剩下的照发，不重写
     "check_parallel": True,          # 29.0 备选说法的检查和第一个同时跑（第一个有毛病时少等一轮）
     "closed_topics": True,           # 29.0 群友说过“别提 X 了 / 压力很大”的事，这几天谁都别提（问候、关心、玩笑都算）
@@ -267,7 +271,7 @@ def defaults_for(channel: str | None) -> dict:
 DEAD_KNOBS = ("interject_chance", "owner_chance", "interest_boost", "question_boost", "busy_factor",
               "ai_voice_chance", "ai_voice_character",
               "check_source_gate", "check_self_consistency", "check_template", "check_time_sense", "check_tease_risk", "check_responsive", "check_room_read", "check_other_claims", "check_disputed", "check_image_guess", "check_media_claim", "check_pushback", "check_self_repeat", "check_self_like",
-              "self_score", "self_score_min", "appraise", "appraise_enforce")   # 4.3 语音去掉了
+              "self_score", "self_score_min", "appraise", "appraise_enforce", "ablate_rate", "self_like_threshold")   # 4.3 语音去掉了
 
 # 小屋里能调的“性格开关”：键 → (标签, 类型, 最小, 最大, 步长, 说明)
 KNOBS = {
@@ -303,6 +307,9 @@ KNOBS = {
     "critic_v2": ("自检分清玩笑和事实", "bool", None, None, None, "26.0 玩笑、看法不拿去对资料；只指毛病不写替换句"),
     "rewrite_minimal": ("重写只改有毛病的字", "bool", None, None, None, "26.0 保留原来的接法、语气、玩笑；改不了就不说"),
     "pick_clean": ("有毛病先换个说法", "bool", None, None, None, "27.0 在她写的几个说法里挑没毛病的；没被叫到不重写，挑不出就不说"),
+    "meme_sure": ("读懂时梗的把握要求", "float", 0.5, 0.95, 0.05, "低于这个的梗提醒她别硬接；按抽查会自动调"),
+    "check_critic": ("统一自检", "str", None, None, None, "on 拦 / shadow 只记录 / off 关；按抽查会自动调"),
+    "topic_watch": ("每天跟进群里在聊的事", "bool", None, None, None, "30.0 每天 10 点后查一次最新进展"),
     "mood": ("持续的心情", "bool", None, None, None, "被夸、被怼、没人理会影响她一阵子（半衰期 2 小时）"),
     "human_latency": ("按群友的节奏回", "bool", None, None, None, "从这个群群友自己的回复间隔里抽“看到消息”要多久"),
     "explore_rate": ("随机试一次的比例", "float", 0, 0.1, 0.01, "本该不说的时候偶尔说一次，让以后的自我调整不偏"),
@@ -402,7 +409,6 @@ KNOBS = {
     "plans_cheer": ("事前打个气", "bool", None, None, None, "考试、面试、比赛开始前几个小时说一句加油"),
     "birthday_card": ("生日发贺卡", "bool", None, None, None, "祝完生日再发一张画的贺卡（要配画图接口）"),
     "typing_abort": ("打字时话题走了就不发", "bool", None, None, None, "她主动说的那句还在打字、群里又说了 3 条以上：这句不发了"),
-    "ablate_rate": ("随机去掉一段提示词的比例", "float", 0, 0.3, 0.05, "看提示词里哪段真有用（学到的 → 每周额外检查）；0 = 关"),
     "drift_anchor": ("容易出戏时提醒她是谁", "bool", None, None, None, "问她自己、有人难过、聊人生大问题时，在最后再提一遍人设"),
     "number_check": ("转述的数字要对得上", "bool", None, None, None, "查资料后说的数字简报里没有：重写，还不行就删掉那句"),
     "ledger": ("记下查到的事实", "bool", None, None, None, "带有效期，被新消息取代就不再用（学到的 → 她查到的事实）"),

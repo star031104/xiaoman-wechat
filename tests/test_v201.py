@@ -26,34 +26,6 @@ def test_calibrate_judge_needs_enough(cfg, brain):
     assert res["trusted"] is False and "不够" in res["why"]
 
 
-# ---------------- E2 消融 ----------------
-def test_ablation_pick_and_stats(cfg, brain):
-    from aigroup.eval.ablate import ablation_stats
-    gc, ob = _gc(cfg, brain, ablate_rate=1.0)
-    assert gc.pick_ablation(GROUP, True, None) == ""                  # 被叫到不消融
-    assert gc.pick_ablation(GROUP, False, "冒泡") == ""               # 冒泡 / 分享不消融
-    assert gc.pick_ablation(GROUP, False, None) in gc.ABLATABLE
-    for i in range(70):
-        gid = gc.gate.add(GROUP, False, 0.5, 0.4, True, {})
-        gc.gate.mark(gid, spoke=True)
-        brain.db.conn.execute("UPDATE qq_gate_log SET ablated=? WHERE id=?", ("spec" if i < 35 else "", gid))
-        brain.db.conn.execute("INSERT INTO qq_reply_effect(ts, group_id, gate_id, mentioned, done, score) VALUES (?,?,?,0,1,?)",
-                              (time.time(), GROUP, gid, 0.0 if i < 35 else 1.0))
-    brain.db.conn.commit()
-    st = ablation_stats(brain.db)
-    spec = next(m for m in st["mods"] if m["key"] == "spec")
-    assert st["base"]["n"] == 35 and spec["n"] == 35 and spec["verdict"] == "有用"
-
-
-def test_prompt_respects_drop(cfg, brain):
-    gc, ob = _gc(cfg, brain)
-    gc.pick_ablation = lambda gid, m, w: "today"
-    gc.today_block = lambda gid: "# 今天说过的TODAYMARK"
-    _run(gc, _msg(FRIEND, "小王", "随便聊聊", 1))
-    msgs = asyncio.run(gc.build_messages(GROUP, False, False, "小王"))
-    assert "TODAYMARK" not in msgs[1]["content"] and gc._ablated[GROUP] == "today"
-
-
 # ---------------- E3 数字一致 ----------------
 def test_numbers_check():
     from aigroup.chat.quality import numbers_in, unsupported_numbers

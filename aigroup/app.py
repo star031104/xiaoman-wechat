@@ -162,7 +162,7 @@ async def run(cfg):
             try:
                 d = Path(cfg.root) / "data" / "backup"
                 await asyncio.to_thread(brain.db.backup, d / f"group-{now:%Y%m%d}.db")   # 别卡住聊天
-                for old in sorted(d.glob("group-*.db"))[:-7]:   # 留 7 天
+                for old in sorted(d.glob("group-*.db"))[:-3]:   # 留 3 天
                     old.unlink(missing_ok=True)
                 brain.db.set(key, True)
             except Exception as e:  # noqa: BLE001

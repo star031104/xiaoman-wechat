@@ -118,7 +118,8 @@ def grounded(claim: str, sources: str) -> bool:
 
 # ---- 29.0 别提了 ----
 TOPIC_CLOSE_RX = re.compile(r"别(?:再)?提(.{1,8}?)了|别(?:再)?问(.{1,8}?)了|(.{1,8}?)(?:的事)?(?:能)?别(?:再)?提了|不想(?:聊|说|提)(.{1,8})")
-CLOSE_ONLY_RX = re.compile(r"别(再)?提了|别问了|别说了|压力(很|好|太)?大|换个话题")
+# 30.0 “压力很大”单独说只是在倾诉，不是让她别提（29.0 误把它当成“别提了”，会把她上一句的词封 7 天）
+CLOSE_ONLY_RX = re.compile(r"别(再)?提了|别(再)?问了|别说了|换个话题|能不能不(说|提|问)")
 # ---- 问 / 叮嘱 ----
 ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多少|咋样|怎么样|赢了没|打完了|结束了)$|"
                     r"(出了没|出来没|怎么样了|咋样了|后来呢|后来怎么|结果呢|赢没赢|发了没|弄完没|搞定没)")
@@ -398,7 +399,7 @@ class ChecksMixin:
         days = float(self.gk(gid).get("ask_closed_days", 7) or 7)
         out = []
         rows = self.db.conn.execute("SELECT id, ts, user_id, content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
-                                    "AND (content LIKE '%别%' OR content LIKE '%压力%' OR content LIKE '%不想%' OR content LIKE '%换个话题%') "
+                                    "AND (content LIKE '%别%' OR content LIKE '%不想%' OR content LIKE '%换个话题%' OR content LIKE '%能不能不%') "
                                     "ORDER BY id DESC LIMIT 40", (gid, now - days * 86400)).fetchall()
         for r in rows:
             t = TAG.sub("", str(r["content"] or ""))
@@ -410,8 +411,8 @@ class ChecksMixin:
             if not terms:                                # “别提了 / 压力很大”：说的是她刚说的那件事
                 her = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts<? "
                                            "AND ts>? ORDER BY id DESC LIMIT 1", (gid, r["ts"], r["ts"] - 600)).fetchone()
-                terms = content_terms(str(her["content"] or "")) if her else set()
-                topic = str(her["content"] or "")[:16] if her else ""
+                terms = set(sorted(content_terms(str(her["content"] or "")), key=lambda w: -len(w))[:3]) if her else set()
+                topic = str(her["content"] or "")[:16] if her else ""        # 30.0 只取她那句里最多 3 个词，别一封一大片
             if terms:
                 out.append({"ts": float(r["ts"]), "uid": r["user_id"], "topic": topic, "terms": terms})
         ck[gid] = (now, out)
@@ -421,7 +422,7 @@ class ChecksMixin:
         terms = content_terms(text)
         for c in self.closed_topics(gid, now):
             common = terms & c["terms"]
-            if common and (len(common) >= 2 or len(c["terms"]) <= 2):
+            if common and (len(common) >= 2 or len(c["terms"]) <= 3):
                 who = self.names(gid).get(str(c["uid"]), "群友")
                 return f"{who}说过别再提「{c['topic'][:12]}」（{int((now - c['ts']) / 3600)} 小时前）：这几天别再提这件事，换个话题或者不说"
         return ""

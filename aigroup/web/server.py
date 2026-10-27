@@ -274,16 +274,14 @@ class GroupHome:
 
     async def checks(self, req):
         gid = self._gid(req)
-        from aigroup.eval.ablate import NAMES, ablation_stats
         from aigroup.eval.traits import style_z
         nl = [x for x in (self.db.get("numcheck_log") or []) if float(x.get("ts") or 0) > time.time() - 7 * 86400]
         qa, pr = self.db.get("qa_last") or {}, self.db.get("pair_last") or {}
         return web.json_response({
             "calib": self.db.get("judge_calib") or {},
             "qa": {k: v for k, v in qa.items() if k != "answers"} if qa else {},
-            "pairs": pr, "style": style_z(self.db, gid), "ablate": ablation_stats(self.db, gid=gid), "names": NAMES,
+            "pairs": pr, "style": style_z(self.db, gid),
             "numcheck": {"bad": len(nl), "fixed": sum(1 for x in nl if x.get("fixed")), "recent": nl[-5:]},
-            "rate": float(self.gc.gk(gid).get("ablate_rate", 0.1) or 0),
             "vector": self._vector(gid),
             "vector_prev": next((v for v in reversed(self.db.get("vector_hist") or []) if v.get("gid") == gid), {})})
 

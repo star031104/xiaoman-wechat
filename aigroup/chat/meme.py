@@ -267,6 +267,44 @@ class MemeMixin:
         self.db.conn.commit()
         return True
 
+    def spot_autotune(self, gid: int) -> list[str]:
+        """30.0 拿一周的抽查结果自动调两个开关（写进这个群的设置，小屋里能看到“已调”，你随时能改回去）：
+        - 查到的梗你点“不对”的超过三成（≥5 条）：读懂时把握要求提到 0.85；少于一成又回到 0.7
+        - 发出去的话你点“原本那句更好”的超过四成（≥10 条）：统一自检先只记录不拦（shadow）；少于一成五又打开
+        一周最多调一次。返回调了什么。"""
+        if not self.gk(gid).get("spot_autotune", True) or not hasattr(self, "gover"):
+            return []
+        key = f"spot_tune_{gid}"
+        if time.time() - float((self.db.get(key) or {}).get("ts", 0) or 0) < 6.5 * 86400:
+            return []
+        d = self.spot_items(gid, 0, 0)["stats"]
+        say, meme = d.get("say") or {}, d.get("meme") or {}
+        better = int(self.db.conn.execute("SELECT COUNT(*) FROM qq_spot WHERE group_id=? AND kind='say' AND ok=2 AND ts>?",
+                                          (gid, time.time() - 7 * 86400)).fetchone()[0])
+        over = dict(self.gover.get(gid) or {})
+        done = []
+        mn, mok = int(meme.get("n") or 0), int(meme.get("ok") or 0)
+        if mn >= 5:
+            bad = 1 - mok / mn
+            want = 0.85 if bad > 0.3 else (0.7 if bad < 0.1 else None)
+            if want is not None and float(self.gk(gid).get("meme_sure", 0.7)) != want:
+                over["meme_sure"] = want
+                done.append(f"梗的意思错 {bad:.0%} → 读懂把握要求 {want}")
+        sn = int(say.get("n") or 0)
+        if sn >= 10:
+            r = better / sn
+            want = "shadow" if r > 0.4 else ("on" if r < 0.15 else None)
+            if want and str(self.gk(gid).get("check_critic", "on")) != want:
+                over["check_critic"] = want
+                done.append(f"“原本那句更好” {r:.0%} → 统一自检 {want}")
+        self.db.set(key, {"ts": time.time(), "done": done})
+        if done:
+            from aigroup.chat.settings import group_key
+            self.gover[gid] = over
+            self.db.set(group_key(gid), over)
+            log.info("群 %s 按抽查自动调了：%s", gid, "；".join(done))
+        return done
+
     async def meme_weekly(self, gid: int, force: bool = False) -> int:
         """29.0 每周一份热梗：搜“本周热梗盘点”、加上群里常聊的圈子（比如英雄联盟）“最近 梗”，只照搜到的整理成词条，
         记进黑话表（src=web-weekly）。先懂后用：词条只在群友说到这个词时才带给她（jargon_in 按聊天里出现才给）。

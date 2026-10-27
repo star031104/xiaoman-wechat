@@ -189,7 +189,7 @@ def test_send_cap(cfg, brain):
 
 # ---------------- 拓展 ----------------
 def test_day_refs_and_block(cfg, brain):
-    from aigroup.memory.diary import day_refs
+    from aigroup.memory.autobio import day_refs
     now = datetime(2026, 10, 26, 15)
     assert [d.strftime("%m-%d") for d in day_refs("周五那次你说的", now)] == ["10-23"]
     assert day_refs("比分2-1", now) == [] and day_refs("3号位", now) == []

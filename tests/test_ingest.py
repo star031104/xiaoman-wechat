@@ -56,7 +56,8 @@ def test_stickers_collect_label_and_send(cfg, brain, monkeypatch):
                 return {k: {"descr": "猫猫翻白眼", "emotion": "无语", "usage": "别人说离谱的话时"}}
             return {}
     brain.llm = S()
-    gc, ob = _gc(cfg, brain, reply=J(act="say", say=["离谱"], sticker="无语"), talkativeness=0, react_chance=0)
+    gc, ob = _gc(cfg, brain, reply=J(act="say", say=["离谱"], sticker="无语"), talkativeness=0, react_chance=0,
+                 sticker_on_sticker=0)        # 30.0 默认会以一半的概率表情包对表情包；这里测“不回”
 
     def stk(uid, mid):
         return {"post_type": "message", "message_type": "group", "group_id": GROUP, "user_id": uid, "message_id": mid,

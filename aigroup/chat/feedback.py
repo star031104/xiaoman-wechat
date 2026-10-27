@@ -159,6 +159,12 @@ class FeedbackMixin:
                 await self.weekly_reflect()                      # 每周一：回想这一周，人物跟着经历慢慢变
             except Exception as e:  # noqa: BLE001
                 log.info("每周回想出错：%s", e)
+        if hasattr(self, "spot_autotune"):
+            for gid in sorted(self.groups):
+                try:                                               # 30.0 按你一周的抽查自动调两个开关
+                    self.spot_autotune(gid)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s 按抽查自动调出错：%s", gid, e)
         if hasattr(self, "meme_weekly") and self.g.get("meme_weekly", True):
             for gid in sorted(self.groups):
                 try:                                               # 29.0 每周一份热梗（函数里自己管一周一次）

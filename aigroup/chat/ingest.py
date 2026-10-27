@@ -418,7 +418,7 @@ class IngestMixin:
         return desc
 
     async def _look(self, url: str, who: str = "群友", gid: int | None = None) -> str:
-        if str(url).startswith("wximg:") and hasattr(self.ob, "fetch_image"):      # 13.1 微信本地的图
+        if str(url).startswith("wximg:") and hasattr(self.ob, "fetch_image"):      # 13.1 微信本地的图（30.0 没下完的不算）
             data = await self.ob.fetch_image(url)
         else:
             data = await fetch_bytes(url)

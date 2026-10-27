@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import re
-import random
 import time
 from datetime import datetime
 
@@ -501,21 +500,6 @@ class PromptMixin:
                 + (core + "\n" if core else f"你是{p.name}。\n") + how
                 + ("。你这种时候不会：" + "；".join(nots) if nots else "") + "。")
 
-    ABLATABLE = ("recall", "autobio", "lore", "known", "today", "people_today", "absent", "rel_exp", "spec", "signatures", "held",
-                 "examples", "person_card", "card_state", "card_absent", "card_avoid", "card_tease", "card_how",
-                 "card_favor", "card_care")
-    CARD_PARTS = ("people_today", "absent", "rel_exp", "spec")       # 21.0 开着人卡时这四段已经合进人卡
-
-    def pick_ablation(self, gid: int, mentioned: bool, why: str | None) -> str:
-        """20.1 模块消融：主动开口时以 ablate_rate 的概率随机去掉一段（安全、隐私、人设核心、群规不参与）。"""
-        import random as _r
-        rate = float(self.gk(gid).get("ablate_rate", 0.1) or 0)
-        if mentioned or why or rate <= 0 or _r.random() >= rate:
-            return ""
-        card = bool(self.gk(gid).get("person_card", True))
-        pool = [x for x in self.ABLATABLE if (x not in self.CARD_PARTS if card else (x != "person_card" and not x.startswith("card_")))]
-        return _r.choice(pool)
-
     def anchor(self) -> str:
         """放在最末尾的一句人设锚点（对抗格式任务带来的人设漂移；参考 Persona Drift / Author's Note depth 0）。"""
         p = self.brain.persona
@@ -549,7 +533,8 @@ class PromptMixin:
         score = ""                       # 29.0 九问自评、五项打分删了（默认关了很久，模型给自己打分不可信）
         if plan:
             alt = (f',\n    "alt": [["另一种说法（意思差不多、说法不同）"]]（可以给 {ncand - 1} 种，也可以不给）' if ncand > 1 else "")
-            stk = ',\n    "sticker": "想跟一张表情包就写情绪（开心/大笑/无语……），大多数时候写 null"' if stick_on else ""
+            stk = (',\n    "sticker": "想跟一张表情包就写情绪（开心/大笑/无语……）；只是想笑一下、捧个场、接个情绪、没什么实话要说时，'
+                   '像群友那样只回一张表情包就好（say 留空 []）；其他时候写 null"' if stick_on else "")
             fmt = f"""- 怎么输出：只输出一个 JSON 对象（json），不要别的：
   {{"think": "一句话：先看他这句想要什么（逗你 / 认真问 / 求安慰 / 分享 / 吐槽 / 随口一说），再说你（{p.name}）此刻真实的念头——想不想说、想接谁、怎么接",
     "kind": "I1 / I2 / S1 / S2 之一（I1：有人在直接跟你说话；I2：没人叫你，但这时候你接一句很自然；S1：和你无关；S2：提到了你，但不是在跟你说话）",
@@ -700,10 +685,7 @@ class PromptMixin:
         batch = [stick, learned, "# 群里的人\n" + (self.roster(gid, focus) or "（还不熟悉）")]   # 24.0 兴趣、黑话挪到 user
         system = "\n\n".join(x for x in static + daily + batch if x)
         # ---- 每次都变的：放 user ----
-        drop = self.pick_ablation(gid, mentioned, why)
-        if not isinstance(getattr(self, "_ablated", None), dict):
-            self._ablated = {}
-        self._ablated[gid] = drop
+        drop = ""                     # 30.0 模块消融删了（小群攒不出样本）；situation_block 还认这个参数
         recall = self.recall_block(gid, query or hist[-400:], focus) if drop != "recall" else ""
         lore = ""
         if getattr(self, "lore", None) and drop != "lore":
@@ -756,9 +738,6 @@ class PromptMixin:
                  and drop != "known" else "")
         vids = self.videos_block(gid, query=query or self._recent_text(gid)) if hasattr(self, "videos_block") else ""
         today = self.today_block(gid) if hasattr(self, "today_block") and drop != "today" else ""   # 19.1 今天说过的
-        if random.random() < 0.1:
-            from aigroup.eval.ablate import note_lengths
-            note_lengths(self.db, {"recall": recall, "lore": lore, "known": known, "today": today})
         imgb = self.image_block(gid) if plan else ""
         fb = self.focus_block(gid, focus)
         users_now = self._recent_text(gid, 6, users_only=True)

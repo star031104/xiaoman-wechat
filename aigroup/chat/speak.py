@@ -507,7 +507,7 @@ class SpeakMixin:
         if gate_id:                                      # 20.1 这次去掉了哪段 / 加没加锚点：周报里比被接率
             try:
                 self.db.conn.execute("UPDATE qq_gate_log SET ablated=?, drift=? WHERE id=?",
-                                     ((getattr(self, "_ablated", {}) or {}).get(gid, ""),
+                                     ("",
                                       (getattr(self, "_drift", {}) or {}).get(gid, ""), gate_id))
                 self.db.conn.commit()
             except Exception:  # noqa: BLE001
@@ -730,6 +730,16 @@ class SpeakMixin:
             _q.OFF = set(self.gk(gid).get("rules_off") or [])           # 21.1 小屋里关掉的规则
             orig = " / ".join(cands[0]) if cands else ""
             i, score, hits = pick(cands, recent, sim, **qargs)
+            if (i >= 0 and len(cands) > 1 and not mentioned and self.gk(gid).get("prefer_short", True)):
+                # 30.0 主动说时几个说法差不多好，挑短的（她平均 18 字、群友 11 字）
+                L = self.group_len(gid) if hasattr(self, "group_len") else 0
+                if L:
+                    def _len(c):
+                        return sum(len(x) for x in c)
+                    alts = [(_len(c), k) for k, c in enumerate(cands) if k != i and _len(c) < _len(cands[i])
+                            and pick([c], recent, sim, **qargs)[1] <= score + 0.5]
+                    if alts and _len(cands[i]) > 1.5 * L:
+                        i = min(alts)[1]
             rewrote = False
             rule_hits: list = []
             if hasattr(self, "hard_issues"):          # 21.0 四条硬底线：隐私、编线下、说幕后、安全
@@ -883,8 +893,14 @@ class SpeakMixin:
             t_n = time.time()
             bubbles = await self._check_numbers(gid, bubbles, web, messages, raw, mentioned, use_plan)
             tm["numbers"] = round(time.time() - t_n, 1)
-        sticker_only = bool(not bubbles and sticker and plan and plan["act"] == "say"
-                            and not last_is_sticker and self.stickers.choose(gid, sticker))
+        # 30.0 别人刚发表情包时也可以回表情包（只抽一次，发的时候照这个来）
+        sticker_ok = bool(sticker) and (not last_is_sticker or random.random() < float(self.gk(gid).get("sticker_on_sticker", 0.5)))
+        if (bubbles and sticker_ok and not mentioned and not must and why is None and self.gk(gid).get("cold_sticker", True)
+                and hasattr(self, "ignored_count") and self.ignored_count(gid) >= 2 and self.stickers.choose(gid, sticker)):
+            # 30.0 她刚才主动说的几句都没人接：这次只发表情包，不再硬聊
+            log.info("群 %s：前面几句都没人接，这次只发表情包", gid)
+            bubbles = []
+        sticker_only = bool(not bubbles and sticker_ok and plan and plan["act"] == "say" and self.stickers.choose(gid, sticker))
         if not bubbles and not sticker_only:
             if mentioned and not may_ignore:  # 被叫到却没有能发的：给一个最短的回应
                 bubbles = [random.choice(["？", "嗯？", "在呢"])]
@@ -970,7 +986,7 @@ class SpeakMixin:
                     except Exception as e:  # noqa: BLE001
                         log.info("语音没发出去：%s", e)
         # ---- 表情包：跟在文字后面，一次最多一张；别人刚发表情包时不拿表情包回 ----
-        if (sticker and self.gk(gid).get("stickers", True) and not last_is_sticker and not interrupted
+        if (sticker_ok and self.gk(gid).get("stickers", True) and not interrupted
                 and (sent_ids or not bubbles)):
             pick_s = self.stickers.choose(gid, sticker)
             if pick_s:
@@ -994,55 +1010,61 @@ class SpeakMixin:
             except Exception as e:  # noqa: BLE001
                 log.warning("群消息没发出去：%s", e)
         if sent_ids:
-            now = time.time()
-            st.last_reply_ts = now
-            st.replies.append(now)
-            if hasattr(self, "note_answered") and tgt_row:
-                self.note_answered(gid, tgt_row.get("id"), now)           # 23.1 这条回过了
-            if hasattr(self, "note_sent"):                                  # 25.0 承诺对账：答应了记一笔，给了结果就销账
-                try:
-                    self.note_sent(gid, sent_txt, target_uid,
-                                   question=str((tgt_row or {}).get("content") or (query if mentioned else "") or "")[:160],
-                                   now=now)
-                except Exception as e:  # noqa: BLE001
-                    log.info("群 %s 记答应的事出错：%s", gid, e)
-            if hasattr(self, "hush") and self.SELF_HUSH.search(" ".join(sent_txt)):
-                self.hush(gid, "她自己说了先不说", now=now)
-            st.last_msg_ts = now
-            st.backoff.spoke()
-            if not mentioned:
-                st.energy.spend(now)
-            everyone = [int(r["user_id"]) for r in self.db.conn.execute(
-                "SELECT DISTINCT user_id FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>?",
-                (gid, now - 1800)).fetchall()]
-            st.attention.talked_to(target_uid, everyone, now)
-            self.gate.mark(gate_id, spoke=True, kind=kind)
-            cur = self.db.conn.execute(
-                "INSERT INTO qq_reply_effect(ts, group_id, gate_id, mentioned, target_uid, her_ids, text) "
-                "VALUES (?,?,?,?,?,?,?)", (now, gid, gate_id, int(mentioned), target_uid,
-                                           json.dumps([x for x in sent_ids if x is not None]), " ".join(sent_txt)[:300]))
-            self.db.conn.commit()
-            sigs = (getattr(self, "_last_sigs", None) or {}).get(gid) if isinstance(getattr(self, "_last_sigs", None), dict) else None
-            if sigs:                                        # 15.0 记下这次用了哪几条人格签名，每周看哪条老是冷场
-                log_ = list(self.db.get("sig_log") or [])
-                log_.append({"id": int(cur.lastrowid), "gid": gid, "sigs": sigs, "ts": now})
-                self.db.set("sig_log", log_[-600:])
-            self.use_thoughts(gid, " ".join(sent_txt))
-            if hasattr(self, "note_asks"):
-                try:                                         # 22.0 问过账
-                    self.note_asks(gid, sent_txt, target_uid, now)
-                except Exception as e:  # noqa: BLE001
-                    log.debug("记问过的事失败：%s", e)
-            if plan and plan.get("move") and hasattr(self, "note_move"):
-                self.note_move(gid, plan["move"], now)           # 21.1 接法冷却：记下这次怎么接的
-            if hasattr(self, "send_ok"):
-                self.send_ok(gid)
+            self._after_sent(gid, st, sent_ids, sent_txt, target_uid=target_uid, tgt_row=tgt_row, query=query,
+                             mentioned=mentioned, gate_id=gate_id, kind=kind, plan=plan)
             done("say", sent_txt, qtxt)
         else:
             if hasattr(self, "send_failed"):
                 self.send_failed(gid)                            # 21.1 连着发不出去：小屋 / 小管家提醒
             done("send_fail", [], qtxt)
         return bool(sent_ids)
+
+    def _after_sent(self, gid: int, st, sent_ids: list, sent_txt: list[str], *, target_uid, tgt_row, query: str,
+                    mentioned: bool, gate_id, kind: str, plan) -> None:
+        """30.0 回复流水线最后一步：发出去以后记账（回过了、答应了、问过了、接法、被接率、精力、门控）。"""
+        now = time.time()
+        st.last_reply_ts = now
+        st.replies.append(now)
+        if hasattr(self, "note_answered") and tgt_row:
+            self.note_answered(gid, tgt_row.get("id"), now)           # 23.1 这条回过了
+        if hasattr(self, "note_sent"):                                  # 25.0 承诺对账：答应了记一笔，给了结果就销账
+            try:
+                self.note_sent(gid, sent_txt, target_uid,
+                               question=str((tgt_row or {}).get("content") or (query if mentioned else "") or "")[:160],
+                               now=now)
+            except Exception as e:  # noqa: BLE001
+                log.info("群 %s 记答应的事出错：%s", gid, e)
+        if hasattr(self, "hush") and self.SELF_HUSH.search(" ".join(sent_txt)):
+            self.hush(gid, "她自己说了先不说", now=now)
+        st.last_msg_ts = now
+        st.backoff.spoke()
+        if not mentioned:
+            st.energy.spend(now)
+        everyone = [int(r["user_id"]) for r in self.db.conn.execute(
+            "SELECT DISTINCT user_id FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>?",
+            (gid, now - 1800)).fetchall()]
+        st.attention.talked_to(target_uid, everyone, now)
+        self.gate.mark(gate_id, spoke=True, kind=kind)
+        cur = self.db.conn.execute(
+            "INSERT INTO qq_reply_effect(ts, group_id, gate_id, mentioned, target_uid, her_ids, text) "
+            "VALUES (?,?,?,?,?,?,?)", (now, gid, gate_id, int(mentioned), target_uid,
+                                       json.dumps([x for x in sent_ids if x is not None]), " ".join(sent_txt)[:300]))
+        self.db.conn.commit()
+        sigs = (getattr(self, "_last_sigs", None) or {}).get(gid) if isinstance(getattr(self, "_last_sigs", None), dict) else None
+        if sigs:                                        # 15.0 记下这次用了哪几条人格签名，每周看哪条老是冷场
+            log_ = list(self.db.get("sig_log") or [])
+            log_.append({"id": int(cur.lastrowid), "gid": gid, "sigs": sigs, "ts": now})
+            self.db.set("sig_log", log_[-600:])
+        self.use_thoughts(gid, " ".join(sent_txt))
+        if hasattr(self, "note_asks"):
+            try:                                         # 22.0 问过账
+                self.note_asks(gid, sent_txt, target_uid, now)
+            except Exception as e:  # noqa: BLE001
+                log.debug("记问过的事失败：%s", e)
+        if plan and plan.get("move") and hasattr(self, "note_move"):
+            self.note_move(gid, plan["move"], now)           # 21.1 接法冷却：记下这次怎么接的
+        if hasattr(self, "send_ok"):
+            self.send_ok(gid)
 
     async def _check_numbers(self, gid: int, bubbles: list[str], web: str, messages: list[dict], raw: str,
                              mentioned: bool, use_plan: bool) -> list[str]:

@@ -7,9 +7,8 @@
 GroupChat 由这些 Mixin 组成（每个文件管一件事，彼此通过 self 上的共用属性协作）：
     IngestMixin    chat/ingest.py     收消息、补消息、记录
     SpeakMixin     chat/speak.py      判断、说话、复读、点表情
-    IdleMixin      chat/idle.py       冒泡、早上补回、戳回去、改签名
+    IdleMixin      chat/idle.py       冒泡、早上补回、戳回去、改签名；她此刻在干嘛、感兴趣的话题（30.0 并进来的 LifeMixin）
     FeedbackMixin  chat/feedback.py   说完的效果、回复节奏、每晚的活（nightly）
-    LifeMixin      chat/life.py       她此刻在干嘛、感兴趣的话题
     PromptMixin    chat/prompt.py     提示词（聊天记录、群里的人、规则）
     PeopleMixin    memory/people.py   群友：画像、别名、成员列表
     DigestMixin    memory/digest.py   整理：群里的事和梗、画像、群日报
@@ -42,10 +41,8 @@ from aigroup.chat.humane import HumaneMixin
 from aigroup.chat.idle import IdleMixin
 from aigroup.chat.ingest import IngestMixin
 from aigroup.chat.insight import InsightMixin
-from aigroup.chat.life import LifeMixin
 from aigroup.chat.mood import Mood
 from aigroup.chat.outbox import OutboxMixin
-from aigroup.memory.diary import DiaryMixin
 from aigroup.chat.plan import NAME_TAIL
 from aigroup.chat.prompt import PromptMixin
 from aigroup.chat.settings import DEAD_KNOBS, DEFAULTS, GLOBAL_ONLY, KNOBS, group_key
@@ -91,9 +88,9 @@ MSG_COLUMNS = {"to_her": "INTEGER NOT NULL DEFAULT 0",   # 这条是在叫她（
                "reply_to": "INTEGER"}                    # 引用了哪条消息（QQ 消息 id）
 
 
-class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, LifeMixin, PromptMixin, PeopleMixin, DigestMixin,
+class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, PromptMixin, PeopleMixin, DigestMixin,
                 NetMixin, GrowMixin, EvalMixin, StyleMixin, InsightMixin, AgentMixin, HumaneMixin, SocialMixin,
-                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, DiaryMixin, PromiseMixin, MemeMixin):
+                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, PromiseMixin, MemeMixin):
     """她在群里的一切：收消息 → 判断要不要说 → 说 → 看效果；空闲时冒泡、整理记忆。
 
     这个类只负责把各部分装起来、放共用的小工具；具体的活在各个 Mixin 里（见文件开头的说明）。
