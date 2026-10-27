@@ -129,12 +129,73 @@ CONF = {"高": "high", "中": "medium", "低": "low", "high": "high", "medium": 
 MAJOR = re.compile(r"退役|转会|离队|加盟|去世|逝世|离世|塌房|被捕|官宣|解散|停更|封号|跑路|倒闭|涨价|降价|暴涨|暴跌|夺冠")
 
 
+def close_json(text: str) -> str:
+    """25.1 交卷的 JSON 被截断（深查带思考，max_tokens 被思考吃掉一大半；10-27 羽毛球那题整份简报只剩 400 字原文）：
+    退回到最后一个完整的值，把没关的引号、括号补上。"""
+    i = text.find("{")
+    if i < 0:
+        return ""
+    s = text[i:]
+    stack, in_str, esc, cut = [], False, False, 0
+    for k, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            if not stack:
+                return s[:k + 1]
+            cut = k + 1
+        elif ch == ",":
+            cut = k
+    if not stack:
+        return s
+    body = s[:cut].rstrip().rstrip(",")
+    # 补括号：重新数一遍到 body 结尾还开着的
+    stack, in_str, esc = [], False, False
+    for ch in body:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]" and stack:
+            stack.pop()
+    return body + "".join(reversed(stack))
+
+
 def parse_brief(text: str) -> dict:
     """研究员交的 JSON → 简报。21.0 第 3 版：一句结论 + 一条条说法（各带来源和置信度）+ 冲突 / 辟谣 / 没查到 / 假设 / 可补充；
     20.1 第 2 版（answer_points + conflict + answerable）和更老的也认。返回里总有 answer_points（字符串列表）给老代码和小屋用。"""
     from aigroup.chat.plan import lenient_json
     d = lenient_json(text or "")
-    keys = ("answer_points", "answer_short", "claims", "premise", "answerable")
+    keys = ("answer_points", "answer_short", "claims", "premise", "answerable", "verdict")
+    if not isinstance(d, dict) or not any(k in d for k in keys):
+        try:
+            d2 = json.loads(close_json(re.sub(r"```(?:json)?", "", text or "")))
+            if isinstance(d2, dict):
+                d = d2
+        except ValueError:
+            m = re.search(r'"answer_short"\s*:\s*"((?:[^"\\]|\\.)*)"', text or "")
+            if m:
+                d = {"answer_short": json.loads(f'"{m.group(1)}"'), "confidence": "low"}
     if not isinstance(d, dict) or not any(k in d for k in keys):
         t = (text or "").strip()
         return {"answer_points": [t[:400]] if t else [], "premise": "", "as_of": "", "sources": [],
@@ -175,6 +236,7 @@ def parse_brief(text: str) -> dict:
     d["conflict"] = [c for c in (conf or []) if isinstance(c, dict) and c.get("sides")][:3]
     d["counter"] = [str(x).strip() for x in (d.get("counter") or []) if str(x).strip()][:3] \
         if isinstance(d.get("counter"), list) else ([str(d["counter"])] if d.get("counter") else [])
+    d["counter"] = [x for x in d["counter"] if not DODGE_CALL.search(x)]     # 25.1 “没有权威复盘、不支持点名”不是辟谣
     unk = d.get("unknowns")
     if isinstance(unk, list) and unk:
         d["unknown"] = "；".join(str(x) for x in unk if str(x).strip())[:200]
@@ -182,11 +244,59 @@ def parse_brief(text: str) -> dict:
         d[k] = [str(x).strip()[:80] for x in (d.get(k) or []) if str(x).strip()][:4] if isinstance(d.get(k), list) else []
     d["facts"] = [f for f in (d.get("facts") or []) if isinstance(f, dict) and f.get("entity") and f.get("value")][:5] \
         if isinstance(d.get("facts"), list) else []
+    d["verdict"] = parse_verdict(d.get("verdict"))
+    if d["verdict"] and not d["answer_points"]:
+        d["answer_points"] = [d["verdict"]["call"]]
     ans = d.get("answerable")
     d["answerable"] = not (ans is False or str(ans).lower() in ("false", "no", "0")) or bool(d.get("premise"))
     if not d["answer_points"] and not d.get("premise"):
         d["answerable"] = False
     return d
+
+
+DODGE_CALL = re.compile(r"无法判断|不(敢|好|能)(判断|下结论|点名|说)|没有(权威|专业|现成)|查不到.{0,6}(评分|复盘)|不支持点名")
+
+
+def parse_verdict(v) -> dict:
+    """25.1 判断题 / 选购题的“她自己的判断”：{call, why[{point, data, src}], against, confidence, change_if, assume}；
+    没有、或者 call 本身就是在躲（“无法判断”）→ {}。"""
+    if not isinstance(v, dict):
+        return {}
+    call = str(v.get("call") or "").strip()[:120]
+    if not call or DODGE_CALL.search(call):
+        return {}
+    why = []
+    for w in v.get("why") or [] if isinstance(v.get("why"), list) else []:
+        if isinstance(w, dict) and str(w.get("point") or w.get("data") or "").strip():
+            why.append({"point": str(w.get("point") or "").strip()[:80], "data": str(w.get("data") or "").strip()[:100],
+                        "src": str(w.get("src") or "").strip()[:40]})
+        elif isinstance(w, str) and w.strip():
+            why.append({"point": w.strip()[:80], "data": "", "src": ""})
+    return {"call": call, "why": why[:3], "against": str(v.get("against") or "").strip()[:100],
+            "confidence": CONF.get(str(v.get("confidence") or "").strip(), "medium"),
+            "change_if": str(v.get("change_if") or "").strip()[:80], "assume": str(v.get("assume") or "").strip()[:80]}
+
+
+NUM = re.compile(r"\d+(?:\.\d+)?")
+
+
+def verify_verdict(d: dict, tool_text: str) -> int:
+    """25.1 判断的依据得是真拿到的：why 里的数字在这次工具结果里都找不到的那条删掉（编的数据比不判断更糟）；
+    一条有数字的依据都不剩、又没有别的依据 → 把握降到“低”。返回删了几条。"""
+    v = d.get("verdict") or {}
+    if not v or not tool_text:
+        return 0
+    keep, n = [], 0
+    for w in v.get("why") or []:
+        nums = [x for x in NUM.findall(w.get("data") or "") if len(x.replace(".", "")) >= 1 and x not in ("0", "1", "2")]
+        if nums and not any(x in tool_text for x in nums):
+            n += 1
+            continue
+        keep.append(w)
+    v["why"] = keep
+    if not keep:
+        v["confidence"] = "low"
+    return n
 
 
 def single_source_major(d: dict) -> list[str]:
@@ -254,6 +364,16 @@ def brief_block(goal: str, d: dict, fresh: bool = True) -> str:
     conf = {"high": "比较有把握", "medium": "大概对", "low": "把握不大"}.get(str(d.get("confidence") or ""), "")
     if conf:
         lines.append(f"把握：{conf}")
+    v = d.get("verdict") or {}
+    if v:
+        lines.append(f"你看了数据以后的判断：{v['call']}{word.get(v.get('confidence'), '')}")
+        lines += [f"  依据：{w['point']}" + (f"（{w['data']}）" if w.get("data") else "") for w in v.get("why") or []]
+        if v.get("against"):
+            lines.append(f"  另一种看法：{v['against']}")
+        if v.get("assume"):
+            lines.append(f"  你是按这个挑的：{v['assume']}")
+        if v.get("change_if"):
+            lines.append(f"  看到这些会改判：{v['change_if']}")
     srcs = [s for s in (d.get("sources") or []) if isinstance(s, dict)][:4]
     if srcs:
         lines.append("来源：" + "；".join(f"{s.get('site') or s.get('title', '')[:20]}"
@@ -261,7 +381,11 @@ def brief_block(goal: str, d: dict, fresh: bool = True) -> str:
     say = []
     if d.get("premise"):
         say.append(P.BRIEF_SAY["premise"])
-    if d.get("answerable") is False and not d.get("premise"):
+    if v:
+        say.append(P.BRIEF_SAY["verdict"])
+        if v.get("confidence") == "low":
+            say.append(P.BRIEF_SAY["verdict_low"])
+    if d.get("answerable") is False and not d.get("premise") and not v:
         say.append(P.BRIEF_SAY["unanswerable"])
     for c in d.get("conflict") or []:
         t = str(c.get("type") or "口径不同")
@@ -271,7 +395,7 @@ def brief_block(goal: str, d: dict, fresh: bool = True) -> str:
         say.append(P.BRIEF_SAY["counter"])
     if d.get("single_major"):
         say.append(P.BRIEF_SAY["single"])
-    if str(d.get("confidence") or "") == "low" or (d.get("unknown") and d.get("answerable") is not False):
+    if (str(d.get("confidence") or "") == "low" or (d.get("unknown") and d.get("answerable") is not False)) and not v:
         say.append(P.BRIEF_SAY["low"])
     if d.get("answer_short") or d.get("followups"):
         say.append(P.BRIEF_SAY["followups"])
@@ -469,8 +593,9 @@ class AgentMixin:
         rounds, deadline, depth = research_budget(g, depth, qtype)       # 21.0 按问题类型配力度
         deep = depth == "deep"
         if mentioned:                                    # 21.1 被叫到：群里等不了太久，到点就交卷（没覆盖的写进“没查到”）
-            deadline = min(deadline, float(g.get("agent_mention_deep_cap" if deep else "agent_mention_quick_cap",
-                                                 25 if deep else 12)))
+            cap = ("agent_mention_judge_cap", 40) if qtype in ("judge", "buy") else \
+                ("agent_mention_deep_cap", 25) if deep else ("agent_mention_quick_cap", 12)
+            deadline = min(deadline, float(g.get(cap[0], cap[1])))
         filler = None
         if mentioned and g.get("agent_filler", True) and deep:
             # 21.1 先用她自己的口气短回一句，查完再补。23.3 查得快就不发这句（10-24“我去手机查一下哈”+ 答案连着 5 条）：
@@ -487,7 +612,8 @@ class AgentMixin:
         msgs = [{"role": "system", "content": P.RESEARCH_SYSTEM.format(
                     now=self._now_text(), name=self.brain.persona.name,
                     rounds=f"这次最多查 {rounds} 轮，一般 {max(1, rounds - 1)} 轮就该交卷。")},
-                {"role": "user", "content": P.RESEARCH_USER.format(goal=goal + window_text(window) + P.type_note(qtype),
+                {"role": "user", "content": P.RESEARCH_USER.format(goal=goal + window_text(window) + P.type_note(qtype)
+                                                                   + self._source_note(gid, goal + " " + question, qtype),
                                                                    context=self.transcript(gid, 6))}]
         from aigroup.agent.tools import DEPTH, QUESTION
         QUESTION.set(question or goal)
@@ -497,6 +623,7 @@ class AgentMixin:
             res = await tool_loop(self.brain.llm, msgs, tb.schemas(recall=True),
                                   lambda n, a: tb.run(n, a, recall=lambda q: self._agent_recall(gid, q)),
                                   max_rounds=rounds, thinking=thinking, deadline_s=deadline, finish_prompt=P.FINISH,
+                                  max_tokens=int(g.get("agent_max_tokens", 8000 if thinking else 4000)),
                                   covered_prompt=P.FINISH_COVERED if g.get("agent_stop_on_covered", True) else "")
         except Exception as e:  # noqa: BLE001
             log.info("群 %s：查资料失败：%s", gid, e)
@@ -506,6 +633,8 @@ class AgentMixin:
                 filler.cancel()
         d = parse_brief(res.text)
         dropped = verify_citations(d, "\n".join(res.tool_text)) if g.get("agent_verify_cites", True) else 0
+        if g.get("agent_verify_cites", True):
+            dropped += verify_verdict(d, "\n".join(res.tool_text))
         log.info("群 %s：查了「%s」（%s，%d 轮，%.0f 秒，%s%s）", gid, goal, depth, res.rounds, res.seconds,
                  {"covered": "都证实了就停", "model": "自己交卷", "deadline": "到点交卷", "rounds": "轮数用完"}.get(res.stop, res.stop),
                  f"，删了 {dropped} 个对不上的来源" if dropped else "")
@@ -521,7 +650,7 @@ class AgentMixin:
         d = await self._recheck_major(d, res.steps)
         self._save_brief(gid, goal, d)
         self.ledger_write(gid, d)
-        if g.get("remember_web", True) and d.get("confidence") != "low" and d.get("answer_points"):
+        if g.get("remember_web", True) and d.get("confidence") != "low" and d.get("claims"):   # 25.1 只记查到的事实，不记她的判断
             self._spawn(self.learn(gid, goal, [{"title": goal, "snippet": "；".join(d["answer_points"][:3])}]))
         return brief_block(goal, d)
 
@@ -587,6 +716,18 @@ class AgentMixin:
                 self.note_sent(gid, [text], question=goal)
         except Exception as e:  # noqa: BLE001
             log.info("群 %s：“等我看看”没发出去：%s", gid, e)
+
+    def _source_note(self, gid: int, text: str, qtype: str) -> str:
+        """25.1 判断 / 选购 / 比较 / 近况题：按问题里的领域给研究员几行“常去的数据站”。"""
+        if qtype not in ("judge", "buy", "compare", "recent") or not self.gk(gid).get("agent_source_hints", True):
+            return ""
+        from aigroup.agent.tools import source_hints
+        try:
+            extra = (self.cfg.get("net") or {}).get("source_hints")
+        except Exception:  # noqa: BLE001
+            extra = None
+        h = source_hints(text, extra if isinstance(extra, dict) else None)
+        return f"\n\n常去的数据站（参考，打不开就换下一个）：\n{h}" if h else ""
 
     def toolbox(self):
         """19.3 研究员的工具箱（aigroup/agent/tools.py）：搜索、读任何网页、翻记忆、B 站、电竞、天气、算数。"""

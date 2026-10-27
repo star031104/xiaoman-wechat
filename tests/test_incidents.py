@@ -30,7 +30,7 @@ def build(gc, case):
 def run(gc, case):
     uid, row = build(gc, case)
     gc.db.conn.execute("DELETE FROM qq_check_log")
-    asyncio.run(gc.checks22(GROUP, [case["draft"]], target_uid=uid, target_row=row, mentioned=False,
+    asyncio.run(gc.checks22(GROUP, [case["draft"]], target_uid=uid, target_row=row, mentioned=False, web=case.get("web") or "",
                             image={"top": case["image_top"]} if case.get("image_top") else {}))
     return {r["name"] for r in gc.db.conn.execute("SELECT name FROM qq_check_log").fetchall()}
 

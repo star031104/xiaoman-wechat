@@ -63,11 +63,12 @@ def transcript(lines: list[str], now: datetime) -> str:
 
 async def route(llm, P, case: dict, now: datetime, name: str) -> dict:
     last = case["chat"][-1].partition("：")[0]
-    msgs = [{"role": "system", "content": P.ROUTER_SYSTEM.format(
-                now=f"{now:%Y-%m-%d %H:%M} 星期{P.WEEK[now.weekday()]}", name=name, group="测试群")},
+    # 24.0 起时间挪到了 ROUTER_USER 最后（system 不放时间，缓存才命得中）
+    msgs = [{"role": "system", "content": P.ROUTER_SYSTEM.format(name=name, group="测试群")},
             {"role": "user", "content": P.ROUTER_USER.format(
                 transcript=transcript(case["chat"], now), recent="（没有）",
-                focus=f"有人在叫她，最新一条是 {last} 说的。说这句话的人（“我”）是：{last}")}]
+                focus=f"有人在叫她，最新一条是 {last} 说的。说这句话的人（“我”）是：{last}",
+                now=f"{now:%Y-%m-%d %H:%M} 星期{P.WEEK[now.weekday()]}")}]
     t0 = time.time()
     m = await llm.chat_tools(msgs, P.ROUTER_TOOLS, role="helper", thinking=False, max_tokens=500)
     from aigroup.agent.loop import parse_args
@@ -85,6 +86,9 @@ def check_route(case: dict, r: dict, now: datetime) -> tuple[bool, str]:
     c = r["calls"][0] if r["calls"] else {}
     if got == "research" and case.get("depth") and c["args"].get("depth") != case["depth"]:
         return True, f"力度该 {case['depth']}，实际 {c['args'].get('depth')}（不算错）"
+    if got == "research" and case.get("type") and c["args"].get("type") not in (
+            case["type"] if isinstance(case["type"], list) else [case["type"]]):
+        return False, f"类型该 {case['type']}，实际 {c['args'].get('type')}"
     if got == "research" and case.get("window") and not (c["args"].get("after") or c["args"].get("before")):
         return False, "问题里有相对时间，该换成具体日期填 after / before"
     if got == "reminder_set" and case.get("when"):
@@ -94,7 +98,8 @@ def check_route(case: dict, r: dict, now: datetime) -> tuple[bool, str]:
     return True, ""
 
 
-async def research(llm, P, web, links, goal: str, depth: str, now: datetime, name: str, ctx: str, cfg=None) -> dict:
+async def research(llm, P, web, links, goal: str, depth: str, now: datetime, name: str, ctx: str, cfg=None,
+                   qtype: str = "", question: str = "") -> dict:
     from aigroup.agent.loop import tool_loop
     from aigroup.agent.mixin import parse_brief
     from aigroup.agent.tools import Toolbox
@@ -102,17 +107,22 @@ async def research(llm, P, web, links, goal: str, depth: str, now: datetime, nam
 
     async def ex(n, a):
         return await tb.run(n, a)
+    from aigroup.agent.mixin import research_budget
+    from aigroup.agent.tools import source_hints
+    rounds, deadline, depth = research_budget({}, depth, qtype)          # 25.1 和线上一样：按类型配力度、带做法和数据站
     deep = depth == "deep"
-    rounds = 4 if deep else 2
+    hints = source_hints(goal + " " + question) if qtype in ("judge", "buy", "compare", "recent") else ""
     msgs = [{"role": "system", "content": P.RESEARCH_SYSTEM.format(
                 now=f"{now:%Y-%m-%d %H:%M} 星期{P.WEEK[now.weekday()]}", name=name,
-                rounds=f"这次最多查 {rounds} 轮，一般 {rounds - 1} 轮就该交卷。")},
-            {"role": "user", "content": P.RESEARCH_USER.format(goal=goal, context=ctx)}]
-    res = await tool_loop(llm, msgs, tb.schemas(), ex, max_rounds=rounds, thinking=deep,
-                          deadline_s=40 if deep else 15, finish_prompt=P.FINISH, covered_prompt=P.FINISH_COVERED)
-    from aigroup.agent.mixin import verify_citations
+                rounds=f"这次最多查 {rounds} 轮，一般 {max(1, rounds - 1)} 轮就该交卷。")},
+            {"role": "user", "content": P.RESEARCH_USER.format(
+                goal=goal + P.type_note(qtype) + (f"\n\n常去的数据站（参考，打不开就换下一个）：\n{hints}" if hints else ""),
+                context=ctx)}]
+    res = await tool_loop(llm, msgs, tb.schemas(), ex, max_rounds=rounds, thinking=deep, max_tokens=8000 if deep else 4000,
+                          deadline_s=deadline, finish_prompt=P.FINISH, covered_prompt=P.FINISH_COVERED)
+    from aigroup.agent.mixin import verify_citations, verify_verdict
     brief = parse_brief(res.text)
-    bad = verify_citations(brief, "\n".join(res.tool_text))
+    bad = verify_citations(brief, "\n".join(res.tool_text)) + verify_verdict(brief, "\n".join(res.tool_text))
     return {"brief": brief, "rounds": res.rounds, "seconds": round(res.seconds, 1), "forced": res.forced,
             "steps": res.steps, "stop": res.stop, "need": res.need, "bad_cites": bad}
 
@@ -203,13 +213,17 @@ async def main():
                 goal = str(call["args"].get("goal") or "") + window_text(time_window(call["args"].get("after"),
                                                                                      call["args"].get("before")))
                 rr = await research(llm, P, web, links, goal, depth, now, name,
-                                    transcript(c["chat"], now), cfg)
+                                    transcript(c["chat"], now), cfg, qtype=str(call["args"].get("type") or ""),
+                                    question=c["chat"][-1].partition("：")[2])
                 if depth == "quick":
                     quick_s.append(r["seconds"] + rr["seconds"])
                 prem = ("这道题的前提本身有问题（比如人已经退役 / 东西还没出），简报（premise 或要点里）没指出来就不能通过。"
                         if c.get("premise") else "")
                 if c.get("answerable") is False:
                     prem += "这道题网上基本查不到：简报 answerable=false 或者 unknown 里老实写了查不到就算对；拿不相干的资料凑答案不能通过。"
+                if c.get("verdict"):
+                    prem += ("这是要下判断 / 推荐的题：简报的 verdict 必须给出明确判断（call），依据里要有具体数据；"
+                             "只说“没有现成评分 / 无法判断”的不能通过；判断把握低但给了倾向、说清依据的可以通过。")
                 if c.get("conflict"):
                     prem += "这道题网上说法不一：简报的 conflict 写了不同说法（或者要点里讲清了新旧说法）才能通过。"
                 b = rr["brief"]
@@ -223,6 +237,8 @@ async def main():
                 row.update(research=rr, judge=j, abstained=row_abst)
                 if not j.get("pass", False):
                     row["ok"], row["why"] = False, f"简报没过：{j.get('why', '')}"
+                elif c.get("verdict") and not (b.get("verdict") or {}).get("call"):
+                    row["ok"], row["why"] = False, "要下判断的题没给 verdict"
             except Exception as e:  # noqa: BLE001
                 row["ok"], row["why"] = False, f"查资料出错：{e}"
         rows.append(row)

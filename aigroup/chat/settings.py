@@ -161,6 +161,8 @@ DEFAULTS = {
     "offline_note_minutes": 30,    # 21.1 被叫到隔了这么久才回：带一句“刚掉线了 / 才看到”
     "agent_mention_quick_cap": 12, # 21.1 被叫到时快查最多几秒（到点交卷，没覆盖的写进“没查到”）
     "agent_mention_deep_cap": 25,  # 被叫到时深查最多几秒
+    "agent_mention_judge_cap": 40, # 25.1 被叫到、要她下判断 / 推荐买什么时最多几秒（要拿原始数据，25 秒常常拿不到；10 秒时先回一句）
+    "agent_source_hints": True,    # 25.1 给研究员“常去的数据站”（按问题里的领域挑几行；net.source_hints 可以加）
     "agent_stop_on_covered": True, # 21.1 研究员写的“要证实”的都有资料了就交卷（HALT），不等到时间到
     "agent_verify_cites": True,    # 21.1 简报里的来源必须在这次搜到的结果里出现过，对不上的删掉
     "agent_filler_gen": True,      # 21.1 要查一会儿时先用她自己的口气现写一句短回（不是固定那几句）
@@ -230,6 +232,7 @@ DEFAULTS = {
     "promise_expire_minutes": 90,    # 过了这么久就不补了（话题早过去了）
     "check_promise": "on",           # 说“核好了 / 查到了”却没有查资料记录；答应过还没给又来一句“我再翻翻”
     "check_misattrib": "on",         # 点名“X 你……”，那句关键的话却是别人刚说的（接错人）
+    "check_dodge": "on",             # 25.1 查到数据、给了判断，她却说“不敢点 / 没人评过 / 是我表达含糊”
     "check_copy": "on",              # 照抄给她参考的原话（真人接法、想起来的事）：连续 10 字以上，或 6 字以上占原句八成
     "check_self_like": "on",         # 和她 24 小时内说过的某句太像（同一个句架子）
     "self_like_threshold": 0.45,     # 两个字片段重合到这个比例算太像
@@ -371,6 +374,8 @@ KNOBS = {
     "offline_note_minutes": ("隔多久才回要说一声", "int", 5, 240, 5, "带一句“刚掉线了 / 才看到”"),
     "agent_mention_quick_cap": ("被叫到时快查最多几秒", "int", 5, 30, 1, ""),
     "agent_mention_deep_cap": ("被叫到时深查最多几秒", "int", 10, 60, 1, ""),
+    "agent_mention_judge_cap": ("被叫到时下判断 / 选购最多几秒", "int", 15, 90, 1, "要拿原始数据自己判断，比普通深查多给一点"),
+    "agent_source_hints": ("给研究员常去的数据站", "bool", None, None, None, "判断题、选购题按领域提示去哪个网站拿数据"),
     "agent_stop_on_covered": ("证实了就停", "bool", None, None, None, "研究员写的“要证实”的都有资料了就交卷"),
     "agent_verify_cites": ("核对引用", "bool", None, None, None, "简报里的来源必须是这次真搜到的"),
     "promise_ledger": ("答应了要给结果", "bool", None, None, None, "说了“我去看看 / 晚点告诉你”到点还没给，就再查一次补上；查不到就认一句"),

@@ -56,9 +56,12 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 
 CHECKS = ("source_gate", "self_consistency", "ask_repeat", "template", "addressee", "time_sense", "tease_risk",
           "responsive", "room_read", "other_claims", "disputed", "image_guess", "answered", "media_claim", "catchphrase",
-          "video_pending", "stale_ask", "pushback", "self_repeat", "promise", "self_like", "copy", "misattrib", "critic")
+          "video_pending", "stale_ask", "pushback", "self_repeat", "promise", "self_like", "copy", "misattrib", "dodge", "critic")
 # 23.2 这些检查命中、又没被叫到：不重写，直接不说（重写以后还是同一个毛病，比如替别人答）
 DROP = "〔不说〕"
+# 25.1 被要求下判断时往回缩的说法
+DODGE_RX = re.compile(r"不敢(点|说|下|判断|乱说)|没法(判断|说谁|点名)|不好(说|判断|评价)|说不(准|好)(谁|是)?|没人(评|复盘|打分)|"
+                      r"(评分|复盘)(都)?没(有|找到)|表达(得)?含糊|我只知道|谁(最差|更好)(我)?(也)?(不知道|说不上)")
 
 # 这些词太常见，不算“说的是哪件事”
 STOP2 = COMMON2 | set("""我这 我那 这边 那边 一会 等会 今天 昨天 前天 这周 上周 最近 以前 之前 刚才 刚刚 上次 那天 周末 早上 晚上 中午
@@ -151,6 +154,7 @@ FAILURE_MODES = [
     "说“核好了 / 查到了”其实没查到（这次的资料里没有），或者答应了“我去看看”又不给结果、再说一遍“我再翻翻”",
     "接错人：把 A 说的话安到 B 头上（“B 你别拿它当正常体温”，说正常体温的是 A）",
     "像自己以前说过的话：同一个意思、同一种自怜 / 自嘲换个说法又来（“就我一个打工的”“就我光秃秃一个”），或者照抄别人的原话",
+    "被要求下判断（锐评、谁最差、买哪个），资料里有数据和判断却缩回去（“没人评过不敢点”“我只知道…”“是我表达含糊”）",
 ]
 # 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
 PHRASE_FAMILIES = {
@@ -774,6 +778,19 @@ class ChecksMixin:
                     "先认一句（“啊我看错了，是……”）；拿不准他对不对就问他哪看的")
         return ""
 
+    def _dodge(self, text: str, web: str) -> str:
+        """25.1 资料里有“你看了数据以后的判断”，她却在躲（10-27：“谁最差我真不敢点”→ 被追问“是我表达含糊，我只知道 Hope 被针对”）。"""
+        m = re.search(r"你看了数据以后的判断：([^\n]+)", web or "")
+        if not m:
+            return ""
+        t = TAG.sub("", text)
+        d = DODGE_RX.search(t)
+        if not d:
+            return ""
+        call = re.sub(r"（(大概|不太确定)）$", "", m.group(1)).strip()
+        return (f"你查了数据、也有自己的判断（「{call[:40]}」），却说「{d.group(0)}」：直接说你的看法，带一条依据；"
+                "把握不大就说“我倾向…”，别缩回去")
+
     def _self_repeat(self, gid: int, text: str, now: float) -> str:
         """23.3 她自嘲的点 2 小时内又拿出来（10-24：16:41“眼睛被广告糊住了”→ 17:17“就是眼睛不太行”，冷场）。"""
         t = TAG.sub("", text)
@@ -887,6 +904,10 @@ class ChecksMixin:
             w = self._misattrib(gid, text, now)
             if w:
                 found.append(("misattrib", w))
+        if mode["dodge"] != "off":
+            w = self._dodge(text, web)
+            if w:
+                found.append(("dodge", w))
         if mode["copy"] != "off" and hasattr(self, "_copied"):
             w = self._copied(gid, text)
             if w:

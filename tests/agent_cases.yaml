@@ -10,6 +10,42 @@
 #   premise  研究层：问题前提有问题，简报里 premise 该写东西
 #   note     出题时想考什么（给人看）
 cases:
+  # ---------- 25.1 要她下判断 / 推荐（网上一般没有现成答案，要拿原始数据自己判断） ----------
+  - id: judge-lol-worst
+    chat: ["小王：@小满 锐评一下 AL 输给 TL 那场各个选手的发挥，谁打的最差"]
+    expect: research
+    type: judge
+    verdict: true
+    note: 10-27 线上原题：只搜“评分 / 复盘”，没找到就说不敢点
+  - id: judge-badminton
+    chat: ["老张：最近一次石宇奇输球那场，输在哪"]
+    expect: research
+    type: judge
+    verdict: true
+  - id: judge-football-player
+    chat: ["小王：哈兰德这赛季到现在踢得怎么样"]
+    expect: research
+    type: [judge, recent]
+    verdict: true
+  - id: judge-predict
+    chat: ["小李：今晚 NBA 湖人那场你觉得谁会赢"]
+    expect: research
+    type: judge
+    verdict: true
+  - id: buy-earphone
+    chat: ["小李：预算一千五想买个降噪耳机，通勤用，买啥"]
+    expect: research
+    type: buy
+    verdict: true
+  - id: buy-phone-compare
+    chat: ["老张：小米最新的数字系列和一加最新的数字系列，拍照哪个好"]
+    expect: research
+    type: [judge, compare, buy]
+    verdict: true
+  - id: judge-chat-only
+    chat: ["小王：你觉得老张做饭好吃还是我做饭好吃"]
+    expect: none
+    note: 群里自己的事，不查
   # ---------- 时效类 ----------
   - id: fresh-llm
     chat: ["小王：最近有什么新出的大模型"]

@@ -26,7 +26,8 @@ PAGE = 6000                                  # read_url 一次给多少字
 SCHEMAS = {
     "web_search": {
         "description": "搜索引擎。返回 6 条左右：标题、站点、发布日期（有的没有）、摘要、链接。先用短而宽的词，再收窄；"
-                       "知道去哪个网站找最准（比如 vlr.gg、hltv.org、bilibili.com、douban.com）就填 site。",
+                       "知道去哪个网站找最准（比如 vlr.gg、hltv.org、gol.gg、bilibili.com、douban.com）就填 site。"
+                       "不知道数据在哪就先搜“对象 + 数据 / stats / 技术统计 / 参数”找数据站。",
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string", "description": "搜索词，像在搜索框里打的（中文或英文）"},
             "days": {"type": "integer", "description": "只要最近几天的新闻（7~30）；0 = 不限（查资料、百科、数据页用 0）"},
@@ -62,7 +63,8 @@ SCHEMAS = {
     "esports": {
         "description": "电竞数据（Liquipedia）：选手、战队、赛事、阵容、近期成绩、奖金。game 写哪个游戏（无畏契约 / 英雄联盟 / CS / DOTA2 / 王者荣耀 / 守望先锋……），"
                        "query 写选手 / 战队 / 赛事名（英文名最准，比如 aspas、Sentinels、VCT 2026 Champions）。"
-                       "页面长，用 find 只看相关的（比如“Results 2026”“Roster”）。比分、赛程、数据站（vlr.gg、hltv.org）的实时数字用 read_url 看。",
+                       "页面长，用 find 只看相关的（比如“Results 2026”“Roster”）。每局个人数据（KDA、伤害、经济）Liquipedia 一般没有，"
+                       "用 read_url 去数据站看（英雄联盟 gol.gg / lol.fandom.com，无畏契约 vlr.gg，CS hltv.org，DOTA2 opendota.com）。",
         "parameters": {"type": "object", "properties": {
             "game": {"type": "string", "description": "哪个游戏"},
             "query": {"type": "string", "description": "选手 / 战队 / 赛事名"},
@@ -108,6 +110,47 @@ def seen_before(q: str, site: str = "") -> str:
             return old
     seen.append((q, site, b))
     return ""
+
+
+# 25.1 常去的数据站：判断题 / 选购题要拿原始数据，研究员不知道某个领域的数据在哪（10-27 只会搜“评分 / 复盘”）。
+# 按问题里的词挑几行给它；不在表里的领域靠 JUDGE_HOW 里“先搜‘对象 + 数据 / stats’找数据站”。部署者可以在 net.source_hints 里加。
+SOURCE_HINTS: list[tuple[str, str]] = [
+    (r"英雄联盟|LOL|LPL|LCK|LEC|LCS|世界赛|S1\d|MSI|德杯|季中",
+     "英雄联盟：gol.gg（每局 KDA / 伤害 / 经济，tournament → game → stats）、lol.fandom.com（Leaguepedia 赛事页的 Scoreboard）、"
+     "dpm.lol / op.gg esports；中文看玩加电竞、虎扑赛后帖（评价参考）"),
+    (r"无畏契约|瓦洛兰特|valorant|VCT", "无畏契约：vlr.gg（每图 ACS / KD / ADR）、rib.gg"),
+    (r"\bCS\b|CS2|CSGO|反恐精英|Major", "CS：hltv.org（每图 rating / ADR / KD）"),
+    (r"DOTA|刀塔", "DOTA2：opendota.com、dotabuff.com、datdota.com"),
+    (r"王者荣耀|KPL", "王者荣耀：KPL 官网 / 王者营地的赛后数据、玩加电竞"),
+    (r"羽毛球|BWF|汤杯|尤杯|苏杯|全英赛|石宇奇|安洗莹|林诗栋|郑思维|陈雨菲",
+     "羽毛球：bwfbadminton.com（赛程比分、每局比分、交手记录 H2H）、bwf.tournamentsoftware.com（全部比赛、各局比分）、"
+     "badmintonranks / 世界排名；技术统计少，就看各局比分走势、关键分、交手记录、近期战绩"),
+    (r"乒乓|WTT|樊振东|王楚钦|孙颖莎|马龙", "乒乓：worldtabletennis.com（WTT 赛果、各局比分）、ittf.com 排名、results.ittf.link"),
+    (r"网球|ATP|WTA|大满贯|温网|法网|美网|澳网|郑钦文|德约|辛纳|阿尔卡拉斯",
+     "网球：atptour.com / wtatennis.com（比赛统计：一发率、破发点、制胜分）、tennisabstract.com（交手和赛季数据）"),
+    (r"足球|英超|西甲|意甲|德甲|法甲|欧冠|中超|世界杯|球员|进球",
+     "足球：fbref.com（球员 / 球队赛季数据）、sofascore.com / fotmob.com（单场评分、xG、技术统计）、whoscored.com、transfermarkt（身价、伤病）；中文：懂球帝、直播吧"),
+    (r"篮球|NBA|CBA|湖人|勇士|詹姆斯|库里", "篮球：basketball-reference.com、nba.com/stats（单场 box score、正负值）、CBA 官网、虎扑数据"),
+    (r"F1|一级方程式|排位赛", "F1：formula1.com（成绩、圈速）、statsf1.com"),
+    (r"手机|耳机|笔记本|电脑|显卡|CPU|相机|平板|显示器|键盘|鼠标|路由器|手表|电视|值不值|性价比|买哪|推荐.*买|预算",
+     "数码选购：官网参数页、京东 / 天猫商品页（价格写日期）、什么值得买（价格史、晒单）、中关村在线 / 极客湾 / 爱否（评测）、"
+     "notebookcheck.net（笔记本 / 手机实测）、rtings.com（耳机 / 显示器 / 电视实测）、dxomark（拍照）、B 站评测视频（bili 工具）"),
+    (r"电影|电视剧|番|动画|小说|书|专辑|游戏(?!.*(比赛|战队))", "作品：豆瓣（评分、短评）、IMDb、Bangumi（番剧）、Metacritic / OpenCritic（游戏）、Steam 评测"),
+    (r"股票|基金|A股|港股|美股|汇率|金价|币", "行情：东方财富、雪球、新浪财经、investing.com（价格写时间，只说事实不荐股）"),
+]
+
+
+def source_hints(text: str, extra: dict | None = None, k: int = 3) -> str:
+    """25.1 问题里提到的领域 → 那几行“常去的数据站”（最多 k 行）；extra = 配置里加的 {正则: 说明}。"""
+    rows = list(SOURCE_HINTS) + [(str(a), str(b)) for a, b in (extra or {}).items()]
+    out = []
+    for rx, line in rows:
+        try:
+            if re.search(rx, text or "", re.I) and line not in out:
+                out.append(line)
+        except re.error:
+            continue
+    return "\n".join(f"- {x}" for x in out[:k])
 
 
 def schemas(names: list[str] | None = None) -> list[dict]:
