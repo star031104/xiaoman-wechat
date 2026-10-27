@@ -24,13 +24,23 @@ from aigroup.chat.plan import (
     parse_group_reply,
     to_segments,
 )
-from aigroup.chat.prompt import appraise_verdict
 from aigroup.chat.quality import make_typo, pick
 from aigroup.chat.trace import new_trace
 from aigroup.onebot import face_for, image_seg, reply_seg, text_seg
 
 log = logging.getLogger("aigroup.group")
 tlog = logging.getLogger("aigroup.text.group")       # 13.0 带聊天正文的：只进她家里的日志文件，不进控制台
+def drop_bad_bubble(bubbles: list[str], notes: list[str]) -> list[str]:
+    """29.0 检查意见里引用了有问题的原话（「…」）：只去掉含这段原话的那一条。都对不上 / 全去掉了返回空。"""
+    spans = [x for n in notes for x in re.findall(r"[「“]([^」”]{2,40})[」”]", str(n))]
+    if not spans:
+        return []
+    bad = {k for k, b in enumerate(bubbles) for sp in spans if sp and (sp in b or (len(sp) >= 6 and sp[:6] in b))}
+    if not bad or len(bad) >= len(bubbles):
+        return []
+    return [b for k, b in enumerate(bubbles) if k not in bad]
+
+
 # 27.0 群友让她别提、别问、说压力大：还没发出去的那句要重新想
 STOP_RX = re.compile(r"别(再)?提(了|.{1,6}了)|别说了|别问了|闭嘴|压力(很|好|太)?大|不想(聊|说|提)|换个话题|能不能不(说|提)")
 SOFT_BLOCK = 6.0          # 5.0 罚分到这么多：没被叫到就不说了；被叫到就让她重写一次
@@ -490,6 +500,7 @@ class SpeakMixin:
         last_id = int(self.db.conn.execute("SELECT IFNULL(MAX(id), 0) m FROM qq_group_messages WHERE group_id=?",
                                            (gid,)).fetchone()["m"])
         web = await self._prepare(gid, mentioned, who, trigger, why, web, tm)
+        t_b = time.time()
         messages = await self.build_messages(gid, mentioned, owner_spoke, who, why, note=note, interest=interest,
                                              query=query, focus=focus, web=web,
                                              flags={"pestered"} if may_ignore else None)
@@ -502,6 +513,7 @@ class SpeakMixin:
             except Exception:  # noqa: BLE001
                 pass
         t_l = time.time()
+        tm["prompt"] = round(t_l - t_b, 1)                # 29.0 拼提示词（召回、画像、天气……）
         raw = await b.llm.chat(messages, role=str(self.gk(gid).get("route") or "chat"),
                                json_mode=bool(self.gk(gid).get("plan_json", True)))
         tm["llm"] = round(time.time() - t_l, 1)
@@ -645,36 +657,6 @@ class SpeakMixin:
             if replying and plan["act"] == "say" and kind in ("S1", "S2"):     # 只管接群友话；冒泡、欢迎、nudge 不管
                 log.info("群 %s：她判断这和她无关（%s），不说", gid, kind)
                 plan["act"] = "skip"
-            sc = plan.get("score") or {}
-            if (sc and plan["act"] == "say" and not mentioned and not must and not bid and self.gk(gid).get("self_score", True)
-                    and (replying or why is not None)):
-                avg = sum(sc.values()) / len(sc)
-                low_new = sc.get("新意", 5) <= 2
-                if avg < float(self.gk(gid).get("self_score_min", 3.0)) or low_new:
-                    # 19.1 Inner Thoughts：念头分不够（尤其新意 ≤ 2：说过的、复述别人的）就不说
-                    log.info("群 %s：念头分不够（平均 %.1f%s），不说", gid, avg, "，新意低" if low_new else "")
-                    plan["act"] = "skip"
-            ap = plan.get("appraise") or {}
-            if ap and plan["act"] == "say" and self.gk(gid).get("appraise", True):
-                # 别人在接她的话、回答她刚问的（bid）：和被叫到一样，只改说法、不会不说（Gottman：接住搭话）
-                verdict, notes = appraise_verdict(ap, prompted=bool(mentioned or must or bid))
-                self._appraise_log(gid, gate_id, ap, verdict)
-                if not self.gk(gid).get("appraise_enforce", False):
-                    verdict = "say"              # 21.1 自评只记录（不可信，线上 10/10 “现在”），时机交给听者
-                if verdict == "wait" and (pitch or not self.gk(gid).get("pitch_queue", True)):
-                    verdict = "skip"                        # 已经等过一次了 / 没开等待队列：这次就不说
-                if verdict == "skip":
-                    log.info("群 %s：九问自评 → 不说（%s；%s）", gid, "、".join(notes), ap.get("why", ""))
-                    plan["act"] = "skip"
-                elif verdict == "wait":
-                    st.pitch = {"say": list(plan["say"])[:3], "ts": time.time(), "last_id": last_id,
-                                "think": plan.get("think", ""), "why": ap.get("why", ""), "gate_id": gate_id}
-                    log.info("群 %s：九问自评 → 再等等，先放着：%s", gid, " / ".join(plan["say"])[:60])
-                    self._pitch_outcome(gid, "queued", plan["say"])
-                    return skip("defer")
-                elif verdict == "fix":
-                    fix_notes = notes
-                    log.info("群 %s：九问自评 → 要改（%s）", gid, "、".join(notes))
             if (plan["act"] == "say" and not mentioned and not must and not bid and (replying or pitch)
                     and hasattr(self, "listen") and str(self.gk(gid).get("listener_mode", "auto")) != "off"):
                 # 21.1 独立的听者判时机（她自己的自评不可信）；影子模式只记不拦
@@ -757,6 +739,14 @@ class SpeakMixin:
                     score = max(score, SOFT_BLOCK)
             if hasattr(self, "checks22") and (i >= 0 or cands):
                 t_c = time.time()
+                alt_task = None
+                if (len(cands) > 1 and i >= 0 and self.gk(gid).get("pick_clean", True) and self.gk(gid).get("check_parallel", True)
+                        and hasattr(self, "_pick_clean")):
+                    # 29.0 备选说法的检查同时跑：第一个有毛病时不用再等一轮自检（多花一次便宜调用，少等约 1 秒）
+                    alt_task = asyncio.ensure_future(self._pick_clean(
+                        gid, cands, i, recent, sim, qargs, focus,
+                        dict(target_uid=target_uid, target_row=tgt_row, mentioned=mentioned, gate_id=None, web=web or "",
+                             image=(plan or {}).get("image") or {}, quiet=True)))
                 try:                                   # 22.0 亲历闸门、矛盾、问过、套路、叫错人、时间感、损人、回应性
                     c22 = await self.checks22(gid, cands[i] if i >= 0 else cands[0], target_uid=target_uid,
                                               target_row=tgt_row, mentioned=mentioned, gate_id=gate_id, web=web or "",
@@ -766,12 +756,20 @@ class SpeakMixin:
                     c22 = []
                 tm["checks"] = round(time.time() - t_c, 1)
                 from aigroup.chat.checks import DROP as _DROP
+                if alt_task is not None and not c22:
+                    alt_task.cancel()
                 if c22 and len(cands) > 1 and i >= 0 and self.gk(gid).get("pick_clean", True):
                     # 27.0 先在她自己写的几个说法里挑一个没毛病的（不重写：重写出来的常常是检查员的口吻）
                     t_p = time.time()
-                    alt = await self._pick_clean(gid, cands, i, recent, sim, qargs, focus,
-                                                 dict(target_uid=target_uid, target_row=tgt_row, mentioned=mentioned,
-                                                      gate_id=gate_id, web=web or "", image=(plan or {}).get("image") or {}))
+                    if alt_task is not None:
+                        try:
+                            alt = await alt_task
+                        except Exception:  # noqa: BLE001
+                            alt = None
+                    else:
+                        alt = await self._pick_clean(gid, cands, i, recent, sim, qargs, focus,
+                                                     dict(target_uid=target_uid, target_row=tgt_row, mentioned=mentioned,
+                                                          gate_id=gate_id, web=web or "", image=(plan or {}).get("image") or {}))
                     tm["pick"] = round(time.time() - t_p, 1)
                     if alt is not None:
                         rule_hits = list(c22)
@@ -796,6 +794,20 @@ class SpeakMixin:
             if fix_notes:                                  # 24.0 检查给的意见放前面：重写只看前 4 条，别被罚分项挤掉
                 hits = list(dict.fromkeys([*fix_notes, *hits]))
             pick_only = bool(self.gk(gid).get("pick_clean", True)) and not mentioned and not must
+            if (fix_notes and i >= 0 and len(cands[i]) >= 2 and self.gk(gid).get("drop_bad_bubble", True)):
+                # 29.0 毛病只在其中一条里：把那条去掉、剩下的照发，不重写（重写常把好笑的那句也改平）
+                left = drop_bad_bubble(cands[i], fix_notes)
+                if left:
+                    try:
+                        again = await self.checks22(gid, left, target_uid=target_uid, target_row=tgt_row, mentioned=mentioned,
+                                                    web=web or "", recheck=True, image=(plan or {}).get("image") or {})
+                    except Exception:  # noqa: BLE001
+                        again = ["x"]
+                    if not again:
+                        log.info("群 %s：去掉有毛病的那条，剩下的照发：%s", gid, " / ".join(left)[:60])
+                        rule_hits = list(fix_notes)
+                        cands = [left] + [c for k, c in enumerate(cands) if k != i]
+                        i, fix_notes = 0, []
             if (cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan
                     and not pick_only):                     # 27.0 没被叫到就不重写：挑不出没毛病的就不说
                 # 5.0 被叫到（或者是她自己要说的）却只有毛病很大的说法：告诉她哪里不对，重写一次

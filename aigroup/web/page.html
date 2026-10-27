@@ -577,6 +577,10 @@ body:not(.admin) .side .adm-gt{display:none}
         <div id="labBox"></div>
       </div>
     </div>
+    <div class="card c12" id="spotCard">
+      <div class="card-h"><h3><span data-i="note"></span>每天抽查（点几下就行）</h3><span class="sp"></span><span class="hint" id="spotStat">你点的对错代替自动评测：一周看她发出去的话、查到的梗有几成靠谱</span></div>
+      <div class="card-b"><div class="small muted" style="margin-bottom:8px">她发出去的话：合适 / 不行 / 原本想说的那句更好。查到的梗：意思对 / 不对（点“不对”她就先不用这个意思）。</div><div id="spotBox"></div></div>
+    </div>
     <div class="card c12" id="humaneCard">
       <div class="card-h"><h3><span data-i="heart"></span>像不像人（这一周）</h3><span class="sp"></span><span class="hint">该说没说 = 你判“该接”的里她没接的比例；不该说却说 = 你判“不该插”的里她说了的比例（“可接可不接”不算）；搭话 = 别人接她的话</span></div>
       <div class="card-b"><div class="hm" id="humane"></div></div>
@@ -1207,11 +1211,26 @@ const LST={ok:"用",no:"不用",new:"自动"};
 const tri=(attr,x)=>`<span class="tri" role="group" aria-label="用不用">${["ok","new","no"].map(st=>`<button type="button" class="${x.status===st?"on "+st:""}" aria-pressed="${x.status===st}" ${attr} data-st="${st}">${LST[st]}</button>`).join("")}</span>`;
 function lBtns(kind,x){return tri(`data-lk="${kind}" data-id="${x.id}"`,x)
   +`<button class="btn sm ghost danger" data-lk="${kind}" data-id="${x.id}" data-del="1" title="删掉" aria-label="删掉">${icon("x")}</button>`}
+async function loadSpot(){
+  if(!LSEL)return;let r;try{r=await api(`/api/spot?gid=${LSEL}`)}catch(e){$("spotBox").innerHTML='<div class="empty">没取到</div>';return}
+  if(r.off){$("spotCard").hidden=true;return}$("spotCard").hidden=false;
+  const st=r.stats||{},f=k=>st[k]&&st[k].n?`${st[k].ok||0}/${st[k].n}`:"还没点";
+  $("spotStat").textContent=`这一周：发出去的话合适 ${f("say")}，梗的意思对 ${f("meme")}`+(r.planned_better?`；有 ${r.planned_better} 次你觉得原本想说的更好`:"");
+  const btn=(kind,ref,ok,t)=>`<button class="btn sm" data-sk="${kind}" data-sr="${ref}" data-so="${ok}">${t}</button>`;
+  const say=(r.says||[]).map(x=>`<div class="spot" style="padding:8px 0;border-top:1px solid var(--line)"><div class="small muted">${x.before.map(esc).join("<br>")}</div>
+    <div>发出：<b>${esc(x.sent)}</b></div>${x.planned&&x.planned!==x.sent?`<div class="small muted">原本想说：${esc(x.planned)}</div>`:""}
+    <div style="margin-top:4px">${btn("say",x.ref,1,"合适")} ${btn("say",x.ref,0,"不行")} ${x.planned&&x.planned!==x.sent?btn("say",x.ref,2,"原本那句更好"):""}</div></div>`).join("");
+  const mm=(r.memes||[]).map(x=>`<div class="spot" style="padding:8px 0;border-top:1px solid var(--line)">「${esc(x.term)}」：${esc(x.meaning)} <span class="small muted">${x.src==="web-weekly"?"每周热梗":"查过"}</span>
+    <div style="margin-top:4px">${btn("meme",x.ref,1,"意思对")} ${btn("meme",x.ref,0,"不对")}</div></div>`).join("");
+  $("spotBox").innerHTML=(say+mm)||'<div class="empty">今天没有要点的了</div>';
+  $("spotBox").querySelectorAll("[data-sk]").forEach(b=>b.onclick=async()=>{try{await api("/api/spot",{gid:LSEL,kind:b.dataset.sk,ref:+b.dataset.sr,ok:+b.dataset.so});
+    b.closest(".spot").remove();if(!$("spotBox").querySelector(".spot"))loadSpot()}catch(e){toast("没存上："+e.message)}})}
 async function loadLearn(){
   if(!S)await loadState();if(!S||!S.groups.length){$("exList").innerHTML='<li class="empty">还没配置群</li>';return}
   if(!LSEL||!S.groups.some(g=>g.id===LSEL))LSEL=S.groups[0].id;
   mkSeg($("lseg"),S.groups.map(g=>[String(g.id),g.name]),LSEL,v=>{LSEL=+v;loadLearn()});
   $("lseg").hidden=S.groups.length<2;
+  loadSpot();
   const [r,gt]=await Promise.all([api(`/api/learned?gid=${LSEL}`),api(`/api/gate?gid=${LSEL}`)]);
   $("learnOff").hidden=r.learn;
   const pct=v=>Math.round(v*100)+"%";
@@ -1358,9 +1377,9 @@ const KGROUPS=[["说话多少",["talkativeness","max_per_10min","max_bubbles","c
   ["慢慢长",["monthly_self","plans","plans_per_day","fix_knowledge","celebrate","birthday_card","plans_cheer","share_per_day","share_chance","share_fresh_days","photo_share_chance"]],
   ["人格和分寸（14.0）",["signatures","signature_k","persona_examples","example_k","hold_thoughts","pester_calls","weekly_probe","label_nb"]],
   ["懂人（16.0）",["rel_experience","absent_hours","state_judge"]],
-  ["更像人（19.1）",["bids","bid_hours","open_question_minutes","no_repeat_today","no_monologue","lonely_hours","self_score","self_score_min","person_spec"]],
-  ["听者与分寸（21.1）",["listener_mode","listener_agree","listener_margin","listener_min_each","listener_panel","appraise_enforce","move_cooldown","move_cooldown_minutes","length_match","length_max_ratio","talk_control","talk_control_hours","share_target","mention_read_cap","offline_note_minutes","agent_mention_quick_cap","agent_mention_deep_cap","agent_stop_on_covered","agent_verify_cites","agent_filler_gen","favors","anchor_volume"]],
-  ["开口前九问（21.0）",["appraise","pitch_queue","pitch_min_seconds","pitch_max_seconds","pitch_quiet_seconds","pitch_max_new","borderline_judge","borderline_band","person_card","hard_rules"]],
+  ["更像人（19.1）",["bids","bid_hours","open_question_minutes","no_repeat_today","no_monologue","lonely_hours","person_spec"]],
+  ["听者与分寸（21.1）",["listener_mode","listener_agree","listener_margin","listener_min_each","listener_panel","move_cooldown","move_cooldown_minutes","length_match","length_max_ratio","talk_control","talk_control_hours","share_target","mention_read_cap","offline_note_minutes","agent_mention_quick_cap","agent_mention_deep_cap","agent_stop_on_covered","agent_verify_cites","agent_filler_gen","favors","anchor_volume"]],
+  ["先放着再说、硬底线（21.0）",["pitch_queue","pitch_min_seconds","pitch_max_seconds","pitch_quiet_seconds","pitch_max_new","borderline_judge","borderline_band","person_card","hard_rules"]],
   ["B 站视频和天气",["watch_videos","video_frames","weather","weather_care"]],
   ["20.x 说话时机、守住人格、联网整合",["typing_abort","drift_anchor","ablate_rate","number_check","ledger","feed","feed_min","rel_tone"]],
   ["每周评测",["weekly_eval"]]];

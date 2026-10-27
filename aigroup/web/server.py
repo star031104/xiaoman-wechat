@@ -106,6 +106,8 @@ class GroupHome:
         r.add_post("/api/label/answer", self.label_answer)
         r.add_get("/api/calib/next", self.calib_next)          # 20.1 给她的话打分（评委校准）
         r.add_post("/api/calib/answer", self.calib_answer)
+        r.add_get("/api/spot", self.spot_get)                  # 29.0 每天抽查：想说的 vs 发出的、查到的梗
+        r.add_post("/api/spot", self.spot_post)
         r.add_get("/api/rules", self.rules_info)               # 21.1 规则登记：命中、拦对率、关掉
         r.add_post("/api/rules/judge", self.rules_judge)
         r.add_post("/api/rules/toggle", self.rules_toggle)
@@ -1177,6 +1179,21 @@ class GroupHome:
         except (KeyError, TypeError, ValueError):
             return web.json_response({"ok": False, "error": "参数不对"}, status=400)
         return web.json_response({"ok": True, "stats": pair_stats(self.db)})
+
+    async def spot_get(self, req):
+        gid = self._gid(req)
+        if not hasattr(self.gc, "spot_items") or not self.gc.gk(gid).get("spot_check", True):
+            return web.json_response({"says": [], "memes": [], "stats": {}, "off": True})
+        return web.json_response(self.gc.spot_items(gid))
+
+    async def spot_post(self, req):
+        d = await self._json(req)
+        try:
+            ok = self.gc.spot_answer(self._gid(req, d), str(d["kind"]), int(d["ref"]),
+                                     int(d["ok"]), str(d.get("note") or ""))
+        except (KeyError, TypeError, ValueError):
+            ok = False
+        return web.json_response({"ok": ok}, status=200 if ok else 400)
 
     async def label_next(self, req):
         from aigroup.eval.label import next_moment, stats

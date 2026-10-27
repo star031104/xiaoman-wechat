@@ -71,53 +71,6 @@ def test_unsupported_claims():
 
 
 # ---------------- 九问 ----------------
-def test_appraise_parse_and_verdict():
-    from aigroup.chat.prompt import PromptMixin, appraise_verdict
-    raw = json.dumps({"act": "say", "say": ["哈哈"], "appraise": {"timing": "等等", "leak": "false", "face_risk": "2",
-                                                                   "fresh": True, "tease_ok": None, "why": "他还没说完"}},
-                     ensure_ascii=False)
-    a = PromptMixin.parse_plan_text(raw)["appraise"]
-    assert a["timing"] == "wait" and a["leak"] is False and a["face_risk"] == 2 and "tease_ok" not in a
-    assert appraise_verdict(a, prompted=False)[0] == "wait"
-    assert appraise_verdict({"timing": "no"}, prompted=False)[0] == "skip"
-    assert appraise_verdict({"fresh": False}, prompted=False)[0] == "skip"
-    assert appraise_verdict({"leak": True}, prompted=False)[0] == "skip"
-    assert appraise_verdict({"leak": True}, prompted=True)[0] == "fix"      # 被叫到：改，不是不说
-    assert appraise_verdict({"face_risk": 3, "timing": "now"}, prompted=False)[0] == "fix"
-    assert appraise_verdict({"timing": "now", "fresh": True}, prompted=False) == ("say", [])
-
-
-def test_appraise_in_prompt(cfg, brain):
-    gc, _ = _gc(cfg, brain, appraise=True)
-    gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
-    msgs = asyncio.run(gc.build_messages(GROUP, False, False, "", None, query="今天好冷", focus=[FRIEND]))
-    sysm = msgs[0]["content"]
-    assert '"appraise"' in sysm and '"score"' not in sysm
-
-
-def test_appraise_skip_and_wait_queue(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0, appraise=True)
-    gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["是啊好冷"], appraise={"timing": "不说"})
-    assert not asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who="")) and not ob.sent
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["穿秋裤了没"], appraise={"timing": "等等", "why": "他话没说完"})
-    assert not asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who="")) and not ob.sent
-    st = gc._st(GROUP)
-    assert st.pitch and st.pitch["say"] == ["穿秋裤了没"]
-    assert asyncio.run(gc.pitch_tick(GROUP, st)) is False                # 还没到 60 秒
-    st.pitch["ts"] -= 120
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["穿秋裤了没"], appraise={"timing": "等等"})
-    assert asyncio.run(gc.pitch_tick(GROUP, st)) is True
-    assert not ob.sent and st.pitch is None                             # 再判还说“等等”：等过一次了，不说
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["穿秋裤了没"], appraise={"timing": "等等"})
-    asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who=""))
-    st.pitch["ts"] -= 120
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["穿秋裤了没"], appraise={"timing": "现在", "fresh": True})
-    assert asyncio.run(gc.pitch_tick(GROUP, st)) is True and ob.sent
-    stats = gc.pitch_stats(GROUP)
-    assert stats["queued"] == 2 and stats["sent"] == 1 and stats["skipped"] == 1
-
-
 def test_pitch_dropped_when_stale(cfg, brain):
     gc, ob = _gc(cfg, brain)
     st = gc._st(GROUP)
@@ -126,14 +79,6 @@ def test_pitch_dropped_when_stale(cfg, brain):
     st.pitch = {"say": ["刚才那个"], "ts": time.time() - 90, "last_id": 1}
     assert asyncio.run(gc.pitch_tick(GROUP, st)) is True and st.pitch is None and not ob.sent
     assert gc.pitch_stats(GROUP).get("dropped_stale") == 1
-
-
-def test_appraise_fix_unprompted_skips_when_rewrite_fails(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0, appraise=True)
-    gc._record(GROUP, FRIEND, "小王", "我体检报告出来了", 1)
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["哈哈你又胖了"],
-                        appraise={"timing": "现在", "fresh": True, "face_risk": 3})
-    assert not asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who="")) and not ob.sent
 
 
 def test_borderline():
@@ -185,9 +130,9 @@ def test_label_split_and_appraise_stats(cfg, brain):
     ids = [gc.gate.add(GROUP, False, 0.5, 0.4, True, {}) for _ in range(4)]
     for i in ids:
         gc.gate.mark(i, spoke=True)
-    gc._appraise_log(GROUP, ids[0], {"timing": "now"}, "say")
-    gc._appraise_log(GROUP, ids[1], {"timing": "now", "fresh": False}, "say")
-    gc._appraise_log(GROUP, ids[2], {"timing": "wait"}, "wait")
+    gc.db.conn.execute("UPDATE qq_gate_log SET appraise=? WHERE id=?", (json.dumps({"timing": "now"}), ids[0]))   # 九问自评删了，旧记录还在
+    gc.db.conn.execute("UPDATE qq_gate_log SET appraise=? WHERE id=?", (json.dumps({"timing": "now", "fresh": False}), ids[1]))   # 九问自评删了，旧记录还在
+    gc.db.conn.execute("UPDATE qq_gate_log SET appraise=? WHERE id=?", (json.dumps({"timing": "wait"}), ids[2]))   # 九问自评删了，旧记录还在
     answer(brain.db, ids[0], 0, why0="时机不对")
     answer(brain.db, ids[1], 0, why0="说的不对")
     answer(brain.db, ids[2], 1)

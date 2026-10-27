@@ -206,10 +206,9 @@ class Where:
         return f"（{where}" + (f"，那边{wx}" if wx else "") + "）"
 
     async def prefetch(self, uids: list[int]):
-        for uid in uids:
-            p = self.get(uid)
-            if p and p.get("lat") is not None:
-                await self.weather(p["lat"], p["lon"])
+        import asyncio
+        spots = {(p["lat"], p["lon"]) for p in (self.get(u) for u in uids) if p and p.get("lat") is not None}
+        await asyncio.gather(*(self.weather(a, b) for a, b in spots), return_exceptions=True)   # 29.0 同时查，同一个地方只查一次
 
 
 def said_where(text: str) -> tuple[str, str] | None:

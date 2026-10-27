@@ -116,6 +116,9 @@ def grounded(claim: str, sources: str) -> bool:
     return bool(terms) and any(t in sources for t in terms)
 
 
+# ---- 29.0 别提了 ----
+TOPIC_CLOSE_RX = re.compile(r"别(?:再)?提(.{1,8}?)了|别(?:再)?问(.{1,8}?)了|(.{1,8}?)(?:的事)?(?:能)?别(?:再)?提了|不想(?:聊|说|提)(.{1,8})")
+CLOSE_ONLY_RX = re.compile(r"别(再)?提了|别问了|别说了|压力(很|好|太)?大|换个话题")
 # ---- 问 / 叮嘱 ----
 ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多少|咋样|怎么样|赢了没|打完了|结束了)$|"
                     r"(出了没|出来没|怎么样了|咋样了|后来呢|后来怎么|结果呢|赢没赢|发了没|弄完没|搞定没)")
@@ -384,7 +387,49 @@ class ChecksMixin:
             return ""
         return "你这两天问过 / 叮嘱过的（同一件事别再问第二遍；对方说过“别问了”的这周都别提）：\n" + "\n".join(lines)
 
+    def closed_topics(self, gid: int, now: float | None = None) -> list[dict]:
+        """29.0 群友说过“别提 X 了 / 别问了 / 压力很大”的事：这几天谁都别提（不只是她问过的）。
+        10-27 11:39 群友说“别提面试了好吗压力很大的”，第二天的主动问候也不该再说面试。每分钟算一次。"""
+        now = now or time.time()
+        ck = self.__dict__.setdefault("_closed_cache", {})
+        hit = ck.get(gid)
+        if hit and now - hit[0] < 60:
+            return hit[1]
+        days = float(self.gk(gid).get("ask_closed_days", 7) or 7)
+        out = []
+        rows = self.db.conn.execute("SELECT id, ts, user_id, content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
+                                    "AND (content LIKE '%别%' OR content LIKE '%压力%' OR content LIKE '%不想%' OR content LIKE '%换个话题%') "
+                                    "ORDER BY id DESC LIMIT 40", (gid, now - days * 86400)).fetchall()
+        for r in rows:
+            t = TAG.sub("", str(r["content"] or ""))
+            m = TOPIC_CLOSE_RX.search(t)
+            if not m and not CLOSE_ONLY_RX.search(t):
+                continue
+            topic = (next((g for g in m.groups() if g), "") if m else "").strip("的事 ")
+            terms = content_terms(topic) if topic else set()
+            if not terms:                                # “别提了 / 压力很大”：说的是她刚说的那件事
+                her = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts<? "
+                                           "AND ts>? ORDER BY id DESC LIMIT 1", (gid, r["ts"], r["ts"] - 600)).fetchone()
+                terms = content_terms(str(her["content"] or "")) if her else set()
+                topic = str(her["content"] or "")[:16] if her else ""
+            if terms:
+                out.append({"ts": float(r["ts"]), "uid": r["user_id"], "topic": topic, "terms": terms})
+        ck[gid] = (now, out)
+        return out
+
+    def _closed_hit(self, gid: int, text: str, now: float) -> str:
+        terms = content_terms(text)
+        for c in self.closed_topics(gid, now):
+            common = terms & c["terms"]
+            if common and (len(common) >= 2 or len(c["terms"]) <= 2):
+                who = self.names(gid).get(str(c["uid"]), "群友")
+                return f"{who}说过别再提「{c['topic'][:12]}」（{int((now - c['ts']) / 3600)} 小时前）：这几天别再提这件事，换个话题或者不说"
+        return ""
+
     def _ask_repeat(self, gid: int, text: str, target_uid, now: float) -> str:
+        w = self._closed_hit(gid, text, now) if self.gk(gid).get("closed_topics", True) else ""
+        if w:
+            return w
         if not (ASK_RX.search(text.strip()) or CARE_RX.search(text) or "？" in text or "?" in text):
             return ""
         terms = content_terms(text)
@@ -634,7 +679,7 @@ class ChecksMixin:
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
                        mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None,
-                       recheck: bool = False) -> list[str]:
+                       recheck: bool = False, quiet: bool = False) -> list[str]:
         """发前检查。返回要处理的问题（只包含开关是 on 的）；shadow 的只记录。
         27.1 只留模型一次看不全、要查历史或状态的 10 个（回过、问过、承诺、说法族 / 口头禅、叫错人、照抄、视频还在看、躲判断、翻旧事、接错人），
         其余的毛病都在 FAILURE_MODES 里交给统一自检（以前同一个毛病提示词、正则、自检各写一遍，三处打架）。
@@ -672,7 +717,7 @@ class ChecksMixin:
             if w:
                 found.append(("critic", w))
         out = []
-        if recheck:
+        if recheck or quiet:                           # quiet（29.0）：备选说法的检查，不记日志（没选上的说法不算命中）
             return [why for name, why in found if mode[name] == "on"]
         for name, why in found:
             self.check_log(gid, name, mode[name], text, why, gate_id)

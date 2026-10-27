@@ -133,9 +133,6 @@ DEFAULTS = {
     "no_repeat_today": True,       # 今天说过的意思、梗、安排里的事不再主动说第二遍（提示词 + 发之前查）
     "no_monologue": True,          # 她上一句还没人接：不再主动追一句（冒泡、分享、天气这些）
     "lonely_hours": "01:00-07:00", # 这段时间群里 20 分钟没人说话：不主动开口（空着 = 不管）
-    "self_score": False,           # 24.0 默认关（模型给自己打分不可信，21.0 起就不靠它了）。想插话时先给念头打分（相关、信息差、效果、新意、时机），分低就不说
-    "self_score_min": 3.0,         # 平均分低于这个、或者新意 ≤ 2：没人叫她时不说
-    "appraise": False,             # 24.0 默认关（只记录不执行、却占主回复一半的输出，拖慢回复）。21.0 开口前九问自评（代替上面的五项打分）：timing 现在 / 等等 / 不说、说漏、伤面子、玩笑合不合适……
     "pitch_queue": True,           # 21.0 她觉得“再等等”的话先放着，过一会儿 / 群里停下来再判一次
     "pitch_min_seconds": 60,       # 至少等这么久
     "pitch_max_seconds": 240,      # 最多等这么久，过了就丢
@@ -149,7 +146,6 @@ DEFAULTS = {
     "listener_min_each": 15,
     "listener_margin": 0.08,       # 或者：听者比她自己现在的做法和你一致率高这么多（且 ≥ 0.6）也接管       # auto 接管前“该接”“时机不对”各要攒这么多条你的标注
     "listener_panel": True,        # 配了 llm.routes.listener2 时两个模型一起判，意见不一就等等
-    "appraise_enforce": False,     # 21.1 她自己的九问自评要不要直接拦（默认只记录：自评不可信）
     "move_cooldown": True,         # 21.1 同一种接法半小时里用过 2 次就提醒她换一种
     "move_cooldown_minutes": 30,
     "length_match": True,          # 21.1 长度靠拢群友：告诉她群里一条一般几个字，主动说太长就换短的
@@ -226,6 +222,12 @@ DEFAULTS = {
     "check_misattrib": "on",         # 25.0 点名“X 你……”，那句关键的话却是别人刚说的（接错人）
     "check_critic": "on",            # 23.3 统一发前自检：便宜模型拿着 checks.FAILURE_MODES 看一遍（正则都没命中时才问）
     "critic_per_hour": 30,           # 23.3 自检每小时最多问几次
+    "drop_bad_bubble": True,         # 29.0 毛病只在其中一条里：去掉那条、剩下的照发，不重写
+    "check_parallel": True,          # 29.0 备选说法的检查和第一个同时跑（第一个有毛病时少等一轮）
+    "closed_topics": True,           # 29.0 群友说过“别提 X 了 / 压力很大”的事，这几天谁都别提（问候、关心、玩笑都算）
+    "weather_bg": True,              # 29.0 天气放后台查，拼提示词时不等
+    "meme_weekly": True,             # 29.0 每周一份热梗：搜“本周热梗”和群里在聊的圈子，存进黑话表（先懂后用：群友用了才带给她）
+    "spot_check": True,              # 29.0 小屋“学到的”里每天抽几条让你点对错（想说的 vs 发出的、查到的梗）
     "pick_clean": True,              # 27.0 有毛病先在她自己写的别的说法里挑没毛病的；没被叫到就不重写（挑不出就不说）
     "rethink_on_stop": True,         # 27.0 想的时候有人说“别提了 / 压力很大 / 别问了”：重新想一次
     "memory_merge": True,            # 28.0 记忆合成几块（关于这个群 / 关于你自己 / 和这几句有关的），每块有字数上限
@@ -264,7 +266,8 @@ def defaults_for(channel: str | None) -> dict:
 
 DEAD_KNOBS = ("interject_chance", "owner_chance", "interest_boost", "question_boost", "busy_factor",
               "ai_voice_chance", "ai_voice_character",
-              "check_source_gate", "check_self_consistency", "check_template", "check_time_sense", "check_tease_risk", "check_responsive", "check_room_read", "check_other_claims", "check_disputed", "check_image_guess", "check_media_claim", "check_pushback", "check_self_repeat", "check_self_like")   # 4.3 语音去掉了
+              "check_source_gate", "check_self_consistency", "check_template", "check_time_sense", "check_tease_risk", "check_responsive", "check_room_read", "check_other_claims", "check_disputed", "check_image_guess", "check_media_claim", "check_pushback", "check_self_repeat", "check_self_like",
+              "self_score", "self_score_min", "appraise", "appraise_enforce")   # 4.3 语音去掉了
 
 # 小屋里能调的“性格开关”：键 → (标签, 类型, 最小, 最大, 步长, 说明)
 KNOBS = {
@@ -347,9 +350,6 @@ KNOBS = {
     "no_repeat_today": ("今天说过的不再说", "bool", None, None, None, "同样的意思、梗、安排里的事，一天只主动说一次"),
     "no_monologue": ("没人理不追发", "bool", None, None, None, "她上一句还没人接时，不主动冒泡、分享"),
     "lonely_hours": ("深夜没人不主动开口", "str", None, None, None, "比如 01:00-07:00；这段时间群里 20 分钟没人说话就不主动说；空着 = 不管"),
-    "self_score": ("插话前给念头打分", "bool", None, None, None, "相关、信息差、效果、新意、时机，分低就不说"),
-    "self_score_min": ("念头分低于多少不说", "float", 1, 5, 0.25, "1~5 分的平均分"),
-    "appraise": ("开口前九问", "bool", None, None, None, "她开口前先结构化地想：时机、谁知道什么、伤不伤面子、玩笑合不合适；代替五项打分"),
     "pitch_queue": ("觉得太早就先等等", "bool", None, None, None, "她觉得“再等等”的话先放着，群里停下来再判一次，过时了就丢"),
     "pitch_min_seconds": ("至少等几秒", "int", 30, 300, 10, ""),
     "pitch_max_seconds": ("最多等几秒", "int", 60, 600, 10, "过了就不说了"),
@@ -369,7 +369,6 @@ KNOBS = {
     "listener_margin": ("听者比她自己准多少就接管", "float", 0, 0.5, 0.01, "和你一致率比她现在的做法高这么多（且 ≥ 60%）也接管"),
     "listener_min_each": ("接管前每类要几条标注", "int", 5, 100, 1, "“该接”“时机不对”各要这么多"),
     "listener_panel": ("两个模型一起判", "bool", None, None, None, "配了 routes.listener2 才有用；意见不一就先等等"),
-    "appraise_enforce": ("她的自评直接拦", "bool", None, None, None, "默认只记录（模型给自己打分不可信）"),
     "move_cooldown": ("接法别老一样", "bool", None, None, None, "半小时里同一种接法用过 2 次就提醒她换一种"),
     "move_cooldown_minutes": ("接法冷却（分钟）", "int", 5, 120, 5, ""),
     "length_match": ("长度靠拢群友", "bool", None, None, None, "告诉她群里一条一般几个字；主动说太长就换短的"),

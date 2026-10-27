@@ -1,7 +1,6 @@
 """21.0 开口前九问落到代码里的几块（方案-21.0《通用框架》第 3 节，只做微信群先）：
 
-- 九问自评的记录（appraise 日志）：每次她给自己写的 timing / leak / face_risk……都记下来，和你的标注对，
-  看哪一问最常判错（小屋“学到的”→“九问哪一问判错最多”）。
+- （29.0 起九问自评删了：默认关了很久、模型给自己打分不可信）
 - 等等队列（PITCH）：她觉得“现在说太早”的话先放着，60～180 秒后、或者群里停下来时再判一次；过时了就丢。
 - 擦边过了的再问一次：门控刚过阈值一点点（p − 阈值 < 0.1）、又没人叫她时，问一下便宜模型（When2Speak：大模型倾向说得太早）。
 - 人卡：在聊的这个人——多熟、在意什么、别碰什么、能不能调侃、今天状态、是不是刚回来、跟他怎么说话管用——合成一张 ≤120 字的卡，
@@ -40,18 +39,6 @@ def _loop() -> bool:
 
 class SocialMixin:
     # ---------------- 九问自评记录 ----------------
-    def _appraise_log(self, gid: int, gate_id, ap: dict, verdict: str):
-        """记进门控日志（appraise 列）：后面拿你的标注对每一问。"""
-        if not gate_id:
-            return
-        import json
-        try:
-            self.db.conn.execute("UPDATE qq_gate_log SET appraise=? WHERE id=?",
-                                 (json.dumps({**ap, "verdict": verdict}, ensure_ascii=False)[:600], int(gate_id)))
-            self.db.conn.commit()
-        except Exception as e:  # noqa: BLE001
-            log.debug("记九问自评失败：%s", e)
-
     # ---------------- 等等队列 ----------------
     def _pitch_outcome(self, gid: int, outcome: str, say=None):
         logk = f"qq_pitch_log_{gid}"

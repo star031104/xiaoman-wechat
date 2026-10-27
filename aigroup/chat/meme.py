@@ -86,9 +86,20 @@ def read_text(parsed: dict, known: dict[str, str], sure_min: float = 0.7) -> tup
     return "\n".join(out), unsure
 
 
+SPOT_SCHEMA = """CREATE TABLE IF NOT EXISTS qq_spot (   -- 29.0 每天抽查：你点的对错（代替攒不出样本的自动评测）
+    id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, group_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,            -- say：发出去的话 / meme：查到的梗
+    ref INTEGER NOT NULL,          -- qq_trace.id / qq_jargon.id
+    ok INTEGER NOT NULL,           -- 1 好 / 0 不行 / 2 原本想说的那句更好
+    note TEXT NOT NULL DEFAULT '',
+    UNIQUE(kind, ref))"""
+
+
 class MemeMixin:
     def _meme_init(self):
         ensure_columns(self.db.conn, "qq_jargon", {"src": "TEXT NOT NULL DEFAULT ''"})
+        self.db.conn.execute(SPOT_SCHEMA)
+        self.db.conn.commit()
         self._read_txt: dict[int, str] = {}
         self._meme_running: set[str] = set()
 
@@ -96,7 +107,7 @@ class MemeMixin:
         out = {}
         for t in terms:
             r = self.db.conn.execute("SELECT meaning FROM qq_jargon WHERE group_id=? AND term=? AND meaning!='' "
-                                     "AND (src='web' OR status='ok')", (gid, t)).fetchone()
+                                     "AND (src IN ('web', 'web-weekly') OR status='ok')", (gid, t)).fetchone()
             if r:
                 out[t] = str(r["meaning"])
         return out
@@ -160,7 +171,7 @@ class MemeMixin:
         row = self.db.conn.execute("SELECT meaning, src, updated FROM qq_jargon WHERE group_id=? AND term=?",
                                    (gid, term)).fetchone()
         now = time.time()
-        if row and row["src"] == "web" and row["meaning"]:
+        if row and row["src"] in ("web", "web-weekly") and row["meaning"]:
             return str(row["meaning"])
         if row and row["src"] == "web-none" and now - float(row["updated"] or 0) < 7 * 86400:
             return ""
@@ -212,6 +223,104 @@ class MemeMixin:
             return ""
         finally:
             self._meme_running.discard(term)
+
+    def spot_items(self, gid: int, n_say: int = 5, n_meme: int = 3) -> dict:
+        """29.0 小屋“每天抽查”：最近两天她说过的几句（想说的 / 发出的，带前一句群友的话）、查到的几个梗，没点过的随机抽。"""
+        if not hasattr(self, "_read_txt"):
+            self._meme_init()
+        now = time.time()
+        rows = self.db.conn.execute(
+            "SELECT id, ts, plan, sent FROM qq_trace WHERE group_id=? AND outcome='say' AND ts>? AND id NOT IN "
+            "(SELECT ref FROM qq_spot WHERE kind='say') ORDER BY RANDOM() LIMIT ?", (gid, now - 2 * 86400, n_say)).fetchall()
+        says = []
+        for r in rows:
+            try:
+                plan = json.loads(r["plan"] or "{}")
+                sent = json.loads(r["sent"] or "[]")
+            except ValueError:
+                continue
+            if not sent:
+                continue
+            prev = self.db.conn.execute("SELECT name, content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts<=? "
+                                        "ORDER BY id DESC LIMIT 2", (gid, float(r["ts"]))).fetchall()
+            says.append({"ref": r["id"], "ts": r["ts"], "before": [f"{p['name']}：{str(p['content'] or '')[:80]}" for p in reversed(prev)],
+                         "planned": " / ".join(plan.get("say") or []), "sent": " / ".join(map(str, sent))})
+        memes = [{"ref": r["id"], "term": r["term"], "meaning": r["meaning"], "src": r["src"]} for r in self.db.conn.execute(
+            "SELECT id, term, meaning, src FROM qq_jargon WHERE group_id=? AND src IN ('web', 'web-weekly') AND meaning!='' AND id NOT IN "
+            "(SELECT ref FROM qq_spot WHERE kind='meme') ORDER BY RANDOM() LIMIT ?", (gid, n_meme)).fetchall()]
+        st = {k: {"n": n, "ok": ok} for k, n, ok in self.db.conn.execute(
+            "SELECT kind, COUNT(*), SUM(ok=1) FROM qq_spot WHERE group_id=? AND ts>? GROUP BY kind", (gid, now - 7 * 86400)).fetchall()}
+        better = self.db.conn.execute("SELECT COUNT(*) FROM qq_spot WHERE group_id=? AND kind='say' AND ok=2 AND ts>?",
+                                      (gid, now - 7 * 86400)).fetchone()[0]
+        return {"says": says, "memes": memes, "stats": st, "planned_better": better}
+
+    def spot_answer(self, gid: int, kind: str, ref: int, ok: int, note: str = "") -> bool:
+        if kind not in ("say", "meme") or ok not in (0, 1, 2):
+            return False
+        if not hasattr(self, "_read_txt"):
+            self._meme_init()
+        self.db.conn.execute("INSERT OR REPLACE INTO qq_spot(ts, group_id, kind, ref, ok, note) VALUES (?,?,?,?,?,?)",
+                             (time.time(), gid, kind, int(ref), int(ok), str(note or "")[:200]))
+        if kind == "meme" and ok == 0:              # 梗的意思不对：先不带给她，七天后可以再查
+            self.db.conn.execute("UPDATE qq_jargon SET meaning='', src='web-none', updated=? WHERE id=? AND group_id=?",
+                                 (time.time(), int(ref), gid))
+        self.db.conn.commit()
+        return True
+
+    async def meme_weekly(self, gid: int, force: bool = False) -> int:
+        """29.0 每周一份热梗：搜“本周热梗盘点”、加上群里常聊的圈子（比如英雄联盟）“最近 梗”，只照搜到的整理成词条，
+        记进黑话表（src=web-weekly）。先懂后用：词条只在群友说到这个词时才带给她（jargon_in 按聊天里出现才给）。
+        做法参考 meme-collector（搜盘点文章 → 读 → 去重 → 入库）。返回新记了几个。"""
+        if not hasattr(self, "_read_txt"):
+            self._meme_init()
+        key = f"meme_weekly_{gid}"
+        if not force and time.time() - float(self.db.get(key, 0) or 0) < 6.5 * 86400:
+            return 0
+        web = getattr(self, "web", None)
+        if web is None or not getattr(web, "enabled", True):
+            return 0
+        self.db.set(key, time.time())
+        circles = []
+        kn = getattr(self, "knowledge", None)
+        if kn is not None:
+            try:
+                blk = kn.interests_block(gid) or ""
+                body = blk.split("\n", 1)[1] if "\n" in blk else blk
+                circles = [x.strip()[:10] for x in re.split(r"[、，,\n]", body) if 2 <= len(x.strip()) <= 14][:2]
+            except Exception:  # noqa: BLE001
+                circles = []
+        queries = ["本周网络热梗 盘点", "最近一周 热梗 是什么意思"] + [f"{c} 最近 梗" for c in circles]
+        results = []
+        for q in queries:
+            try:
+                got, _eng = await web.agent_search(q, n=8, days=10, prefer="deepseek", question="最近流行的网络梗和意思")
+            except Exception as e:  # noqa: BLE001
+                log.info("每周热梗：搜「%s」失败：%s", q, e)
+                got = []
+            results += got or []
+        src = "\n".join(f"- {r.get('title', '')}：{str(r.get('snippet', ''))[:220]}" for r in results[:24])
+        if not src:
+            return 0
+        d = await self.brain.llm.json([{"role": "user", "content":
+            "下面是搜“最近的网络热梗”看到的。只照这些整理：每个梗写词条（梗本身，2~12 个字）、意思（30 字以内）、怎么用（20 字以内）。"
+            "搜到的没讲清意思的别写，别凭印象补；人名、新闻标题、广告不算梗。最多 12 个。\n\n" + src
+            + '\n\n只输出 JSON：{"memes": [{"term": "...", "means": "...", "usage": "..."}]}'}], default={}, role="helper")
+        n = 0
+        for m in (d.get("memes") if isinstance(d, dict) else None) or []:
+            if not isinstance(m, dict):
+                continue
+            term = clean_term(m.get("term"))
+            means = str(m.get("means") or "").strip()[:40]
+            if len(term) < 2 or not means:
+                continue
+            old = self.db.conn.execute("SELECT src, meaning FROM qq_jargon WHERE group_id=? AND term=?", (gid, term)).fetchone()
+            if old and old["meaning"]:
+                continue
+            usage = str(m.get("usage") or "").strip()[:24]
+            self._save_meme(gid, term, means + (f"（{usage}）" if usage else ""), "web-weekly", "", is_meme=True)
+            n += 1
+        log.info("群 %s 每周热梗：搜了 %d 次，新记了 %d 个", gid, len(queries), n)
+        return n
 
     def _save_meme(self, gid: int, term: str, meaning: str, src: str, example: str = "", is_meme: bool = True):
         now = time.time()

@@ -33,7 +33,7 @@ def test_geocode_picks_the_city(cfg, brain, monkeypatch):
 def test_said_where_weather_note_and_care(cfg, brain, monkeypatch):
     from aigroup.net.where import Where
     monkeypatch.setattr(Where, "_get", _fake_get())
-    gc, ob = _gc(cfg, brain, reply="珠海明天大雨，记得带伞")
+    gc, ob = _gc(cfg, brain, reply="珠海明天大雨，记得带伞", weather_bg=False)   # 29.0 后台查的另测（test_v290）
     _run(gc, _msg(FRIEND, "小王", "我在珠海出差，酒店好贵", 1))
     p = gc.where.get(FRIEND)
     assert p and p["city"] == "珠海" and p["kind"] == "trip" and p["why"] == "出差"

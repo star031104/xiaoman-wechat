@@ -53,19 +53,6 @@ def test_no_monologue_and_today_block(cfg, brain):
     assert "LOUD 拿冠军了" in blk
 
 
-def test_self_score_skips_low_thoughts(cfg, brain):
-    gc, ob = _gc(cfg, brain, cooldown_seconds=0, talkativeness=1.0, self_score=True, appraise=False)
-    gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["是啊好冷"],
-                        score={"相关": 2, "信息差": 1, "效果": 1, "新意": 1, "时机": 3})
-    ok = asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who=""))
-    assert not ok and not ob.sent
-    brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=["穿秋裤了没"],
-                        score={"相关": 4, "信息差": 3, "效果": 4, "新意": 4, "时机": 4})
-    ok = asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who=""))
-    assert ok and ob.sent
-
-
 def test_spec_block_and_blind(cfg, brain):
     gc, _ = _gc(cfg, brain)
     gc.db.set(f"qq_spec_{GROUP}_{FRIEND}", {"ts": time.time(), "name": "小王", "how": ["他连发问号是在吐槽，不是真问"],

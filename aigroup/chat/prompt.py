@@ -19,9 +19,6 @@ from aigroup.memory.people import profile_line
 PRIVATE_KEYS = ("近况", "记得的事", "家", "学校", "工作", "住")    # 5.0 刚认识的人：这些先不写进提示词
 
 
-APPRAISE_TIMING = {"现在": "now", "等等": "wait", "不说": "no", "now": "now", "wait": "wait", "no": "no", "skip": "no"}
-
-
 def _bool(v):
     if isinstance(v, bool):
         return v
@@ -57,59 +54,6 @@ def merge_blocks(title: str, blocks: list[str], budget: int) -> str:
         left -= n
         out.append((f"## {head}\n" if head else "") + "\n".join(kept))
     return f"# {title}\n" + "\n\n".join(out)
-
-
-def _appraise(v) -> dict:
-    """21.0 九问自评 → 规整过的字典（缺的项不写）。timing 统一成 now / wait / no。"""
-    if not isinstance(v, dict):
-        return {}
-    out: dict = {}
-    for k in ("act", "addressee", "need", "emotion", "why"):
-        if v.get(k) not in (None, ""):
-            out[k] = str(v.get(k)).strip()[:40 if k != "why" else 80]
-    for k in ("common_ground", "leak", "flatter", "share_high", "fresh", "len_ok", "tease_ok"):
-        b = _bool(v.get(k)) if k in v and v.get(k) is not None else None
-        if b is not None:
-            out[k] = b
-    try:
-        out["face_risk"] = max(0, min(3, int(float(str(v.get("face_risk")).strip()[:3]))))
-    except (TypeError, ValueError):
-        pass
-    t = APPRAISE_TIMING.get(str(v.get("timing") or "").strip().lower())
-    if t:
-        out["timing"] = t
-    return out
-
-
-def appraise_verdict(a: dict, *, prompted: bool) -> tuple[str, list[str]]:
-    """21.0 按九问自评定：("say" | "skip" | "wait" | "fix", 理由 / 要改的地方)。
-    prompted = 被叫到 / 必须说：这时只会要求重写，不会不说。"""
-    if not a:
-        return "say", []
-    fix = []
-    if a.get("leak"):
-        fix.append("说漏了：别说谁私下的事、别的群的事、幕后的事")
-    if int(a.get("face_risk") or 0) >= 3:
-        fix.append("会让人当众下不来台：换个不点名、不当众纠错的说法，或者带个台阶")
-    if a.get("tease_ok") is False:
-        fix.append("这个玩笑现在开不合适：他可能正难受、或者玩笑标记不够，换成不损人的")
-    if a.get("flatter"):
-        fix.append("别光顺着他说：有不同意见就带个缓冲说出来")
-    if prompted:
-        return ("fix", fix) if fix else ("say", [])
-    if a.get("timing") == "no":
-        return "skip", ["她自己觉得这时候不该说"]
-    if a.get("leak"):
-        return "skip", fix[:1]
-    if a.get("fresh") is False:
-        return "skip", ["不新鲜：说过的 / 复述别人 / 旧话题"]
-    if a.get("timing") == "wait":
-        return "wait", ["她觉得再等等更好"]
-    if a.get("share_high") and a.get("addressee") not in ("你", "她"):
-        return "skip", ["最近说得多了，这句又不是冲她来的"]
-    if fix:
-        return "fix", fix
-    return "say", []
 
 
 def image_block_from(rows: list[dict], now: float) -> str:
@@ -602,22 +546,7 @@ class PromptMixin:
         stick_on = bool(self.gk(gid).get("stickers", True))
         can_react = bool(getattr(self.ob, "can_react", True))      # 微信不能给消息点表情
         secret = "- 群里谁跟你私下说过的事，不在群里说；在别的群听到的事，也不在这个群说。\n"
-        score = ""
-        if plan and self.gk(gid).get("appraise", True):            # 21.0 开口前九问：结构化自评，代替五项打分
-            score = (',\n    "appraise": {"act": "他在干嘛：吐槽/求助/分享好事/邀请/玩笑/提问/闲聊", "addressee": "这句是冲谁：你/别人/大家", '
-                     '"need": "他要什么：共鸣/办法/分享/梗/陪着/答案", "emotion": "他此刻具体的情绪（累/烦/尴尬/开心/得意…，没有写无）", '
-                     '"common_ground": true/false（你要说的梗或事，在场的人都知道）, '
-                     '"leak": true/false（会不会说出谁私下的事、别的群的事、或者幕后的事）, '
-                     '"face_risk": 0~3（会不会让谁当众下不来台；3 = 很可能）, "flatter": true/false（你是不是只在顺着他说、护他面子）, '
-                     '"share_high": true/false（你最近是不是说得比别人多）, '
-                     '"timing": "现在/等等/不说"（有能接的口子就现在；他话还没说完、别人在答、话题快停了再说更好 = 等等）, '
-                     '"fresh": true/false（不是你说过的、不是复述别人、不是翻旧话题）, "len_ok": true/false（一句短的就够了吗、你写的长度合适吗）, '
-                     '"tease_ok": true/false/null（是调侃的话：无害、带玩笑标记、他此刻不难受；不是调侃写 null）, '
-                     '"why": "一句话"}（老实写；timing 不说、leak、fresh=false 就 skip）')
-        elif plan and self.gk(gid).get("self_score", True):          # 不分叫没叫到都写同一份：system 不变才命中缓存
-            score = (',\n    "score": {"相关": 1~5, "信息差": 1~5（你能补上大家不知道的）, "效果": 1~5（会更好玩或帮上忙）, '
-                     '"新意": 1~5（不是你说过的、不是复述别人）, "时机": 1~5（接得上、节奏插得进去、你最近没说太多）}'
-                     '（老实打分；分低就 skip）')
+        score = ""                       # 29.0 九问自评、五项打分删了（默认关了很久，模型给自己打分不可信）
         if plan:
             alt = (f',\n    "alt": [["另一种说法（意思差不多、说法不同）"]]（可以给 {ncand - 1} 种，也可以不给）' if ncand > 1 else "")
             stk = ',\n    "sticker": "想跟一张表情包就写情绪（开心/大笑/无语……），大多数时候写 null"' if stick_on else ""
@@ -749,10 +678,25 @@ class PromptMixin:
         likes = kn.interests_block(gid) if kn is not None and self.g.get("remember_web", True) else ""
         wh = getattr(self, "where", None)
         if wh is not None and self.g.get("weather", True):
-            try:                                              # 4.4 群友那边的天气（一小时查一次）
-                await wh.prefetch([int(x["user_id"]) for x in wh.all()][:12])
-            except Exception:  # noqa: BLE001
-                pass
+            uids = [int(x["user_id"]) for x in wh.all()][:12]
+            if uids and self.gk(gid).get("weather_bg", True) and hasattr(self, "_spawn"):
+                # 29.0 天气放后台查（以前每小时第一次回话要等 3 秒）：这次用缓存里有的，查完下次就有了
+                if not getattr(self, "_wx_running", False):
+                    self._wx_running = True
+
+                    async def _wx():
+                        try:
+                            await wh.prefetch(uids)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        finally:
+                            self._wx_running = False
+                    self._spawn(_wx())
+            elif uids:
+                try:                                          # 4.4 群友那边的天气（一小时查一次）
+                    await wh.prefetch(uids)
+                except Exception:  # noqa: BLE001
+                    pass
         batch = [stick, learned, "# 群里的人\n" + (self.roster(gid, focus) or "（还不熟悉）")]   # 24.0 兴趣、黑话挪到 user
         system = "\n\n".join(x for x in static + daily + batch if x)
         # ---- 每次都变的：放 user ----
@@ -901,7 +845,6 @@ class PromptMixin:
                 "hold": (str(d.get("hold")).strip()[:80] if d.get("hold") and str(d.get("hold")).strip().lower()
                          not in ("null", "none") else ""),
                 "partial": bool(d.get("_partial")), "score": _score(d.get("score")),
-                "appraise": _appraise(d.get("appraise")),
                 "move": str(d.get("move") or "").strip()[:4],
                 "image": _image(d.get("image"))}
 

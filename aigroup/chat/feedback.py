@@ -159,6 +159,12 @@ class FeedbackMixin:
                 await self.weekly_reflect()                      # 每周一：回想这一周，人物跟着经历慢慢变
             except Exception as e:  # noqa: BLE001
                 log.info("每周回想出错：%s", e)
+        if hasattr(self, "meme_weekly") and self.g.get("meme_weekly", True):
+            for gid in sorted(self.groups):
+                try:                                               # 29.0 每周一份热梗（函数里自己管一周一次）
+                    await self.meme_weekly(gid)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s 每周热梗出错：%s", gid, e)
         if now.weekday() == 0 and hasattr(self, "weekly_eval"):
             try:
                 await self.weekly_eval()                           # 4.3 每周一：拿真实聊天评一次分
