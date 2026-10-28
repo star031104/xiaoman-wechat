@@ -364,11 +364,15 @@ class GrowMixin:
         ts = due.timestamp()
         if ts < time.time() - 3600 or ts > time.time() + 45 * 86400:
             return 0
-        for r in self.db.conn.execute("SELECT what, due FROM qq_plans WHERE group_id=? AND status='open'",
-                                      (gid,)).fetchall():
-            if abs(float(r["due"]) - ts) < 6 * 3600 and (r["what"] in what or what in r["what"]
-                                                       or len(set(r["what"]) & set(what)) >= min(4, len(what))):
+        for r in self.db.conn.execute("SELECT what, due, status, fired FROM qq_plans WHERE group_id=? AND user_id=? AND "
+                                      "(status='open' OR fired>?)", (gid, uid, time.time() - 3 * 86400)).fetchall():
+            same = (r["what"] in what or what in r["what"] or len(set(r["what"]) & set(what)) >= min(4, len(what)))
+            if same and (abs(float(r["due"]) - ts) < 6 * 3600 or r["status"] != "open"):
+                # 30.3 同一件事三天内已经问过 / 提醒过：不再记一遍（10-27 刚问完“面试过了没”，又记了一个 10-28 的“面试”）
                 return 0
+        if hasattr(self, "_closed_hit") and self._closed_hit(gid, what, time.time()):
+            log.info("群 %s：「%s」群友说过别再提，不记成约定", gid, what)        # 30.3
+            return 0
         pid = self.db.conn.execute(
             "INSERT INTO qq_plans(group_id, user_id, who, what, due, all_day, kind, created) VALUES (?,?,?,?,?,?,?,?)",
             (gid, uid, who or "", what, ts, int(all_day), kind, time.time())).lastrowid
