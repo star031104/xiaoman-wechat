@@ -718,6 +718,12 @@ class PromptMixin:
         if first and time.time() - first > 20 * 60:     # 5.0 她今天早就在看手机聊天了：别再说“刚醒”“刚爬起来”
             state.append(f"你今天 {datetime.fromtimestamp(first, self.cfg.tz):%H:%M} 就开始在群里聊天了"
                          "（早就醒了，别说刚醒、刚爬起来）。")
+        back = self.db.get(f"qq_back_{gid}") or {}
+        if back and time.time() - float(back.get("ts") or 0) < 1800:
+            # 31.2 掉线 / 重启刚回来：半小时以前的群消息是旧话，只看不回（10-29 15:32 回了 4 个半小时前的夸，接着 9 分钟 7 条）
+            state.append(f"你 {datetime.fromtimestamp(float(back['ts']), self.cfg.tz):%H:%M} 才重新上线。"
+                         f"{datetime.fromtimestamp(float(back['cut']), self.cfg.tz):%H:%M} 以前的群消息是你不在时的旧话：只当知道了，"
+                         "别回、别补“才看到”、别认领旧的夸奖；在问你事情、到现在还没人答的才回，而且合成一句。")
         stale = self.stale_phrases(gid) if hasattr(self, "stale_phrases") else []
         if stale:
             state.append("你这几个小时已经说过这些了，这次别再用（换个说法、换个梗）：" + "、".join(f"“{x}”" for x in stale))

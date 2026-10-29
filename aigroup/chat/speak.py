@@ -17,9 +17,11 @@ from aigroup.chat.gate import likelihood, talk_factor, threshold_ex
 from aigroup.chat.mood import Mood, turn_memory
 from aigroup.chat.plan import (
     AT_RE,
+    BARE_ANSWER,
     REACT_RE,
     TAG_RE,
     batch_features,
+    burst_room,
     decide,
     parse_group_reply,
     to_segments,
@@ -309,14 +311,21 @@ class SpeakMixin:
         # 30.1 被 @ 着纠正（“别当真？？官方声明都出来了”）也要先认一句，以前只在没被叫到时看
         corrected = bool(hasattr(self, "corrected_now") and self.corrected_now(gid, texts, now))
         asked = bool(guess and guess.split(":")[0] in ("to", "bid") and self.gk(gid).get("asked_bypass", True)
-                     and any(ASK_RX.search(str(t[2]).strip()) or "你觉得" in str(t[2]) or "你怎么看" in str(t[2]) for t in texts[-2:]))
+                     and any((ASK_RX.search(str(t[2]).strip()) or "你觉得" in str(t[2]) or "你怎么看" in str(t[2]))
+                             and not BARE_ANSWER.match(re.sub(r"^\[回复[^\]]*\]\s*", "", str(t[2]))) for t in texts[-2:]))
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
                          rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected,
                          asked=asked)
         if corrected and ok:
-            st.talk_note = (st.talk_note or "") + ("（23.3）刚才有人指出你说错了：先认一句（“啊我看错了”“记错了，是 X”），"
-                                                     "一句就够，别辩解、别找补、别开玩笑带过；他说得对不对拿不准就问他来源")
+            qc = self.quoted_challenge(texts) if hasattr(self, "quoted_challenge") else ""
+            if qc:                                     # 31.2 引着她原话质疑：引用就在眼前，别问“哪个”，别许诺“再看看”
+                st.talk_note = (st.talk_note or "") + (f"（31.2）他引着你说过的「{qc[:40]}」在质疑你。先正面回这一句："
+                                                         "这句要是你没核实就说的、或者说错了，第一句就认（“那句是我没核实就说了”“我说错了，是 X”）；"
+                                                         "有依据就直接把依据说出来。别问“哪个”，别说“我再看看 / 再瞅瞅”，一句就够")
+            else:
+                st.talk_note = (st.talk_note or "") + ("（23.3）刚才有人指出你说错了：先认一句（“啊我看错了”“记错了，是 X”），"
+                                                         "一句就够，别辩解、别找补、别开玩笑带过；他说得对不对拿不准就问他来源")
             st.__dict__["admit_ts"] = now
         explore = False
         if (not ok and not mentioned and not quiet and why.startswith("不太想插话") and talk > 0
@@ -922,6 +931,18 @@ class SpeakMixin:
             else:
                 return skip("blocked" if cands else "skip", qtxt)
         bubbles = list(bubbles or [])
+        if bubbles and self.gk(gid).get("burst_send_check", True) and time.time() - float(st.__dict__.get("admit_ts") or 0) > 120:
+            # 31.2 发之前再数一遍她最近 3 分钟发了几条（含“我去看看”这种先回的）：合起来别超过 3 条。
+            # 想的那几十秒里她可能已经发了别的；先回一句 + 两条答案也会凑成 3 条以上（10-29 一问三条、9 分钟 7 条）
+            h3 = int(self.db.conn.execute("SELECT COUNT(*) n FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>?",
+                                          (gid, time.time() - 180)).fetchone()["n"])
+            room = burst_room(h3, len(bubbles), bool(mentioned or must),
+                              int(self.gk(gid).get("burst_3min_cap", 3) or 3))
+            if room < len(bubbles):
+                log.info("群 %s：最近 3 分钟已经说了 %d 条，这次只发 %d 条", gid, h3, room)
+                if room <= 0:
+                    return skip("burst", f"3 分钟已 {h3} 条")
+                bubbles = bubbles[:room - 1] + [" ".join(bubbles[room - 1:])] if room >= 1 else []
         if len(bubbles) >= 2 and self.gk(gid).get("merge_bubbles", True):     # 5.0 大多数时候一条：两条都短、或者最近老是分两条发，就合成一条
             from aigroup.chat.address import shape_bubbles
             bubbles = shape_bubbles(bubbles, self.recent_sizes(gid), random.random(),

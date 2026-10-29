@@ -340,3 +340,58 @@
   web: "# 你刚在手机上查了一下：某球星道歉\n- 他 27 日晚用三种语言发了道歉声明（多家报道）"
   draft: 不止英文，他 27 号晚上发的是三种语言
   target: 小王
+
+# 31.2（10-28 / 10-29 日报）
+- id: link-not-opened
+  date: 10-28 14:56
+  what: 链接标了“没打开”，她说“我看了下”，还补了标题里没有的“某航司新开”
+  mode: 2
+  msgs: [[小王, "[分享：全程15小时，从北京出发，一票直达冰岛！] [链接：B站的，你点开没打开（可能要登录或网络不通）]", 30]]
+  draft: 我看了下，这是某航司新开的北京飞冰岛航线，一票到底
+  target: 小王
+  expect: link_unopened
+
+- id: share-title-only
+  date: 10-29 16:53
+  what: 分享卡只有标题，她说“这篇写得挺带劲的”
+  mode: 2
+  msgs: [[小王, "[分享：一篇讲开源模型的长文]", 30]]
+  draft: 这篇写得挺带劲的
+  target: 小王
+  expect: link_unopened
+
+- id: ok-link-opened
+  expect: none
+  msgs: [[小王, "[分享：一篇讲开源模型的长文] [链接：某站的网页「一篇讲开源模型的长文」；正文开头：今年开源模型的推理成本降了一半……]", 30]]
+  draft: 推理成本降了一半？那以后跑模型便宜多了
+  target: 小王
+
+- id: ok-talk-about-title
+  expect: none
+  msgs: [[小王, "[分享：全程15小时，从北京出发，一票直达冰岛！] [链接：B站的，你点开没打开（可能要登录或网络不通）]", 30]]
+  draft: 15 个小时直达冰岛？坐到腿麻吧
+  target: 小王
+
+- id: self-echo
+  date: 10-29 17:26
+  what: 10 秒前刚答过“以下克上那个手势”，又来一句“答过了，以下克上”
+  mode: 6
+  msgs: [[小王, 你知道那个手势是哪个吗, 40], [她, 知道，以下克上那个手势, 15], [小王, 真的假的, 5]]
+  draft: 答过了，以下克上那个，还想验证我
+  target: 小王
+  expect: self_echo
+
+- id: ok-echo-new-info
+  expect: none
+  msgs: [[小王, 你知道那个手势是哪个吗, 40], [她, 知道，以下克上那个手势, 15], [小王, 谁先做的, 5]]
+  draft: 谁先做的我还真不知道
+  target: 小王
+
+- id: talk-backstage-version
+  date: 10-29 19:14
+  what: 说幕后：“两个月，够我更新好几版了”
+  mode: 20
+  msgs: [[小王, 我两个月以后才考试, 20]]
+  draft: 两个月，够我更新好几版了
+  target: 小王
+  expect: critic

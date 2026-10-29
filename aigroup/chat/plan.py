@@ -75,6 +75,9 @@ def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: 
     if hard and burst >= hard:
         return False, f"这 5 分钟已经说了 {burst} 条，先歇会儿"
     soft = int(g.get("burst_soft", 3) or 0)
+    if soft and burst >= soft and g.get("burst_soft_hard", True):
+        # 31.2 软刹车改硬：最近 5 分钟已经说了 soft 条、又没人叫她，就不说（以前重新过门槛就放行，10-28 / 10-29 天天 3 分钟 ≥4 条）
+        return False, f"这 5 分钟已经说了 {burst} 条，没人叫就不说"
     if waited and not (soft and burst >= soft):
         return True, "等的人开口了"
     if waited:
@@ -87,6 +90,19 @@ def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: 
     if not passes(p, thr, tie, rand):
         return False, f"不太想插话（{p:.2f} < 阈值 {thr:.2f}）"
     return True, f"插话（{p:.2f} ≥ 阈值 {thr:.2f}）"
+
+
+# 31.2 只是回答她的问题（“没有”“嗯”“对”），不是在问她（10-29 15:33 群友回“没有”被当成在问她，绕过了刷屏刹车）
+BARE_ANSWER = re.compile(r"^\s*(@\S+\s*)?(没有?|有|嗯+|对+|是+|不是|好+|行+|可以|没呢|还没|没看|看了|没追|知道了?|不知道|"
+                         r"哈+|ok|OK|好的|收到|算了)[。！!~～，,]*\s*$")
+
+
+def burst_room(her_3min: int, n: int, mentioned: bool, cap: int = 3) -> int:
+    """31.2 发之前再数一遍：她最近 3 分钟已经发了 her_3min 条，这次要发 n 条，合起来别超过 cap 条（3 分钟 ≥4 条算刷屏）。
+    决定开口时数的是那一刻的，从想到发要几十秒，中间她可能已经发了别的（10-29 15:33 回放必拦、线上却发了）。
+    被叫到至少留 1 条。返回这次最多还能发几条。"""
+    room = max(0, cap - max(0, int(her_3min)))
+    return min(n, max(room, 1 if mentioned else 0))
 
 
 def batch_features(texts: list, *, now: float, last_reply_ts: float, prev_msg_ts: float, recent: list,

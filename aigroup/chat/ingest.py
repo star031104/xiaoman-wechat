@@ -14,6 +14,8 @@ import re
 import time
 from datetime import datetime
 
+from aigroup.chat.checks import BACKLOG_ASK, QUOTED_CHALLENGE
+from aigroup.chat.plan import BARE_ANSWER
 from aigroup.core.safety import clean_member_text, clean_name
 from aigroup.memory.stickers import sticker_key
 from aigroup.onebot import fetch_bytes, flatten
@@ -300,14 +302,20 @@ class IngestMixin:
                                                                 "sticker": text.startswith("[表情")}))
             if mentioned:
                 self.note_mention(uid)
-                if now - ts < 12 * 3600:
-                    called.append({"who": name, "mid": m.get("message_id"), "ts": ts, "kind": "offline"})
+                if now - ts < 12 * 3600 and self._backlog_worth(gid, text, ts, now):
+                    called.append({"who": name, "mid": m.get("message_id"), "ts": ts, "kind": "offline",
+                                   "text": text[:60], "challenge": bool(QUOTED_CHALLENGE.match(text))})
         if n:
             key = f"qq_digest_count_{gid}"
             self.db.set(key, int(self.db.get(key, 0)) + n)
             st = self._st(gid)
             row = self.db.conn.execute("SELECT MAX(ts) t FROM qq_group_messages WHERE group_id=?", (gid,)).fetchone()
             st.last_msg_ts = max(st.last_msg_ts, float(row["t"] or 0))
+        if fresh and self.gk(gid).get("backlog_reply_minutes", 30):
+            oldest = min(float(m.get("time") or now) for m in fresh)
+            cut = now - float(self.gk(gid).get("backlog_reply_minutes", 30)) * 60
+            if oldest < cut:                         # 31.2 掉线 / 重启回来：比 cut 早的群消息只看不回（提示词和发前检查都看这个）
+                self.db.set(f"qq_back_{gid}", {"ts": now, "cut": cut})
         called += self._pending_mentions(gid, {c.get("mid") for c in called}, now)
         if called:
             old = self.db.get(f"qq_night_{gid}") or []
@@ -316,6 +324,15 @@ class IngestMixin:
             log.info("群 %s：她不在的时候 %s 叫过她，等会儿补一句", gid, "、".join(dict.fromkeys(c["who"] for c in called)))
         self._after_catch_up(gid, bool(called), live, prev_ts)
         return n
+
+    def _backlog_worth(self, gid: int, text: str, ts: float, now: float) -> bool:
+        """31.2 她不在时有人叫她：backlog_reply_minutes 以内的都补回；更早的只补“在问她事情 / 引着她原话质疑”的，
+        夸她、起哄、接梗的只看不回（10-29 15:32 回 4 个半小时前的“牛逼牛逼”，接着 9 分钟说了 7 条）。"""
+        mins = float(self.gk(gid).get("backlog_reply_minutes", 30) or 0)
+        if not mins or now - ts < mins * 60:
+            return True
+        body = re.sub(r"^(\s*@\S+\s*)+", "", re.sub(r"^\[回复[^\]]*\]\s*", "", str(text or "")))
+        return bool(QUOTED_CHALLENGE.match(str(text or "")) or (BACKLOG_ASK.search(body) and not BARE_ANSWER.match(body)))
 
     def _pending_mentions(self, gid: int, have: set, now: float) -> list[dict]:
         """5.0 重启前有人 @ 她（已经记进库了）、她还没来得及回，程序就重启了：这些补进的消息里没有，

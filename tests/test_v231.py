@@ -18,8 +18,10 @@ def test_decide_burst_and_hush():
     base = dict(mentioned=False, now=now, last_reply_ts=now - 5, replies_10min=1, quiet=False, p=0.95, thr=0.5)
     assert decide(g=_g(), waited=True, burst=1, **base) == (True, "等的人开口了")
     ok, why = decide(g=_g(cooldown_seconds=10), waited=True, burst=3, **base)
+    assert not ok and "没人叫" in why                                   # 31.2 软刹车改硬：到 3 条没人叫就不说
+    ok, why = decide(g=_g(cooldown_seconds=10, burst_soft_hard=False), waited=True, burst=3, **base)
     assert not ok and why == "冷却中"                                   # 说到 3 条以后：接她的话也要过冷却
-    ok, why = decide(g=_g(cooldown_seconds=0), waited=True, burst=3, **{**base, "p": 0.3})
+    ok, why = decide(g=_g(cooldown_seconds=0, burst_soft_hard=False), waited=True, burst=3, **{**base, "p": 0.3})
     assert not ok and "不太想插话" in why                              # 也要过门槛
     ok, why = decide(g=_g(cooldown_seconds=0), waited=True, burst=5, **base)
     assert not ok and "5 分钟" in why

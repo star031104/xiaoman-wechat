@@ -692,7 +692,8 @@ class AgentMixin:
                     rounds=f"这次最多查 {rounds} 轮，一般 {max(1, rounds - 1)} 轮就该交卷。")},
                 {"role": "user", "content": P.RESEARCH_USER.format(goal=goal + window_text(window) + P.type_note(qtype)
                                                                    + self._source_note(gid, goal + " " + question, qtype)
-                                                                   + self._asker_note(gid, qtype),
+                                                                   + self._asker_note(gid, qtype)
+                                                                   + self._said_note(gid, goal + " " + question),
                                                                    context=self.transcript(gid, 6))}]
         from aigroup.agent.tools import DEPTH, QUESTION
         QUESTION.set(question or goal)
@@ -795,6 +796,19 @@ class AgentMixin:
                 self.note_sent(gid, [text], question=goal)
         except Exception as e:  # noqa: BLE001
             log.info("群 %s：“等我看看”没发出去：%s", gid, e)
+
+    def _said_note(self, gid: int, text: str) -> str:
+        """31.2 她今天在群里说过的、和这次要查的有关的判断 / 比分 / 押注：查的时候对着看，别前后矛盾
+        （10-29 17:14 说“UR 被 TEC 2-0 扫了”，18:25 又说“TEC 这届没查到比赛”）。"""
+        if not self.gk(gid).get("research_said_today", True) or not hasattr(self, "claims_today"):
+            return ""
+        from aigroup.chat.checks import content_terms
+        want = content_terms(text)
+        rel = [x for x in self.claims_today(gid, 20) if content_terms(x[6:]) & want][-6:]
+        if not rel:
+            return ""
+        return ("\n\n她今天早些时候在群里说过（和这次有关的）：\n" + "\n".join(f"- {x}" for x in rel)
+                + "\n查到的和这些对不上时以查到的为准，并在 answer_points 里写一句“之前说的 X 不对，应该是 Y”；对得上就别和它矛盾。")
 
     def _source_note(self, gid: int, text: str, qtype: str) -> str:
         """25.1 判断 / 选购 / 比较 / 近况题：按问题里的领域给研究员几行“常去的数据站”。"""

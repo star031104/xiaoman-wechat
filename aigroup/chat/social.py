@@ -19,7 +19,9 @@ log = logging.getLogger("aigroup.group")
 # 不说幕后：她自己的“后台”（小屋、标注、门控、提示词……）。群友自己聊代码、服务器不算，只抓“我的 / 关于我的”这类说法
 META = re.compile(r"门控|小屋(里|的|上)|提示词|系统提示|我的(代码|服务器|日志|后台|设定|配置|参数|权重|阈值)|"
                   r"(报告|日志|标注|记录)里(写|说|把)?(了)?(我|你)|给我(打分|标注|调参)|被(人|你们|主人)?(标注|调参|打分)|"
-                  r"(我|她)(被)?(重启|部署|更新)(了|过)|(那|这)篇(报告|分析)(里|写)")
+                  r"(我|她)(被)?(重启|部署|更新)(了|过)|(那|这)篇(报告|分析)(里|写)|"
+                  # 31.2 10-29 19:14“两个月，够我更新好几版了”
+                  r"(够我|我又|我得|我刚)(更新|迭代|升级|重写)|更新(好|了)?几版|新版本的我|上一版的我|(我|她)(这|上)一?版(本)?(的|里)")
 # 身份一致：公开是 AI、人设没写线下生活（life: free）时，不编自己在做线下的事
 OFFLINE = re.compile(r"我(刚|才|正|正在|在|要去|得去|还在|马上要?|这就去?)(交稿|赶稿|上课|下课|上班|下班|吃饭|做饭|洗澡|出门|逛街|健身|跑步|"
                      r"通勤|坐地铁|开会|买菜|拿快递|取快递|遛狗)|我(刚|才)?(吃完|下课|下班|到家|出门|起床)(了|啦)|"
@@ -289,10 +291,11 @@ class SocialMixin:
     # ================= 21.1 群里一句话调她的话量（Koala：控制要能随时调、由程序执行） =================
     QUIET = re.compile(r"(少说(点|几句|两句)|安静(点|会儿|一会)|闭嘴|别说了|别插嘴|话(好|太|真)多|太吵|消停|别刷屏|"
                        r"(回答|回|说)了?(两|三)(次|遍)|说两遍|又说一遍|别抢|别接话|"
-                       r"(这个)?话题跳过|跳过了|换个话题|别聊这个)")              # 23.2 “这个话题跳过了哥”
+                       r"(这个)?话题跳过|跳过了|换个话题|别聊这个|别(再)?提.{1,6}了好(吗|不好|嘛)?)")      # 31.2 “别提面试了好吗压力很大的”              # 23.2 “这个话题跳过了哥”
     # 23.1 嫌她 / 看不懂她：她说完 60 秒内有人回这些，10 分钟里两次就先安静会儿
     HUH = re.compile(r"^[？?]{1,4}$|^[？?]?何意味|^啥意思|^什么鬼|你为什么|你在说啥|你在干嘛|答非所问|我求你了|求求你|"
-                     r"我问你|一天问|天天问|每天都要问|又问|话题跳过|跳过了|换个话题")       # 23.2 “这是场地吗我问你”“一天问两三次这你受得了吗”
+                     r"我问你|一天问|天天问|每天都要问|又问|话题跳过|跳过了|换个话题|"
+                     r"催命鬼|听君一席话.{0,2}如听一席话|说了等于没说|废话文学")                # 31.2 10-27 确认不满里 hush 认不出的       # 23.2 “这是场地吗我问你”“一天问两三次这你受得了吗”
     SELF_HUSH = re.compile(r"闭嘴|闭麦|不说了|少说两句|我先不说|潜水了|安静了")
 
     def hush(self, gid: int, why: str, minutes: float | None = None, now: float | None = None):
@@ -312,18 +315,34 @@ class SocialMixin:
         if not self.gk(gid).get("hush_minutes", 10):
             return False
         t = re.sub(r"\[[^\]]*\]\s*", "", str(text or "")).strip()
-        if not t or not self.HUH.search(t):
-            return False
         now = now or time.time()
         st = self._st(gid)
+        echo = bool(t) and self.echoes_her(gid, t, now)
+        if not t or not (self.HUH.search(t) or echo):
+            return False
         if not st.last_reply_ts or now - st.last_reply_ts > 60:
             return False
         sig = [x for x in st.__dict__.setdefault("huh", []) if now - x < 600] + [now]
         st.huh = sig
-        if len(sig) >= 2 or self.QUIET.search(t):
+        if len(sig) >= 2 or self.QUIET.search(t) or echo:
             self.hush(gid, f"{t[:12]}", now=now)
             return True
         return False
+
+    def echoes_her(self, gid: int, text: str, now: float | None = None) -> bool:
+        """31.2 群友 1 分钟内把她刚说的话原样复读一遍（10-29 17:59“这桌看着真不错，我饿了”被原样复读）：是在嘲她套话，当嫌她处理。"""
+        if not self.gk(gid).get("hush_echo", True):
+            return False
+        norm = re.sub(r"[\s，,。.！!？?~～…]", "", str(text or ""))
+        if len(norm) < 5:
+            return False
+        now = now or time.time()
+        row = self.db.conn.execute("SELECT ts, content FROM qq_group_messages WHERE group_id=? AND role='assistant' "
+                                   "ORDER BY id DESC LIMIT 1", (gid,)).fetchone()
+        if not row or now - float(row["ts"]) > 60:
+            return False
+        return re.sub(r"[\s，,。.！!？?~～…]", "", re.sub(r"\[[^\]]*\]", "", str(row["content"] or ""))) == norm
+
     MORE = re.compile(r"(多说(点|几句|两句)|怎么不说话|出来说(句)?话|冒个泡|别潜水|活跃(点|一下))")
 
     def talk_control(self, gid: int, uid: int, text: str, to_her: bool, now: float | None = None) -> str:

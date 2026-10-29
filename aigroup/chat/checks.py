@@ -57,7 +57,14 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
-          "misattrib", "life_done", "bet_unknown", "critic")
+          "misattrib", "life_done", "bet_unknown", "link_unopened", "self_echo", "old_backlog", "critic")
+# 31.2 链接 / 分享卡没打开（只有标题）时，这些说法等于说看过了
+UNOPENED_RX = re.compile(r"你点开没打开|你没打开看|你只看到了标题和简介|没看过视频本身")
+READ_CLAIM_RX = re.compile(r"我?(看了(下|一下|一眼|看)?|看完|看过|读了|读完|翻了(下|一下)?)(?!没|吗)|这篇(写得|文章|讲的|说的)|"
+                           r"写得(挺|很|真|不错|好|太)|讲得(挺|很|真|不错)|文章里|里面(说|写|讲|提)|视频里|内容(挺|很|真)|正文")
+# 31.2 她当天说过的“判断 / 押注 / 比分 / 结果”：给统一自检和研究员对着看，别前后矛盾
+CLAIM_LINE_RX = re.compile(r"押|看好|稳赢|会赢|能赢|拿下|[0-3]\s*[-:：比]\s*[0-3]|赢了|输了|被.{0,4}(扫|淘汰|翻)|晋级|出局|淘汰|没查到|"
+                           r"冠军|第一|最差|最强|我选|我觉得|我倾向|肯定是|就是")
 # 31.1 押 / 预测（“押 BLG”“KC 2-1”“看好 T1”）
 BET_RX = re.compile(r"押|赌|看好|支持|稳赢|会赢|能赢|拿下|我选|选[^，,。！!？?\s]{0,4}赢|[0-3]\s*[-:：比]\s*[0-3]")
 # 不是队名的字母词
@@ -133,6 +140,14 @@ CLOSE_ONLY_RX = re.compile(r"别(再)?提了|别(再)?问了|别说了|换个话
 # ---- 问 / 叮嘱 ----
 ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多少|咋样|怎么样|赢了没|打完了|结束了)$|"
                     r"(出了没|出来没|怎么样了|咋样了|后来呢|后来怎么|结果呢|赢没赢|发了没|弄完没|搞定没)")
+# 31.2 引着她的原话质疑（“[回复你的「……」] ？”“你再看一下呢”）：不管隔了多久，都算在纠正她（10-28 08:38 被追问，她“我再瞅瞅”就没了下文）
+QUOTED_CHALLENGE = re.compile(r"^\s*\[回复你的「[^」]*」?\]\s*(@\S+\s*)?([？?]{1,4}|你?再看(一下|一眼|看|下)?呢?|你?确定(吗|？|\?)?|真的(吗|假的)?|"
+                              r"哪来的|哪儿来的|谁说的|有依据吗|依据呢|来源呢|出处呢|不对吧|你认真的(吗)?|是吗)\s*[？?。!！~～]*\s*$")
+CHALLENGE_FOLLOW = re.compile(r"^\s*(@\S+\s*)?(你?再看(一下|一眼|看|下)?呢?|你?确定(吗)?|有依据吗|依据呢|来源呢|出处呢)\s*[？?。!！~～]*\s*$")
+# 31.2 掉线时叫她的话里，算“在问她事情”的（更早的夸、起哄不补回）
+BACKLOG_ASK = re.compile(r"[？?]|(了吗|了没|吗|呢|啥时候|几点|多少|咋样|怎么样)\s*$|你(觉得|怎么看|说说|知道|看看|帮|能不能|会不会)|"
+                         r"帮我|能不能|可不可以|求推荐|推荐一下|谁(能|会|赢|是|说|先)|哪(个|场|天|家|里|儿)|什么|为啥|为什么|怎么(办|弄|回事|看)|几(点|号|个)|"
+                         r"一起|来不来|去不去|要不要|约(你|吗|不)|等你|叫你")                      # 约她、叫她做事的也补回
 CARE_RX = re.compile(r"记得|别忘|注意|小心|多喝|早点睡|擦药|上药|别熬夜|好好休息|悠着点|慢点|别太累|"
                      r"别熬了|别熬|早点躺|快睡|先睡|去睡|看完(就|这局)?睡")    # 26.0 10-26 凌晨一个多小时催睡 4 次
 CLOSE_RX = re.compile(r"别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|别(再)?提.{1,6}了|压力(很|好|太)?大|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了|"
@@ -148,7 +163,7 @@ PROMISE_RX = re.compile(r"这就去看|我去看|去看了|等(下|会儿?)看|�
 PENDING_VIDEO = "你正在点开看"
 # 23.3 群友在纠正她（10-24：“你不识字吗”“al不是打了33分钟吗”“滔搏才是23分钟被推平”）
 CORRECT_RX = re.compile(r"不识字|看清楚|看错了?|你看错|说错了?|记错了?|搞错了?|不是.{0,14}吗|才是|明明是|应该是|哪来的|瞎说|乱说|"
-                        r"人家(叫|是)|写的是|不对吧?|错了|"
+                        r"人家(叫|是)|写的是|不对吧?|错了|^\s*(@\S+\s*)?不是(?![吧吗啊呢我你他她])[^，,。？?！!\s]{1,10}\s*$|"   # 31.2 紧跟她那句的单独一句“不是客户经理”
                         r"难道.{0,12}(也|还|都).{0,8}吗|(都.{0,2}|早就?)(出来了|发了|承认了|道歉了|官宣了|公布了)(?![吗没么嘛])")   # 30.1 “难道这些也别当真吗”“声明都出来了”
 # 30.2 “原文在这 / 看这个 / 图在这 / 你看下面”：指着一个东西让她看
 POINTER_RX = re.compile(r"(原文|原图|图|截图|链接|视频|证据|声明|这个)(就)?在这(里|儿)?|^\s*(你)?(看|瞅)(这个|这张|这条|下面|上面)|^\s*喏")
@@ -159,7 +174,7 @@ SELF_MOCK = re.compile(r"眼睛|眼神|眼瞎|脑子|记性|反应慢|手残|嘴
 # 23.3 统一发前自检的“毛病清单”：每条都来自日报里确认过的事（加新的就往这里加一条，并在 tests/group/incidents.yaml 加一个例子）
 FAILURE_MODES = [
     "替别人回答别人问别人的问题（“A，这个能……吗”不是问她）",
-    "没看过 / 打不开的视频、文章，却说得像看过（“前面那段可以砍”），或者空说“这就去看”；群友说“原文在这 / 看这个”但聊天里没有图和链接，她却说“我看了”",
+    "没看过 / 打不开的视频、文章，却说得像看过（“前面那段可以砍”），或者空说“这就去看”；群友说“原文在这 / 看这个”但聊天里没有图和链接，她却说“我看了”；链接标了“没打开”、分享只有标题，她却说“看了 / 写得挺好”，或者说出标题里没有的内容",
     "对图认真下断言、替发图的人说他在干嘛，图说明里没有（价目表说成“在看场地”），群友会当真的那种；图里的字像错别字时当真拿来开玩笑（一听就是玩笑、夸张、反问的不算，比如“截到灵魂了”）",
     "群友拿出事实指出她说错了、她也确实错了，还顶嘴、找补、开玩笑带过（被逗、被曲解、被故意抬杠时笑着说清楚不算，那时也不用认错）",
     "当成事实说了查到的资料和群聊里都没有的数字、比分、时长、“第一次”这类说法（她自己的看法、倾向、判断不算；资料里“你看了数据以后的判断”照说不算）",
@@ -167,7 +182,7 @@ FAILURE_MODES = [
     "大家在聊别的时候突然追问旧事，或者追问对方已经说过“发过了 / 别问了”的事",
     "当真地编自己的线下经历，或者编群友的状态、经历（一听就是玩笑、夸张的不算，比如“我这就给你老板发消息”“起这么早就为了骂AL”）",
     "同一个梗 / 自嘲点（小本本、记仇、眼睛不好）一天里反复用",
-    "前后矛盾：和她自己前面刚说的对不上",
+    "前后矛盾：和她自己前面刚说的对不上，或者和她今天早些时候说过的比分、押注、判断、结果对不上（之前说“2-0 赢了”，现在说“没查到这场”）",
     "一股 AI 八股味：“看完了。”开头、“这句我认”、“最扎的是”、“不是……而是……”，一句话里堆好几种写作句式",
     "说“核好了 / 查到了”其实没查到（这次的资料里没有），或者答应了“我去看看”又不给结果、再说一遍“我再翻翻”（第一次说“我去查查 / 翻翻”不算，算的是前面已经答应过、这次又来一遍）",
     "接错人：把 A 说的话安到 B 头上（“B 你别拿它当正常体温”，说正常体温的是 A）",
@@ -177,6 +192,7 @@ FAILURE_MODES = [
     "资料里有具体事实，她却只给空评语、结论（“形式合格实质回避”“不算诚意”“问题很大”），不说让她这么判断的那件具体的事（谁、什么时候、做了什么、说了哪句）",
     "把资料里已经证实的事（当事方 / 官方已经道歉、处罚、表态）说成“传闻 / 先别当真 / 没实锤”，或者凭日期、格式自己猜截图真假（资料里有“没发过 / 拒绝置评”才算有依据）",
     "拿资料里没证实的说法（标了大概 / 不太确定 / 只有一家这么说，或者资料里根本没有）去纠正别人，或者在别人表态时说教（“骂归骂”“别把两件事混一起”“理性看待”）",
+    "说了自己的幕后（小屋、标注、门控、提示词，或者“够我更新好几版了”“我又迭代了”这种拿更新 / 版本 / 部署说自己的话）",
 ]
 # 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
 PHRASE_FAMILIES = {
@@ -194,7 +210,7 @@ PHRASE_FAMILIES = {
     "自怜": re.compile(r"就我(一个|光秃秃|没有|最惨|啥都没)|光秃秃|我(一个|就是个|只是个)小AI|失宠|没人疼|没人理我|就我是个?打工的"),
 }
 
-JOKE_OK = {1, 4, 6, 7, 9, 13, 14}      # 26.0 玩笑只查这几条（替人答、重复、翻旧事、同一个梗、接错人、像以前）
+JOKE_OK = {1, 4, 6, 7, 9, 13, 14, 20}  # 31.2 加 20（说幕后）；26.0 玩笑只查这几条（替人答、重复、翻旧事、同一个梗、接错人、像以前）
 
 
 def critic_verdict(d: dict, v2: bool = True) -> str:
@@ -224,7 +240,7 @@ def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool
         prompt = ("你帮一个在朋友群里聊天的人看她要发的话有没有犯下面这些毛病。只看这些；没犯就是没犯，别挑剔说法，别嫌不够稳妥。\n"
                   + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))
                   + "\n\n先判断她这句是哪种话：事实（会被当真的说法）/ 看法（她的判断、倾向、锐评）/ 玩笑（夸张、反问、调侃、自嘲、损人）/ 关心。\n"
-                  "- 玩笑：只看第 1、4、6、7、9、13、14 条和会不会伤人（被纠正时拿玩笑带过算第 4 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
+                  "- 玩笑：只看第 1、4、6、7、9、13、14、20 条和会不会伤人（被纠正时拿玩笑带过算第 4 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
                   "- 看法：只看里面当成事实说的数字有没有依据，和第 17、18、19 条（只有评语没有撑着的事实 / 把证实的事说成传闻 / 拿没证实的去纠正人、说教）；看法本身不算毛病，更不要让她“别下结论”\n"
                   "- 事实：照清单全看\n"
                   "例子（照这个尺度）：\n"
@@ -497,18 +513,54 @@ class ChecksMixin:
                 return f"{who}说过别再提「{c['topic'][:12]}」（{int((now - c['ts']) / 3600)} 小时前）：这几天别再提这件事，换个话题或者不说"
         return ""
 
+    def _name_terms(self, gid: int) -> set[str]:
+        """31.2 群友的名字 / 称呼拆成的两字片段：不算“说的是哪件事”（10-29 19:14 问同一个人两件不相干的事，只撞了他的称呼就被拦）。"""
+        out: set[str] = set()
+        try:
+            names = list(self.names(gid).values())
+            if hasattr(self, "names_of"):
+                for uid in list(self.names(gid).keys()):
+                    try:
+                        names += list(self.names_of(gid, int(uid)))
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:  # noqa: BLE001
+            return out
+        for n in names:
+            for run in CJK.findall(str(n or "")):
+                out |= {run[i:i + 2] for i in range(len(run) - 1)}
+            out |= {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9]{1,11}", str(n or ""))}
+        return out
+
+    def _raised_by_them(self, gid: int, terms: set, now: float, target_uid=None, minutes: float = 10) -> bool:
+        """31.2 她在回的那个人自己刚提起这件事（10-28 18:37 群友自己说“我可能有面试”，她接一句被当成“再提别提的话题”拦了）。
+        “别提”只管她主动提；本人 10 分钟内自己说起来了就放开。没指明在回谁时看最近任何群友。"""
+        if not terms:
+            return False
+        if target_uid:
+            rows = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND user_id=? AND ts>? "
+                                        "ORDER BY id DESC LIMIT 6", (gid, int(target_uid), now - minutes * 60)).fetchall()
+        else:
+            rows = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
+                                        "ORDER BY id DESC LIMIT 6", (gid, now - minutes * 60)).fetchall()
+        said = " ".join(TAG.sub("", str(r["content"] or "")) for r in rows
+                        if not (CLOSE_RX.search(str(r["content"] or "")) or TOPIC_CLOSE_RX.search(str(r["content"] or ""))))
+        return any(t in said for t in terms)
+
     def _ask_repeat(self, gid: int, text: str, target_uid, now: float) -> str:
-        w = self._closed_hit(gid, text, now) if self.gk(gid).get("closed_topics", True) else ""
+        terms = content_terms(text) - self._name_terms(gid)
+        raised = self._raised_by_them(gid, terms, now, target_uid)
+        w = self._closed_hit(gid, text, now) if self.gk(gid).get("closed_topics", True) and not raised else ""
         if w:
             return w
-        if not (ASK_RX.search(text.strip()) or CARE_RX.search(text) or "？" in text or "?" in text):
+        if raised or not (ASK_RX.search(text.strip()) or CARE_RX.search(text) or "？" in text or "?" in text):
             return ""
-        terms = content_terms(text)
         if not terms:
             return ""
         hours = float(self.gk(gid).get("ask_repeat_hours", 24) or 24)
+        names = self._name_terms(gid)
         for r in self.recent_asks(gid, max(hours, 72, float(self.gk(gid).get("ask_closed_days", 7) or 7) * 24), now):
-            common = terms & r["terms"]
+            common = terms & (set(r["terms"]) - names)
             if not common:
                 continue
             closed = r["closed_until"] and r["closed_until"] > now
@@ -714,12 +766,14 @@ class ChecksMixin:
         而且这次纠正她还没认过：让她不受刹车认一句。"""
         if not texts:
             return False
+        if now - float(self._st(gid).__dict__.get("admit_ts") or 0) < 180:
+            return False                                   # 刚认过一次了
+        if self.gk(gid).get("quoted_challenge", True) and self.quoted_challenge(texts):
+            return True                                    # 31.2 引着她原话质疑：隔了多久都算
         last_her = self.db.conn.execute("SELECT ts, content FROM qq_group_messages WHERE group_id=? AND role='assistant' "
                                         "ORDER BY id DESC LIMIT 1", (gid,)).fetchone()
         if not last_her or now - float(last_her["ts"]) > 180:
             return False
-        if now - float(self._st(gid).__dict__.get("admit_ts") or 0) < 180:
-            return False                                   # 刚认过一次了
         for t in texts:
             body = str(t[2] if len(t) > 2 else "")
             if re.match(r"^\s*\[回复别人", body):
@@ -731,6 +785,20 @@ class ChecksMixin:
             if m and m.group(1).strip() in str(last_her["content"] or ""):
                 return True
         return False
+
+    @staticmethod
+    def quoted_challenge(texts: list) -> str:
+        """31.2 这一批里有人引着她的原话质疑（“[回复你的「X」] ？”，或紧跟一句“你再看一下呢”）：返回被质疑的那句原话。"""
+        bodies = [str(t[2] if len(t) > 2 else t) for t in texts]
+        for k, b in enumerate(bodies):
+            m = QUOTED_CHALLENGE.match(b)
+            if m:
+                q = re.match(r"^\s*\[回复你的「([^」\]]*)", b)
+                return (q.group(1) if q else "") or "你之前那句"
+            if CHALLENGE_FOLLOW.match(b) and k and re.match(r"^\s*\[回复你的", bodies[k - 1]):
+                q = re.match(r"^\s*\[回复你的「([^」\]]*)", bodies[k - 1])
+                return (q.group(1) if q else "") or "你之前那句"
+        return ""
 
     def _stale_ask(self, gid: int, text: str, mentioned: bool, now: float) -> str:
         """23.2 大家在聊 A，她突然追问一件旧事 B（10-23 有人发工资表，她问“那文档发了没”——早发过了）。
@@ -800,6 +868,78 @@ class ChecksMixin:
         return (f"你押的 {'、'.join(miss)} 在查到的资料和群里的聊天里都没出现：可能根本不在这几场里。"
                 "先说清楚是哪几场、谁打谁（不知道就说还没查到对阵），别凭空押队名")
 
+    # ================= 31.2 没打开的链接 / 刚说过 / 掉线回来的旧话 =================
+    def _link_unopened(self, gid: int, text: str, now: float) -> str:
+        """群里最近那条链接 / 分享她其实没打开（标了“没打开”，或者分享卡只有标题），她却说“看了 / 写得挺好”
+        （10-28 14:56“我看了下，这是国航新开的……”，标题里根本没有“国航新开”；10-29 16:53 只有标题的分享说“这篇写得挺带劲”）。"""
+        t = TAG.sub("", text)
+        if not READ_CLAIM_RX.search(t):
+            return ""
+        rows = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
+                                    "ORDER BY id DESC LIMIT 8", (gid, now - 900)).fetchall()
+        for r in rows:
+            c = str(r["content"] or "")
+            if not re.search(r"\[(链接|分享)", c):
+                continue
+            title_only = bool(re.search(r"\[分享：", c)) and not re.search(r"\[链接：|正文开头|你正在点开看", c)
+            if UNOPENED_RX.search(c) or title_only:
+                m = re.search(r"\[分享：([^\]]{1,40})", c) or re.search(r"「([^」]{1,40})」", c)
+                tt = f"（你只知道标题「{m.group(1)}」）" if m else ""
+                return (f"群里那条链接 / 分享你其实没打开{tt}：别说“看了 / 写得挺好 / 里面说”，也别说标题里没有的东西；"
+                        "就着标题聊一句，或者直说没打开")
+            return ""                                   # 最近那条是打开了的
+        return ""
+
+    def _self_echo(self, gid: int, text: str, mentioned: bool, now: float) -> str:
+        """同一个答案 2 分钟内又说一遍（10-29 17:26“知道，以下克上那个手势”10 秒后又来“答过了，以下克上，还想验证我？”）。"""
+        win = float(self.gk(gid).get("self_echo_seconds", 120) or 0)
+        if not win:
+            return ""
+        terms = content_terms(text) - self._name_terms(gid)
+        if len(terms) < 3:
+            return ""
+        rows = self.db.conn.execute("SELECT ts, content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>? "
+                                    "ORDER BY id DESC LIMIT 4", (gid, now - win)).fetchall()
+        for r in rows:
+            old = str(r["content"] or "")
+            common = terms & content_terms(old)
+            if len(common) >= 3 and len(common) >= 0.35 * len(terms):
+                ago = max(1, int(now - float(r["ts"])))
+                head = "" if mentioned or not self.gk(gid).get("drop_not_rewrite", True) else DROP
+                return (f"{head}这个意思你 {ago} 秒前刚说过（「{old[:24]}」）：别再说一遍；他追问就补一点新的东西，"
+                        "没有就一句带过，别说“答过了”")
+        return ""
+
+    def _old_backlog(self, gid: int, target_row: dict | None, mentioned: bool, now: float) -> str:
+        """掉线 / 重启回来以后，回的是 backlog_reply_minutes 以前的旧话（夸、起哄、接梗）：只看不回。
+        10-29 15:32 回 4 个半小时前的“牛逼牛逼”（“才看到，X 夸我这波得收下”），接着 9 分钟 7 条。"""
+        if mentioned or not target_row or target_row.get("role") != "user":
+            return ""
+        back = self.db.get(f"qq_back_{gid}") or {}
+        if not back or now - float(back.get("ts") or 0) > 3600:
+            return ""
+        ts = float(target_row.get("ts") or now)
+        if ts >= float(back.get("cut") or 0):
+            return ""
+        body = re.sub(r"^(\s*@\S+\s*)+", "", re.sub(r"^\[回复[^\]]*\]\s*", "", str(target_row.get("content") or "")))
+        if QUOTED_CHALLENGE.match(str(target_row.get("content") or "")) or BACKLOG_ASK.search(body):
+            return ""
+        mins = int((now - ts) / 60)
+        return f"{DROP}你回的那条是你不在时的旧话（{mins} 分钟前）：只当知道了，别回、别补“才看到”，接现在在聊的"
+
+    def claims_today(self, gid: int, limit: int = 12) -> list[str]:
+        """她今天说过的判断 / 押注 / 比分 / 结果（带时间），给统一自检和研究员对着看。"""
+        try:
+            rows = self.her_today(gid) if hasattr(self, "her_today") else []
+        except Exception:  # noqa: BLE001
+            return []
+        out = []
+        for r in rows:
+            c = TAG.sub("", str(r["content"] or "")).strip()
+            if c and not c.startswith("[") and CLAIM_LINE_RX.search(c):
+                out.append(f"{time.strftime('%H:%M', time.localtime(float(r['ts'])))} {c[:60]}")
+        return out[-limit:]
+
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
                        mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None,
@@ -833,6 +973,9 @@ class ChecksMixin:
             ("misattrib", lambda: self._misattrib(gid, text, now) if hasattr(self, "_misattrib") else ""),
             ("life_done", lambda: self._life_done(gid, text, web)),
             ("bet_unknown", lambda: self._bet_unknown(gid, text, web)),
+            ("link_unopened", lambda: self._link_unopened(gid, text, now)),
+            ("self_echo", lambda: self._self_echo(gid, text, mentioned, now)),
+            ("old_backlog", lambda: self._old_backlog(gid, target_row, mentioned, now)),
         ]
         for name, fn in rules:
             if mode[name] != "off":
@@ -876,6 +1019,13 @@ class ChecksMixin:
                 mine = "\n".join(f"- {x[:60]}" for x in [x for x in self.today_lines(gid) if x not in shown][-8:])
             except Exception:  # noqa: BLE001
                 mine = ""
+        try:                                              # 31.2 她今天说过的判断 / 押注 / 比分：全天的（以前只给最后 8 句，早上押的就看不到）
+            claims = self.claims_today(gid)
+        except Exception:  # noqa: BLE001
+            claims = []
+        if claims:
+            mine = (mine + "\n" if mine else "") + "（她今天说过的判断 / 押注 / 比分 / 结果，第 10 条拿这些对）\n" + \
+                "\n".join(f"- {x}" for x in claims)
         prompt = critic_prompt(ctx, text, brief, read, v2=bool(self.gk(gid).get("critic_v2", True)), mine=mine)
         try:
             out = await asyncio.wait_for(self.brain.llm.chat([{"role": "user", "content": prompt}], role="gate",

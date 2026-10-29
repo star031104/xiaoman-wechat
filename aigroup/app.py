@@ -146,6 +146,8 @@ async def run(cfg):
     ob.on_self_message.append(lambda ev: record_own(gc, ev))   # 在手机上用她的号说的话：记成她说的
     ob.start()
     log.info("%s 启动了（微信）：群 %s", brain.persona.name, ob.groups)
+    from aigroup.core.releases import note_deploy
+    note_deploy()                                              # 31.2 发版记录以启动时真在跑的提交为准
     from aigroup.web.server import GroupHome
     home = GroupHome(cfg, brain, ob, gc)
     try:

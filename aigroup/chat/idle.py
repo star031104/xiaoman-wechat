@@ -190,6 +190,14 @@ class IdleMixin:
         else:
             why = (f"昨晚你睡着以后{who}叫过你，你刚醒才看到。回应一下他说的事"
                    "（可以带一句“才看到”之类的，自然一点）")
+        ch = [x for x in night if x.get("challenge")]
+        if ch:                                             # 31.2 掉线时有人引着她原话质疑：回来第一句先正面回那句
+            why += (f"其中{ch[-1].get('who') or '有人'}引着你说过的话在质疑你（「{str(ch[-1].get('text') or '')[:40]}」）："
+                    "先正面回那句——要是没核实就说的、或者说错了，第一句就认；别问“哪个”，别说“我再看看”。")
+            st.__dict__["admit_ts"] = now
+        old_bits = [x for x in night if x.get("kind") == "offline" and now - float(x.get("ts") or now) > 1800]
+        if old_bits:                                       # 31.2 半小时以前的旧话：只回在问你的，别补夸奖、起哄
+            why += "（半小时以前的旧消息只回在问你事情的那几条；夸你、起哄、接梗的旧话不用回，也别说“才看到 xx 夸我”。）"
         async with st.lock:
             try:
                 await self.speak(gid, mentioned=True, owner_spoke=False, trigger=last.get("mid"), who=who, why=why)
