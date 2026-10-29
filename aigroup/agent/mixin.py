@@ -408,6 +408,21 @@ def brief_block(goal: str, d: dict, fresh: bool = True) -> str:
     return "\n".join(lines)
 
 
+_ANCHOR_STOP = {"vs", "bo", "bo1", "bo3", "bo5"}
+
+
+def goal_anchors(text: str) -> set[str]:
+    """30.4 一个问题“说的是谁”的硬标记：字母词（队名、赛事、游戏）和数字（日期、届数）。"""
+    out = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9]*", text or "")} - _ANCHOR_STOP
+    return out | set(re.findall(r"\d+", text or ""))
+
+
+def goal_head(goal: str) -> str:
+    """30.4 研究目标冒号前那半句（“判断 xx 谁能赢”），后半句“要看哪些方面”每次都差不多，不拿来比。"""
+    head = re.split(r"[：:]", goal or "", maxsplit=1)[0]
+    return head if len(head.strip()) >= 4 else (goal or "")
+
+
 class AgentMixin:
     # ---------------- 开关和限额 ----------------
     def agent_on(self, gid: int) -> bool:
@@ -466,15 +481,18 @@ class AgentMixin:
         return [b for b in bs if isinstance(b, dict) and time.time() - float(b.get("ts", 0)) < 6 * 3600]
 
     def _similar_brief(self, gid: int, goal: str, minutes: float = 30) -> dict | None:
-        """24.0 半小时内查过、问题差不多（字二元组重合 ≥ 0.5，或者说的是同样几个实体）的简报。"""
+        """24.0 半小时内查过同一件事的简报。
+        30.4 只认“几乎一样的问题”：模型看过“最近查过的”还要查，说明它觉得不够用。
+        以前按字重合 >=0.5 / 实体词重合 >=0.6 算，同一个模板写的问题（“判断…谁能赢：再看近期战绩、选手状态…”）全被当成同一件，
+        问完 A 比赛再问 B 比赛（换了项目、换了队），拿到的还是 A 的简报，她只好说“超纲了 / 没看过”。
+        现在：新问题里的字母词和数字（队名、赛事、日期）都要在旧问题里出现过，而且“判断 xx”那半句（冒号前）字二元组重合 >=0.8。"""
         from aigroup.chat.plan import bigram_overlap
-        from aigroup.chat.checks import content_terms
-        g = content_terms(goal)
+        a = goal_anchors(goal)
         for b in self._briefs(gid):
             if time.time() - float(b.get("ts") or 0) > minutes * 60 or not (b.get("brief") or {}).get("answer_points"):
                 continue
-            o = content_terms(str(b.get("goal") or ""))
-            if bigram_overlap(goal, str(b.get("goal") or "")) >= 0.5 or (g and o and len(g & o) / max(1, min(len(g), len(o))) >= 0.6):
+            og = str(b.get("goal") or "")
+            if a <= goal_anchors(og) and bigram_overlap(goal_head(goal), goal_head(og)) >= 0.8:
                 return b
         return None
 
