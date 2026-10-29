@@ -301,6 +301,8 @@ class SpeakMixin:
         talk = float(self.gk(gid).get("talkativeness", 0.3)) * talk_factor(self.gk(gid).get("talk_curve"), f"{self.brain.now():%H:%M}")
         if hasattr(self, "talk_mult"):                    # 21.1 群里有人让她少说 / 多说；份额超了收紧
             talk *= self.talk_mult(gid, now) * self.share_factor(gid)
+        if hasattr(self, "reach_factor"):                 # 31.0 她主动说的话最近有没有人接（0.29~1.43 倍）
+            talk *= self.reach_factor(gid, now)
         thr, keep, tie = threshold_ex(probs, min(1.0, talk), spoke)
         burst = sum(1 for r in recent if r[1] == "assistant")      # 23.1 她最近 5 分钟发了几条
         hush = self.hushed(gid, now) if hasattr(self, "hushed") else ""
@@ -1119,6 +1121,9 @@ class SpeakMixin:
             read_task = None
             if hasattr(self, "read_turn") and self.gk(gid).get("read_turn", True):
                 read_task = asyncio.ensure_future(self.read_turn(gid, mentioned))   # 26.0 先读懂：字面 / 实际意思、梗（和“想一想”一起跑）
+            zoom_task = None
+            if hasattr(self, "video_zoom") and texts:
+                zoom_task = asyncio.ensure_future(self.video_zoom(gid, " ".join(str(x or "") for x in texts[-3:])))   # 31.0 追问视频某个时间：放大看
             if hasattr(self, "agent_on") and self.agent_on(gid):        # 19.0 先想一想：要不要查、要不要设提醒
                 if hasattr(self, "agent_needed_ctx") and not self.agent_needed_ctx(gid, texts, mentioned):
                     web = self.agent_skip_block(gid)                    # 24.0 规则看着不像要查 / 设提醒：不调“想一想”
@@ -1140,6 +1145,11 @@ class SpeakMixin:
                     tm["read"] = round(time.time() - t_r, 1)
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s：读懂这几句没成：%s", gid, e)
+            if zoom_task is not None:
+                try:
+                    await asyncio.wait_for(zoom_task, 25)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s：视频放大看没赶上：%s", gid, e)
         elif hasattr(self, "_read_txt"):
             self._read_txt.pop(gid, None)
         return web

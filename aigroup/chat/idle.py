@@ -126,7 +126,9 @@ class IdleMixin:
         quiet = now - float(last["ts"])
         if quiet < float(g["idle_hours"]) * 3600 or quiet > 3 * 86400:
             return ""
-        if now - float(self.db.get(f"qq_idle_{gid}", 0) or 0) < float(g["idle_gap_hours"]) * 3600:
+        streak = self.reach(gid, now)[1] if hasattr(self, "reach") and g.get("reach_gate", True) else 0
+        from aigroup.chat.feedback import reach_gap_mult
+        if now - float(self.db.get(f"qq_idle_{gid}", 0) or 0) < float(g["idle_gap_hours"]) * 3600 * reach_gap_mult(streak):
             return ""
         if self.ignored_count(gid, now) >= 2:              # 刚被冷落过：先别冒泡
             return ""
@@ -136,6 +138,8 @@ class IdleMixin:
             return ""
         misses = int(roll.get("misses") or 0)
         p = min(0.4, float(g["idle_chance"]) / 2 + 0.1 * misses) * (1.5 if quiet > 6 * 3600 else 1.0)
+        if hasattr(self, "reach_factor"):                  # 31.0 主动说的最近有没有人接
+            p *= self.reach_factor(gid, now)
         if random.random() >= p:
             self.db.set(key, {"ts": now, "misses": misses + 1})
             return ""

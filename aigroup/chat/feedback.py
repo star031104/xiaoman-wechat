@@ -40,7 +40,50 @@ CREATE INDEX IF NOT EXISTS idx_qq_reply_effect ON qq_reply_effect(done, ts);
 """
 
 
+REACH_BASE, REACH_MIN, REACH_MAX = 0.7, 0.2, 1.0
+REACH_UP, REACH_DOWN = 0.15, 0.2
+REACH_HALF_H = 24.0          # 没有新反馈时，按 24 小时半衰期慢慢回到 0.7（不然被冷落一次就永远不敢开口）
+
+
+def reach_step(w: float, score: float | None) -> float:
+    """31.0 她主动说的一句的反馈：有人接（≥0.6）+0.15；冷场（0）−0.2；群里在聊别的（0.2）不变。夹在 0.2~1。"""
+    if score is None:
+        return w
+    if score >= 0.6:
+        w += REACH_UP
+    elif score <= 0:
+        w -= REACH_DOWN
+    return max(REACH_MIN, min(REACH_MAX, w))
+
+
+def reach_gap_mult(streak: int) -> float:
+    """31.0 连着 n 次主动说没人接：下次冒泡 / 分享的间隔 ×(1+0.35n)，最多 2.2 倍。"""
+    return min(2.2, 1.0 + 0.35 * max(0, int(streak)))
+
+
 class FeedbackMixin:
+    def reach(self, gid: int, now: float | None = None) -> tuple[float, int]:
+        """31.0（陪伴插件“你越不回她越安静”，这里做成硬限制）：她没被叫到就开口，有没有人接 → 一个 0.2~1 的权重，
+        乘进插话门槛、冒泡概率和分享概率；连着没人接的次数拉长冒泡间隔。返回 (权重, 连着没人接几次)。"""
+        now = now or time.time()
+        d = self.db.get(f"reach_{gid}") or {}
+        w = float(d.get("w", REACH_BASE))
+        hours = max(0.0, now - float(d.get("ts") or now)) / 3600
+        w = REACH_BASE + (w - REACH_BASE) * 0.5 ** (hours / REACH_HALF_H)
+        return round(w, 3), int(d.get("streak") or 0)
+
+    def reach_factor(self, gid: int, now: float | None = None) -> float:
+        """权重 / 0.7：一直有人接 → 最多 1.43 倍；老没人接 → 最低 0.29 倍。"""
+        if not self.gk(gid).get("reach_gate", True):
+            return 1.0
+        return self.reach(gid, now)[0] / REACH_BASE
+
+    def _reach_update(self, gid: int, score: float | None, now: float):
+        w, streak = self.reach(gid, now)
+        w = reach_step(w, score)
+        streak = streak + 1 if score is not None and score <= 0 else 0
+        self.db.set(f"reach_{gid}", {"w": round(w, 3), "streak": streak, "ts": now})
+
     def evaluate_effects(self, now: float | None = None, window: float = 300.0) -> int:
         """她说完 5 分钟后看一眼：有没有人回复 / @ / 叫她，她接话的那个人有没有回，大家是不是接着这个话题说。"""
         now = now or time.time()
@@ -62,6 +105,11 @@ class FeedbackMixin:
                 self.mood.on_ignored(int(r["group_id"]))
             self.db.conn.execute("UPDATE qq_reply_effect SET done=1, followups=?, direct=?, score=? WHERE id=?",
                                  (len(after), int(direct), score, r["id"]))
+            if not r["mentioned"]:                               # 31.0 主动说的才算进“有没有人接”的权重
+                try:
+                    self._reach_update(int(r["group_id"]), score, now)
+                except Exception as e:  # noqa: BLE001
+                    log.info("更新主动开口权重出错：%s", e)
         if rows:
             self.db.conn.commit()
         return len(rows)

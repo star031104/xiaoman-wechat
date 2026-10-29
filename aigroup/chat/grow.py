@@ -816,7 +816,8 @@ class GrowMixin:
         if not isinstance(plan, dict):
             start = max(nd.timestamp(), nd.replace(hour=10, minute=0, second=0, microsecond=0).timestamp())
             end = nd.replace(hour=22, minute=30, second=0, microsecond=0).timestamp()
-            skip = random.random() >= float(g.get("share_chance", 0.7))
+            rf = self.reach_factor(gid) if hasattr(self, "reach_factor") else 1.0     # 31.0 主动说的最近有没有人接
+            skip = random.random() >= min(0.95, float(g.get("share_chance", 0.7)) * rf)
             plan = {"at": random.uniform(start, max(start + 60, end)), "skip": skip}
             self.db.set(key, plan)
             if skip:
@@ -943,6 +944,11 @@ class GrowMixin:
     async def _share_photo(self, gid: int, st, count: bool = True) -> bool:
         p = self.brain.persona
         life = self.db.get(f"life_{self.brain.now():%Y-%m-%d}", "") or "（普通的一天）"
+        if hasattr(self, "life_split"):                     # 31.0 只拍已经在做 / 做过的；打算和还没到点的不拍成已经在做
+            done, plan = self.life_split()
+            if done or plan:
+                life = ("\n".join(done) or "（今天还没做什么特别的）") + (
+                    "\n（下面这些只是打算 / 还没到点，别拍成已经在做：" + "；".join(plan) + "）" if plan else "")
         try:
             d = await self.brain.llm.json([{"role": "user", "content": PHOTO_PROMPT % (
                 p.name, p.body[:900], str(life)[:400])}], default={}, role="helper")

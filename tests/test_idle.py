@@ -15,7 +15,7 @@ from conftest import (
 
 
 def test_idle_bubble(cfg, brain, monkeypatch):
-    gc, ob = _gc(cfg, brain, share_per_day=0)        # 10~23 点会先走“分享”：这里只测冒泡
+    gc, ob = _gc(cfg, brain, share_per_day=0, lonely_hours="")   # 10~23 点会先走“分享”：这里只测冒泡；深夜不主动的规则也关掉（不然半夜跑测试会失败）
     old = time.time() - 5 * 3600
     for uid, name, text in ((OWNER, "阿杰", "周末去不去看展"), (FRIEND, "小王", "去！")):
         brain.db.conn.execute("INSERT INTO qq_group_messages(ts, group_id, user_id, name, role, content) "

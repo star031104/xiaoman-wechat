@@ -128,11 +128,12 @@ class DigestMixin:
                   "2. 群|…：这个群最近的事和梗（大家在忙的事、约好的活动、反复出现的梗），合并原来的，最多 5 行，每行 40 字以内，过时的删掉。\n"
                   "3. 规|…：这个群不成文的规矩（比如“大家都不 @人”“不刷屏”“深夜才热闹”“说话爱带某个梗”），合并原来的，最多 4 行，没把握就不写。\n"
                   "4. 我|…：你（“你”）在群里说过的关于你自己的事（经历、喜好、计划），以后要和这些保持一致；合并原来的，最多 8 行。\n"
-                  f"5. 事|{id_label()}或“群”|内容|替代编号|来源|有效到：值得以后想起来的具体的事（谁在准备考试、谁养了猫、约了周六看展），每条 40 字以内；"
+                  f"5. 事|{id_label()}或“群”|内容|替代编号|来源|有效到|原话：值得以后想起来的具体的事（谁在准备考试、谁养了猫、约了周六看展），每条 40 字以内；"
                   "如果它推翻了下面“原来记的事”里的某条（比如考完了、分手了、换工作了），替代编号写那条的编号，没有就写 -。"
                   "来源写 自己（他本人说的自己的事）/ 别人（别人说他的、转述的）/ 猜（你从话里推测的）；"
                   "开玩笑、互损、反话、假设、在说别人的事都不要记到他头上。"
                   "有效到：只在一段时间内成立的（这周在赶论文、明天考试、这几天在出差）写到哪天为止 YYYY-MM-DD，长期的写 -。"
+                  "原话：从聊天里**一字不改**地抄出能证明这件事的那一小段（6~30 字，不加引号）；聊天里找不到能证明的就别记这条。"
                   "最多 6 条，只写新的。\n"
                   "6. 梗|词1/词2|这个梗是什么意思、一般什么时候用：群里反复出现、外人看不懂的梗，词写群友真的会打的字，最多 3 条，没有就不写。\n"
                   + (self.digest_extra_prompt() + "\n" if hasattr(self, "digest_extra_prompt") else "")
@@ -194,6 +195,23 @@ class DigestMixin:
             valid_ids = {f["id"] for f in facts}
             subject = self._fact_subject(gid, who, text, ids)
             if subject is None:
+                continue
+            quote = parts[5].strip().strip("“”\"'「」") if len(parts) > 5 else ""
+            if quote and quote != "-":                               # 31.0 带了原话：逐字核对，规则判转述 / 玩笑 / 打算 / 临时
+                from aigroup.memory.facts import vet_fact
+                v = vet_fact(text, quote, subject, src, win)
+                if v["why"]:
+                    log.info("群 %s：「%s」%s，来源记成 %s", gid, text[:20], v["why"], v["src"])
+                src = v["src"]
+                if v["until_days"] and until is None:
+                    until = time.time() + v["until_days"] * 86400
+                row = v["row"]
+                mid, author, c = (int(row["id"]), int(row.get("user_id") or 0) or None, 1.0) if row else (None, None, 0.0)
+                speaker = (subject if subject > 0 and src == "self" else author if src == "other" else None)
+                if self.memory.add_fact(gid, text, speaker=speaker, subject=subject, kind="fact",
+                                        replaces=[r for r in rep if r in valid_ids], source=src, until=until,
+                                        msg_id=mid) and self.memory.last_new:
+                    nf += 1
                 continue
             mid, author, c = self.memory.locate(gid, text, win)       # 24.0 出自哪条消息、那条是谁说的
             if subject > 0 and src in ("self", "") and author and author != subject and c >= 0.6:

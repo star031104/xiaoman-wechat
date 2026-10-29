@@ -9,6 +9,8 @@
 - 热评：公开的评论接口，按赞数挑几条
 - 画面（15.0）：拿最低清晰度的视频流，用 ffmpeg 在几个时间点各截一张（均匀撒点 + 弹幕最热闹的几段），连同封面一起交给看图模型，
   一次调用写出“每个时间点画面上是什么”；没装 ffmpeg / 没配看图模型就跳过
+- 画面（31.0）：改成一张宫格图（storyboard.py）：按切点和台词密度分格、每格挑最清楚的一帧、烧上编号和时间，
+  每格那段说的话一起给看图模型；追问某个时间时对那几秒再拼一张 2×2 单独看（zoom）。缺依赖 / 太长 / 失败时退回均匀撒点
 - 多 P：链接里带 ?p=3 就看第 3 P
 - 都拿不到就只用标题、简介、标签，并且说清楚“没看到内容”
 这个文件 QQ 群版、微信版、ai-life 一样（只依赖 fetch 和 llm 两个参数）。
@@ -54,6 +56,16 @@ SUMMARY_PROMPT = """你帮一个人“看”一个 B 站视频：下面是视频
 FRAMES_PROMPT = """这是 B 站视频《{title}》（UP 主：{author}）的封面和几个时间点的截图，按顺序是：{labels}。
 逐张用中文写画面上是什么（人物在做什么、场景、画面上的字幕或大字、是游戏 / 动画 / 实拍 / PPT……），每张 40 字以内；
 看不清就写“看不清”。只输出 JSON：{{"frames": [{{"t": "封面 或 mm:ss", "see": "……"}}]}}"""
+
+GRID_PROMPT = """这是 B 站视频《{title}》（UP 主：{author}）的一张分镜宫格图，共 {n} 格，按时间顺序从左到右、从上到下排，
+每格左上角的黄色数字是格子编号，右下角是这一格截图的时间。{cover}下面是每一格覆盖的时间段和那段时间里说的话（语音转文字，可能有错字）：
+{rows}
+逐格用中文写画面上是什么（人物在做什么、场景、画面上的字幕或大字、是游戏 / 动画 / 实拍 / PPT……），可以结合那段说的话，每格 40 字以内；
+看不清就写“看不清”，不要编图上没有的东西。只输出 JSON：{{"cover": "封面上是什么（没有封面写空）", "frames": [{{"cell": 1, "see": "……"}}]}}"""
+
+ZOOM_PROMPT = """这是 B 站视频《{title}》{at} 前后几秒放大看的 {n} 张截图（2×2，左上角是编号，右下角是时间）。
+有人问：{q}
+逐张写画面上是什么（人物、动作、画面上的字、细节），每张 50 字以内；看不清就写“看不清”。只输出 JSON：{{"frames": [{{"cell": 1, "see": "……"}}]}}"""
 
 
 def pick_times(duration: int, hot: list[dict], n: int = 8) -> list[int]:
@@ -200,6 +212,9 @@ def subtitle_lines(body: list[dict], max_chars: int = 5000, every: float = 20.0)
     return "\n".join(keep)[:max_chars]
 
 
+SCAN_MAX = 30 * 60          # 31.0 超过 30 分钟的视频不扫全片（太慢），退回均匀撒点
+
+
 EMOJI_RE = re.compile("[\U0001F000-\U0001FFFF\u2600-\u27BF]")
 
 
@@ -268,8 +283,8 @@ class ASR:
 class Bili:
     """fetch(url, headers) -> bytes（用 LinkReader 的：只访问公网、带上 net.cookies 里 B 站的 cookie）。"""
 
-    def __init__(self, fetch, llm=None, asr: ASR | None = None):
-        self.fetch, self.llm, self.asr = fetch, llm, asr
+    def __init__(self, fetch, llm=None, asr: ASR | None = None, grid: bool = True):
+        self.fetch, self.llm, self.asr, self.grid = fetch, llm, asr, grid
         self._wbi: tuple[float, str, str] = (0.0, "", "")
         self.buvid = f"buvid3={str(uuid.uuid4()).upper()}infoc"
 
@@ -358,7 +373,7 @@ class Bili:
         if not ff:
             return b""
         hdr = "Referer: https://www.bilibili.com/\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
-        cmd = [ff, "-nostdin", "-loglevel", "error", "-headers", hdr, "-ss", str(int(t)), "-i", url, "-frames:v", "1",
+        cmd = [ff, "-nostdin", "-loglevel", "error", "-headers", hdr, "-ss", f"{max(0.0, float(t)):.2f}", "-i", url, "-frames:v", "1",
                "-vf", "scale=480:-2", "-q:v", "6", "-f", "image2", "-c:v", "mjpeg", "pipe:1"]
         try:
             p = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -372,11 +387,11 @@ class Bili:
             return b""
         return out if out[:2] == b"\xff\xd8" else b""
 
-    async def frames(self, bv: str, cid: int, times: list[int]) -> list[tuple[int, bytes]]:
+    async def frames(self, bv: str, cid: int, times: list, urls: list[str] | None = None) -> list[tuple]:
         if not times or not shutil.which("ffmpeg"):
             return []
         try:
-            urls = await self.video_urls(bv, cid)
+            urls = urls or await self.video_urls(bv, cid)
         except Exception as e:  # noqa: BLE001
             log.info("视频流没拿到：%s", e)
             return []
@@ -426,6 +441,105 @@ class Bili:
             except Exception as e:  # noqa: BLE001
                 log.info("截图没看成：%s", e)
                 break
+        return out
+
+    async def storyboard(self, bv: str, cid: int, dur: int, lines: str, n: int) -> tuple[bytes, list[dict]] | None:
+        """31.0 一张宫格图：扫视频 → 切点 → 按剪辑 / 台词密度分格 → 每格挑最清楚的一帧 → 截图拼图。
+        返回 (宫格 JPEG, [{"cell", "a", "b", "t", "say"}])；缺依赖、太长、失败返回 None（调用方退回均匀撒点）。"""
+        from aigroup.net import storyboard as sb
+        if not sb.available() or dur <= 0 or dur > SCAN_MAX or n <= 0:
+            return None
+        try:
+            urls = await self.video_urls(bv, cid)
+            if not urls:
+                return None
+            sc = await sb.scan(urls[0], dur)
+            if not sc:
+                return None
+            cuts = sb.find_cuts(sc["t"], sc["diff"])
+            srt = sorted(sc["diff"])
+            p90 = srt[int(len(srt) * 0.9)] if srt else None
+            cells = sb.plan_cells(dur, cuts, n, sb.talk_from_lines(lines), p90)
+            moments = [sb.pick_moment(c, sc["t"], sc["sharp"], cuts) for c in cells]
+            shots = dict(await self.frames(bv, cid, moments, urls))
+            info = []
+            for k, (c, m) in enumerate(zip(cells, moments)):
+                if m in shots:
+                    info.append({"cell": len(info) + 1, "a": c[0], "b": c[1], "t": m, "say": sb.lines_in(lines, c[0], c[1]),
+                                 "jpg": shots[m]})
+            if len(info) < 2:
+                return None
+            grid = sb.compose([(x["cell"], x["jpg"], mmss(x["t"])) for x in info])
+            for x in info:
+                x.pop("jpg", None)
+            log.info("视频 %s：扫了 %d 帧、%d 个切点，分 %d 格（宫格 %d KB）", bv, len(sc["t"]), len(cuts), len(info), len(grid) // 1024)
+            return grid, info
+        except Exception as e:  # noqa: BLE001
+            log.info("视频 %s 宫格没拼成，退回均匀截图：%s", bv, e)
+            return None
+
+    async def see_grid(self, w: dict, grid: bytes, cells: list[dict], cover: bytes = b"") -> list[dict]:
+        """31.0 宫格图（+ 封面）一次交给看图模型。返回 [{"t", "cell", "span", "see"}]，封面那条 t = “封面”。"""
+        if self.llm is None or not getattr(self.llm, "vision", False) or not grid:
+            return []
+        import base64
+        rows = "\n".join(f"第 {c['cell']} 格 {mmss(c['a'])}-{mmss(c['b'])}：{c['say'] or '（没说话 / 没转到）'}" for c in cells)
+        prompt = GRID_PROMPT.format(title=w.get("title", ""), author=w.get("author", ""), n=len(cells), rows=rows,
+                                    cover="另外附了一张视频封面（第二张图）。" if cover else "")
+        content = [{"type": "text", "text": prompt}] + [
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(b).decode()}}
+            for b in ([grid] + ([cover] if cover else []))]
+        try:
+            raw = await self.llm.chat([{"role": "user", "content": content}], role="vision", temperature=0.2,
+                                      max_tokens=1200, background=True)
+            from aigroup.llm.client import parse_json
+            d = parse_json(raw, {}) or {}
+        except Exception as e:  # noqa: BLE001
+            log.info("宫格图没看成：%s", e)
+            return []
+        by = {c["cell"]: c for c in cells}
+        out = [{"t": "封面", "see": str(d.get("cover"))[:80]}] if cover and d.get("cover") else []
+        for x in d.get("frames") or []:
+            try:
+                c = by[int(x.get("cell"))]
+            except (TypeError, ValueError, KeyError, AttributeError):
+                continue
+            if x.get("see"):
+                out.append({"t": mmss(c["t"]), "cell": c["cell"], "span": f"{mmss(c['a'])}-{mmss(c['b'])}",
+                            "see": str(x["see"])[:80]})
+        return out
+
+    async def zoom(self, bv: str, cid: int, t: float, dur: int, title: str = "", q: str = "") -> list[dict]:
+        """31.0 追问某个时间：那几秒截 4 张、拼一张 2×2 放大看。返回 [{"t", "see", "zoom": True}]。"""
+        from aigroup.net import storyboard as sb
+        if self.llm is None or not getattr(self.llm, "vision", False) or not sb.available():
+            return []
+        times = sb.zoom_times(t, dur)
+        shots = await self.frames(bv, cid, times)
+        if not shots:
+            return []
+        import base64
+        grid = sb.compose([(k + 1, b, mmss(tt)) for k, (tt, b) in enumerate(shots)], cols=2, cell_w=480, cell_h=270)
+        prompt = ZOOM_PROMPT.format(title=title, at=mmss(t), n=len(shots), q=(q or "")[:80])
+        try:
+            raw = await self.llm.chat([{"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(grid).decode()}}]}],
+                role="vision", temperature=0.2, max_tokens=600, background=True)
+            from aigroup.llm.client import parse_json
+            d = parse_json(raw, {}) or {}
+        except Exception as e:  # noqa: BLE001
+            log.info("放大看没成：%s", e)
+            return []
+        out = []
+        for x in d.get("frames") or []:
+            try:
+                k = int(x.get("cell")) - 1
+                tt = shots[k][0]
+            except (TypeError, ValueError, IndexError, AttributeError):
+                continue
+            if x.get("see"):
+                out.append({"t": mmss(tt), "see": str(x["see"])[:100], "zoom": True})
         return out
 
     async def speech(self, bv: str, cid: int, seconds: int) -> str:
@@ -484,7 +598,6 @@ class Bili:
         title = v.get("title", "") + (f"（P{part} {ptitle}）" if ptitle else "")
         frames: list[dict] = []
         if n_frames > 0 and cid and dur:
-            shots = await self.frames(bv, cid, pick_times(dur, moments, n_frames))
             cover = b""
             if v.get("pic") and part <= 1:
                 try:
@@ -492,8 +605,14 @@ class Bili:
                     cover = cover if cover[:2] == b"\xff\xd8" else b""
                 except Exception:  # noqa: BLE001
                     cover = b""
-            frames = await self.see({"title": title, "author": (v.get("owner") or {}).get("name", "")}, shots, cover)
-        return {"bv": bv, "p": part, "title": title, "author": (v.get("owner") or {}).get("name", ""),
+            wi = {"title": title, "author": (v.get("owner") or {}).get("name", "")}
+            sbd = await self.storyboard(bv, cid, dur, sub or heard, max(n_frames, 9)) if self.grid else None
+            if sbd:                                                # 31.0 一张宫格图
+                frames = await self.see_grid(wi, sbd[0], sbd[1], cover)
+            if not frames:
+                shots = await self.frames(bv, cid, pick_times(dur, moments, n_frames))
+                frames = await self.see(wi, shots, cover)
+        return {"bv": bv, "p": part, "cid": cid, "dur": dur, "title": title, "author": (v.get("owner") or {}).get("name", ""),
                 "desc": (v.get("desc") or "").strip()[:500], "duration": mmss(dur) if dur else "",
                 "category": v.get("tname", ""), "subtitle": sub, "heard": heard, "moments": moments, "frames": frames,
                 "danmaku": common_danmaku(dm), "n_danmaku": len(dm), "comments": cm,
@@ -509,7 +628,8 @@ class Bili:
         else:
             mat.append("字幕：（没拿到）")
         if w.get("frames"):
-            mat.append("画面（封面和几个时间点的截图，看图模型描述的）：\n" + "\n".join(f"- {f['t']}：{f['see']}" for f in w["frames"]))
+            mat.append("画面（封面和几个时间点的截图，看图模型描述的）：\n" + "\n".join(
+                f"- {('第 ' + str(f['cell']) + ' 格 ' + f['span']) if f.get('cell') else f['t']}：{f['see']}" for f in w["frames"]))
         if w.get("moments"):
             mat.append("弹幕最热闹的几段：" + "；".join(f"{m['t']}（{m['n']} 条，刷的是：{'、'.join(m['top'])}）"
                                                 for m in w["moments"]))

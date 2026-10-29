@@ -16,6 +16,7 @@
 - answered        23.1 这条她已经回过了：没被叫到又回一遍
 - media_claim     23.1 装看过：群里的视频 / 语音她只看到 [视频]，却说“刚看你做视频”“前面那段可以砍一半”
 - catchphrase     23.1 她自己的一个说法今天已经用了两次
+- life_done       31.0 把安排里的“打算 / 还没到时间”说成做过了：安排写“想去吃某家店”，她说“我去吃了”
 """
 from __future__ import annotations
 
@@ -55,7 +56,10 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
-          "misattrib", "critic")
+          "misattrib", "life_done", "critic")
+# 31.0 说成“做过了”的小句；安排里只是打算的行
+DONE_RX = re.compile(r"(了|过|完)(?![吗没么])|已经|刚(从|去|吃|买|逛|排|练|看|做|写|跑|回)")
+INTENT_LINE_RX = re.compile(r"想|打算|准备|计划|要去|约了?|排号|看看能不能|惦记|等着|下次|改天|回头|看情况|也许|可能")
 # 23.2 这些检查命中、又没被叫到：不重写，直接不说（重写以后还是同一个毛病，比如替别人答）
 DROP = "〔不说〕"
 # 25.1 被要求下判断时往回缩的说法
@@ -339,6 +343,53 @@ class ChecksMixin:
         except Exception:  # noqa: BLE001
             pass
         return "\n".join(parts)
+
+    def life_split(self, now=None) -> tuple[list[str], list[str]]:
+        """31.0 今天的安排拆成（已经过了 / 正在做的行，还没到点或只是打算的行）。"""
+        from aigroup.core.util import RANGE_RE
+        now = now or self.brain.now()
+        done, plan = [], []
+        for ln in str(self.db.get(f"life_{now:%Y-%m-%d}", "") or "").splitlines():
+            ln = ln.strip(" -•\t")
+            if not ln:
+                continue
+            m = RANGE_RE.match(ln)
+            start = (int(m.group(1)) * 60 + int(m.group(2))) if m else 0
+            if INTENT_LINE_RX.search(RANGE_RE.sub("", ln)) or start > now.hour * 60 + now.minute:
+                plan.append(ln)
+            else:
+                done.append(ln)
+        return done, plan
+
+    def _life_done(self, gid: int, text: str, web: str = "") -> str:
+        """31.0 她说自己做过了的事，只在今天安排的“打算 / 还没到点”那几行里有，别处（已经过了的安排、她以前说过的、
+        群里今天的聊天、查到的资料）都没有 → 没真做过，别说成做过了。"""
+        claims = [c for c in self_claims(text) if DONE_RX.search(c)]
+        if not claims:
+            return ""
+        done, plan = self.life_split()
+        if not plan:
+            return ""
+        # 设定不算来源：设定里“爱打羽毛球”不能证明她今天打了（安排里明明写着晚上才去）
+        allowed = ["\n".join(done), str(self.db.get(f"qq_selfcore_{gid}") or ""), str(web or "")]
+        try:
+            allowed += [f["text"] for f in self.memory.facts(gid, subject=-1, limit=80)]
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            day0 = self.brain.now().replace(hour=5, minute=0, second=0, microsecond=0).timestamp()
+            allowed += [str(r["content"] or "") for r in self.db.conn.execute(
+                "SELECT content FROM qq_group_messages WHERE group_id=? AND ts>? ORDER BY id DESC LIMIT 200", (gid, day0)).fetchall()]
+        except Exception:  # noqa: BLE001
+            pass
+        src, plan_txt = "\n".join(allowed), "\n".join(plan)
+        for c in claims:
+            terms = content_terms(c)
+            hit = sorted(t for t in terms if t in plan_txt)
+            if hit and not any(t in src for t in terms):
+                return (f"“{c}”说成做过了，可今天的安排里这只是打算 / 还没到时间，没有真做过的记录："
+                        "别说“去了 / 吃了 / 练了”，要说就说“想去 / 打算 / 还没去成”")
+        return ""
 
     def persona_sources(self) -> str:
         p = self.brain.persona
@@ -752,6 +803,7 @@ class ChecksMixin:
             # 27.1 回放里自检认不出这两类（谁说的哪句、哪件事早就说过），留成规则
             ("stale_ask", lambda: self._stale_ask(gid, text, mentioned, now)),
             ("misattrib", lambda: self._misattrib(gid, text, now) if hasattr(self, "_misattrib") else ""),
+            ("life_done", lambda: self._life_done(gid, text, web)),
         ]
         for name, fn in rules:
             if mode[name] != "off":

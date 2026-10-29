@@ -266,7 +266,7 @@ class NetMixin:
             if not self._allow("video", 10):
                 return None
             from aigroup.net.bili import ASR, Bili
-            b = Bili(self.links.fetch_bytes, self.brain.llm, ASR(self.cfg))
+            b = Bili(self.links.fetch_bytes, self.brain.llm, ASR(self.cfg), grid=bool(self.g.get("video_grid", True)))
             try:
                 w = await b.watch(bv, part, int(self.g.get("video_frames", 8) or 0))
                 s = await b.summarize(w)
@@ -279,7 +279,8 @@ class NetMixin:
                      "keys": [k for k in (s.get("keys") or []) if isinstance(k, str)][:5],
                      "points": [str(x) for x in (s.get("points") or [])][:6], "subtitle": bool(w.get("subtitle") or w.get("heard")),
                      "lines": str(w.get("subtitle") or w.get("heard") or "")[:6000],      # 15.0 原话（带时间），追问时翻
-                     "frames": list(w.get("frames") or [])[:12], "author": w.get("author", ""), "ts": time.time()}
+                     "frames": list(w.get("frames") or [])[:16], "author": w.get("author", ""), "ts": time.time(),
+                     "bv": bv, "cid": w.get("cid"), "dur": w.get("dur")}                 # 31.0 追问时放大看要用
             self.db.set(ckey, cache)
             log.info("群 %s：看了视频《%s》（%s，画面 %d 张）", gid, cache["title"][:30],
                      "有字幕或语音" if cache["subtitle"] else "没听到内容", len(cache["frames"]))
@@ -323,17 +324,52 @@ class NetMixin:
         det = self.video_detail(vids, query) if query else ""
         return out + ("\n\n" + det if det else "")
 
-    def video_detail(self, vids: list, query: str) -> str:
-        """15.0 有人追问视频里的内容（“第 3 分钟那段”“最后说了啥”“画面上那个是谁”）：翻出那附近的原话和画面。"""
-        from aigroup.net.bili import ask_time
-        asks = bool(re.search(r"视频|那段|那里|片段|分钟|开头|结尾|最后|后面|前面|画面|UP|up主|博主|弹幕|讲了|说了|\d{1,2}[:：]\d{2}", query))
-        hit = None
+    def _video_hit(self, vids: list, query: str) -> dict | None:
+        asks = bool(re.search(r"视频|那段|那里|片段|分钟|开头|结尾|最后|后面|前面|画面|镜头|UP|up主|博主|弹幕|讲了|说了|\d{1,2}[:：]\d{2}", query))
         for v in reversed(vids[-2:]):
             c = self.db.get(v.get("key") or f"qq_video_{v.get('bv')}") or {}
             words = [c.get("title", "")[:6], *(c.get("keys") or [])]
             if asks or any(w and len(w) >= 2 and w in query for w in words):
-                hit = c
-                break
+                return dict(c, _key=v.get("key") or f"qq_video_{v.get('bv')}")
+        return None
+
+    async def video_zoom(self, gid: int, query: str) -> bool:
+        """31.0 有人问视频某个时间“画面上 / 那个镜头 / 那里是啥”，而那附近（±20 秒）没有看过的画面：
+        对那几秒截 4 张拼一张 2×2 放大看一次，记进这个视频的画面里（video_detail 会翻出来）。一个群一小时最多 3 次。"""
+        if not query or int(self.g.get("video_frames", 8) or 0) <= 0 or getattr(self, "links", None) is None:
+            return False
+        from aigroup.net.bili import ASR, Bili, ask_time, line_time
+        vids = [v for v in (self.db.get(f"qq_videos_{gid}") or []) if time.time() - float(v.get("ts") or 0) < 6 * 3600]
+        hit = self._video_hit(vids, query) if vids else None
+        if not hit or not hit.get("cid") or not hit.get("bv"):
+            return False
+        t = ask_time(query, hit.get("lines", ""))
+        if t is None or not re.search(r"画面|镜头|看到|那里|那段|那个|是谁|是啥|是什么|什么东西|图|字", query):
+            return False
+        fr = list(hit.get("frames") or [])
+        if any((ft := line_time(f"[{f.get('t')}]")) is not None and abs(ft - t) <= 20 for f in fr if f.get("zoom")) or \
+                any((ft := line_time(f"[{f.get('t')}]")) is not None and abs(ft - t) <= 3 for f in fr):
+            return False
+        if not self._allow(f"video_zoom_{gid}", 3):
+            return False
+        b = Bili(self.links.fetch_bytes, self.brain.llm, ASR(self.cfg))
+        try:
+            got = await b.zoom(str(hit["bv"]), int(hit["cid"]), t, int(hit.get("dur") or 0), hit.get("title", ""), query)
+        except Exception as e:  # noqa: BLE001
+            log.info("群 %s：视频放大看没成：%s", gid, e)
+            return False
+        if not got:
+            return False
+        key = hit.pop("_key")
+        hit["frames"] = (fr + got)[-24:]
+        self.db.set(key, hit)
+        log.info("群 %s：放大看了《%s》%02d:%02d 附近 %d 张", gid, hit.get("title", "")[:20], t // 60, t % 60, len(got))
+        return True
+
+    def video_detail(self, vids: list, query: str) -> str:
+        """15.0 有人追问视频里的内容（“第 3 分钟那段”“最后说了啥”“画面上那个是谁”）：翻出那附近的原话和画面。"""
+        from aigroup.net.bili import ask_time
+        hit = self._video_hit(vids, query)
         if not hit or not (hit.get("lines") or hit.get("frames")):
             return ""
         t = ask_time(query, hit.get("lines", ""))
@@ -344,7 +380,8 @@ class NetMixin:
             near = [ln for ln in lines if (lt := line_time(ln)) is not None and abs(lt - t) <= 45]
             fnear = [f for f in fr if (ft := line_time(f"[{f.get('t')}]")) is not None and abs(ft - t) <= 90]
             body = "\n".join(near[:8]) or "（那附近没有原话）"
-            fb = "；".join(f"{f['t']} {f['see']}" for f in fnear[:3])
+            fnear.sort(key=lambda f: (0 if f.get("zoom") else 1, abs((line_time(f"[{f.get('t')}]") or 0) - t)))
+            fb = "；".join(f"{f['t']} {f['see']}" for f in fnear[:4])
             return (f"# 《{hit.get('title', '')}》{t // 60:02d}:{t % 60:02d} 附近（你看的时候记下的）\n{body}"
                     + (f"\n画面：{fb}" if fb else "") + "\n（只说这里有的，没有的就说没注意到）")
         body = "\n".join(lines)

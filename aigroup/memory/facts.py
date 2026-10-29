@@ -64,6 +64,80 @@ except Exception:  # noqa: BLE001
     jieba = None
 
 
+# ---------------- 31.0 记之前核对原话（思路来自 memory_companion：总结带逐字引文 + 规则复核） ----------------
+HEARSAY_RX = re.compile(r"(他|她|ta|TA|[\u4e00-\u9fff]{1,3})(说|讲)(过|了)?(他|她|自己)|听说|据说|听.{0,4}说|好像是|传言")
+INTENT_RX = re.compile(r"打算|准备|计划|想要|想去|考虑|可能会|也许会|说不定|估计会|下次要|过几天要")
+TEMP_RX = re.compile(r"今天|今晚|这会儿?|刚才|刚刚|现在有点|暂时|这两天|这几天|一会儿?|待会")
+JOKE_RX = re.compile(r"doge|狗头|开玩笑|开个玩笑|逗你|假如|如果我是|要是我是|🐶|\[(奸笑|旺柴|狗头)\]")
+NEG_RX = re.compile(r"不|没|别|无|非|未")
+
+# 一个人同一时间只有一个值的属性：改口时旧的那条失效（多值的事——喜好、习惯、约定——可以并存）
+SINGLE_ATTRS = {
+    "birthday": re.compile(r"生日"),
+    "school": re.compile(r"(在|读|上)[\u4e00-\u9fff]{0,8}(大学|学院|研究生|高中|中学)|在读|读研|读博|考上"),
+    "major": re.compile(r"专业|学的是"),
+    "job": re.compile(r"(在|去)[\u4e00-\u9fff A-Za-z]{1,12}(实习|上班|工作|入职)|offer|签了|转正|离职|辞职|换工作"),
+    "city": re.compile(r"(住在|在)[\u4e00-\u9fff]{2,4}(市|这边)?(生活|定居|住)|搬到|搬去"),
+    "grade": re.compile(r"大[一二三四五]|研[一二三]|博[一二三四五]|高[一二三]"),
+    "partner": re.compile(r"男朋友|女朋友|对象|分手|在一起了|单身|脱单"),
+}
+
+
+def _plain(t: str) -> str:
+    return re.sub(r"[\s，,。.！!？?…~～、：:；;“”\"'‘’（）()【】\[\]]", "", str(t or ""))
+
+
+def single_attr(text: str) -> str:
+    """这条事说的是哪种单值属性（生日 / 学校 / 工作……）；不是就返回空。"""
+    for k, rx in SINGLE_ATTRS.items():
+        if rx.search(text or ""):
+            return k
+    return ""
+
+
+def find_quote(quote: str, rows: list[dict]) -> dict | None:
+    """引文（去掉标点空格后至少 4 个字）逐字出现在哪条群友消息里；找不到返回 None。"""
+    q = _plain(quote)
+    if len(q) < 4:
+        return None
+    for r in reversed(rows):
+        if r.get("role") == "user" and q in _plain(r.get("content") or ""):
+            return r
+    return None
+
+
+def vet_fact(text: str, quote: str, subject: int, src: str, rows: list[dict]) -> dict:
+    """31.0 一条要记的事和它的引文对一下：
+    - 引文对不上任何一条原话 → 只能算“猜”，不挂门牌
+    - 引文出自别人的话 → 来源是“别人”（不是本人说自己的）
+    - 原话是转述（他说 / 听说）→ “别人”；是开玩笑、假设 → “猜”
+    - 原话是打算 / 准备 → 两周后过期；是“今天 / 这两天 / 暂时”这种临时状态 → 三天后过期（调用方没给有效期时）
+    - 要记的事和原话一个有否定一个没有（“不喜欢香菜”对“喜欢香菜”）→ “猜”
+    判断都看原话本身，不看模型改写后的说法。返回 {"row", "src", "until_days", "why"}。"""
+    out = {"row": None, "src": src, "until_days": 0, "why": ""}
+    row = find_quote(quote, rows) if quote else None
+    if row is None:
+        if src in ("self", "other", ""):
+            out.update(src="guess", why="引文对不上原话")
+        return out
+    out["row"] = row
+    said = str(row.get("content") or "")
+    author = int(row.get("user_id") or 0)
+    if subject > 0 and author and author != subject and src in ("self", ""):
+        out.update(src="other", why="原话是别人说的")
+    if HEARSAY_RX.search(said) and out["src"] in ("self", ""):
+        out.update(src="other", why="原话是转述")
+    if JOKE_RX.search(said):
+        out.update(src="guess", why="原话像在开玩笑 / 假设")
+    if bool(NEG_RX.search(_plain(quote))) != bool(NEG_RX.search(_plain(text))):
+        out.update(src="guess", why="否定对不上")
+    if INTENT_RX.search(said):
+        out["until_days"] = 14
+    elif TEMP_RX.search(said):
+        out["until_days"] = 3
+    return out
+
+
 def tokens(text: str) -> list[str]:
     t = re.sub(r"\[[^\]]{0,40}\]|@\S+|https?://\S+", " ", str(text or "").lower())
     out: list[str] = []
@@ -325,6 +399,12 @@ class Memory:
                     self.db.conn.execute("UPDATE qq_facts SET source=? WHERE id=?", (source, r["id"]))
                 self.db.conn.commit()
                 return int(r["id"])
+        attr = single_attr(text) if subject is not None and kind == "fact" and source != "guess" else ""
+        if attr:                                         # 31.0 单值属性改口了（换了实习、换了学校）：同一个人旧的那条自动失效
+            replaces = list(replaces or [])
+            for r in dup:
+                if single_attr(r["text"]) == attr and r["source"] != "guess" and int(r["id"]) not in replaces:
+                    replaces.append(int(r["id"]))
         for rid in replaces or []:                       # 新说法替代旧的：旧的标失效（不删，以后还能查“以前”）
             self.db.conn.execute("UPDATE qq_facts SET t_invalid=? WHERE id=? AND group_id=? AND (t_invalid IS NULL OR t_invalid>?)",
                                  (now, int(rid), gid, now))

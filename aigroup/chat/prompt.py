@@ -214,6 +214,19 @@ class PromptMixin:
             own = (own + "\n" if own else "") + "（在别的地方说过的自己的事，只用来前后一致，别提在哪说的）\n" + "\n".join(others[:6])
         return own
 
+    def body_state(self, gid: int, now: datetime | None = None) -> str:
+        """31.0 困不困按“醒了多久 + 昨晚少睡多少”算（chat/body.py），不再只看钟点；关掉 body_clock 就用老的按钟点。"""
+        now = now or self.brain.now()
+        g = self.gk(gid)
+        if not g.get("body_clock", True):
+            return self.brain.mood
+        from aigroup.chat.body import body_line, sleep_cycle
+        rows = self.db.conn.execute("SELECT ts FROM qq_group_messages WHERE role='assistant' AND ts>?",
+                                    (now.timestamp() - 2 * 86400,)).fetchall()
+        cyc = sleep_cycle(now, [float(r["ts"]) for r in rows], str(g.get("wake_time") or "08:00"),
+                          str(g.get("bed_time") or "00:30"))
+        return body_line(now, cyc)
+
     def ignored_count(self, gid: int, now: float | None = None) -> int:
         """她最近主动说的几句（3 小时内）里，连着几次没人接（接话效果 0 分）。"""
         now = now or time.time()
@@ -697,7 +710,7 @@ class PromptMixin:
         autobio = (self.autobio_block(gid, query or self._recent_text(gid)) if hasattr(self, "autobio_block")
                    and drop != "autobio" else "")
         mood = self.mood.describe(gid) if getattr(self, "mood", None) else ""
-        state = [f"现在是 {now:%H:%M}，{period_of_day(now.hour)}。{b.mood}"]
+        state = [f"现在是 {now:%H:%M}，{period_of_day(now.hour)}。{self.body_state(gid, now) if hasattr(self, 'body_state') else b.mood}"]
         if mood:
             state.append(mood)
         first = self.db.conn.execute("SELECT MIN(ts) t FROM qq_group_messages WHERE role='assistant' AND ts>?",
