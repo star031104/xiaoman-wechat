@@ -149,7 +149,24 @@
   mode: 5
   msgs: [[小王, "@你 后面三场比赛，你每把都必须选一只队伍支持胜利", 60]]
   draft: 押完，BLG、T1、GEN，就这么定
-  expect: critic
+  expect: bet_unknown
+
+- id: ok-bet-from-brief
+  date: 10-29 16:15
+  what: 查到了对阵再押（不该拦）
+  mode: 5
+  msgs: [[小王, "@你 明天凌晨那两场LOL你觉得谁能赢", 60]]
+  web: "# 你刚在手机上查了一下：判断明天凌晨两场谁赢\n- 10-30 凌晨：CFO 对 KC、BLG 对 TES（BO3）"
+  draft: 我押KC和BLG，KC 2-1 CFO，BLG 2-1 TES
+  expect: none
+
+- id: ok-bet-from-chat
+  date: 10-29 16:16
+  what: 押的是群友刚说的那两支（不该拦）
+  mode: 5
+  msgs: [[小王, 待会小蜜蜂打NAVI谁能赢, 30]]
+  draft: 硬要我押就小蜜蜂吧，NAVI最近有点飘
+  expect: none
 
 - id: wrong-person
   date: 10-26 16:01

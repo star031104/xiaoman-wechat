@@ -61,6 +61,8 @@ async def critic_recall() -> None:
     cfg = load_config(ROOT / "config.yaml")
     llm = LLM(cfg)
     hit = miss = fp = 0
+    by_rule = 0
+    gaps = []                               # 31.1 规则和自检都认不出的（真正漏掉的）
     for c in cases:
         ctx = "\n".join(f"{w}：{t}" for w, t, _ in c.get("msgs") or [])
         mine = "\n".join(f"- {t}" for w, t, _ in c.get("msgs") or [] if w == "她")        # 27.1 线上自检也看她今天说过的
@@ -71,14 +73,20 @@ async def critic_recall() -> None:
             print(f"  ? {c['id']} 没问成：{e}")
             continue
         bad = bool(critic_verdict(parse_json(out, {}) or {}))
+        rule = c.get("expect") not in ("critic", "none")      # 有规则检查管（test_incidents 已经保证规则认得出）
         if c.get("expect") == "none":
             fp += bad
             print(f"  {'✗ 误伤' if bad else '✓'} {c['id']}")
         else:
             hit += bad
             miss += not bad
-            print(f"  {'✓' if bad else '✗ 没认出'} {c['id']}（{c.get('what', '')}）")
+            by_rule += rule and not bad
+            if not bad and not rule:
+                gaps.append(c["id"])
+            tag = "✓" if bad else (f"· 自检没认出，规则 {c['expect']} 认出" if rule else "✗ 都没认出")
+            print(f"  {tag} {c['id']}（{c.get('what', '')}）")
     print(f"统一自检：认出 {hit}/{hit + miss}，误伤 {fp}")
+    print(f"合起来（规则 + 自检）：认出 {hit + by_rule}/{hit + miss}，都没认出 {len(gaps)}" + (f"：{'、'.join(gaps)}" if gaps else ""))
 
 
 def main():

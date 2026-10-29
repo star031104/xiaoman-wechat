@@ -16,6 +16,7 @@
 - answered        23.1 这条她已经回过了：没被叫到又回一遍
 - media_claim     23.1 装看过：群里的视频 / 语音她只看到 [视频]，却说“刚看你做视频”“前面那段可以砍一半”
 - catchphrase     23.1 她自己的一个说法今天已经用了两次
+- bet_unknown     31.1 押 / 预测的队伍（字母写的队名）在查到的资料和群里的聊天里都没出现：押的可能是根本不在赛程里的队
 - life_done       31.0 把安排里的“打算 / 还没到时间”说成做过了：安排写“想去吃某家店”，她说“我去吃了”
 """
 from __future__ import annotations
@@ -56,7 +57,12 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
-          "misattrib", "life_done", "critic")
+          "misattrib", "life_done", "bet_unknown", "critic")
+# 31.1 押 / 预测（“押 BLG”“KC 2-1”“看好 T1”）
+BET_RX = re.compile(r"押|赌|看好|支持|稳赢|会赢|能赢|拿下|我选|选[^，,。！!？?\s]{0,4}赢|[0-3]\s*[-:：比]\s*[0-3]")
+# 不是队名的字母词
+BET_STOP = {"ai", "ok", "bo1", "bo3", "bo5", "mvp", "lol", "cs", "cs2", "vs", "gg", "kda", "fmvp", "lpl", "lck", "lec", "lcs",
+            "vct", "kpl", "pgl", "s16", "s15", "msi", "up", "ad", "ap", "dps", "cd", "pk", "id", "app", "bug"}
 # 31.0 说成“做过了”的小句；安排里只是打算的行
 DONE_RX = re.compile(r"(了|过|完)(?![吗没么])|已经|刚(从|去|吃|买|逛|排|练|看|做|写|跑|回)")
 INTENT_LINE_RX = re.compile(r"想|打算|准备|计划|要去|约了?|排号|看看能不能|惦记|等着|下次|改天|回头|看情况|也许|可能")
@@ -772,6 +778,28 @@ class ChecksMixin:
         return (f"你查了数据、也有自己的判断（「{call[:40]}」），却说「{d.group(0)}」：直接说你的看法，带一条依据；"
                 "把握不大就说“我倾向…”，别缩回去")
 
+    def _bet_unknown(self, gid: int, text: str, web: str = "") -> str:
+        """31.1 押 / 预测比赛时点到的队名（字母写的），在这次查到的资料、群里最近的聊天、她今天说过的里都没出现：
+        多半是没查赛程就押了（10-26 被逼着押三场，押了 BLG、T1、GEN，那几场根本没有这几支队）。"""
+        t = TAG.sub("", text)
+        if not BET_RX.search(t):
+            return ""
+        names = [w for w in dict.fromkeys(re.findall(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9]{1,7}(?![A-Za-z0-9])", t))
+                 if w.lower() not in BET_STOP]
+        if not names:
+            return ""
+        known = [str(web or "")]
+        try:
+            known += [str(r["content"] or "") for r in self._rows(gid, 40)]
+        except Exception:  # noqa: BLE001
+            pass
+        kl = "\n".join(known).lower()
+        miss = [w for w in names if not re.search(rf"(?<![a-z0-9]){re.escape(w.lower())}(?![a-z0-9])", kl)]
+        if not miss:
+            return ""
+        return (f"你押的 {'、'.join(miss)} 在查到的资料和群里的聊天里都没出现：可能根本不在这几场里。"
+                "先说清楚是哪几场、谁打谁（不知道就说还没查到对阵），别凭空押队名")
+
     # ================= 汇总 =================
     async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
                        mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None,
@@ -804,6 +832,7 @@ class ChecksMixin:
             ("stale_ask", lambda: self._stale_ask(gid, text, mentioned, now)),
             ("misattrib", lambda: self._misattrib(gid, text, now) if hasattr(self, "_misattrib") else ""),
             ("life_done", lambda: self._life_done(gid, text, web)),
+            ("bet_unknown", lambda: self._bet_unknown(gid, text, web)),
         ]
         for name, fn in rules:
             if mode[name] != "off":

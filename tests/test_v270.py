@@ -55,7 +55,7 @@ def test_prompt_failure_list_single_source(cfg, brain):
 def test_checks_trimmed():
     from aigroup.chat.checks import CHECKS
     from aigroup.chat.settings import DEAD_KNOBS, DEFAULTS
-    assert len(CHECKS) <= 13 and "critic" in CHECKS and "pushback" not in CHECKS
+    assert len(CHECKS) <= 14 and "critic" in CHECKS and "pushback" not in CHECKS
     assert "check_pushback" in DEAD_KNOBS and "check_pushback" not in DEFAULTS
 
 
