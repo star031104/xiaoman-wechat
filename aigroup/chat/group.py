@@ -262,7 +262,8 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Pr
         return out
 
     def muted(self, gid: int) -> bool:
-        return bool(self.db.get(f"qq_mute_{gid}"))
+        """小屋里关了（qq_mute）或者 32.0 管理员在群里 /stop 叫停了：接话、冒泡、分享、提醒都不走。"""
+        return bool(self.db.get(f"qq_mute_{gid}")) or bool(self.stopped(gid))
 
     def _called(self, text: str) -> bool:
         """群友打的字里叫了她的名字（“小满足”“小满月”这种不算）。"""

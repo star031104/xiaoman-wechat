@@ -202,6 +202,18 @@ def conf(s: float) -> float:
     return s / (s + 1.0) if s > 0 else 0.0
 
 
+TEMP_BANDS = ((0.7, "清楚"), (0.35, "有点淡"), (0.15, "快忘了"), (0.0, "几乎想不起"))
+
+
+def temp_label(strength: float) -> str:
+    """32.0 记忆体温（视频里“遗忘曲线”面板的思路）：把强度分成四档给小屋看。
+    0.35 以下的在提示词里会带“记得不太清了”，和这里的“快忘了 / 几乎想不起”对得上。"""
+    for lo, name in TEMP_BANDS:
+        if strength >= lo:
+            return name
+    return TEMP_BANDS[-1][1]
+
+
 def rel_day(ts: float, now: float, tz=None) -> str:
     """24.0 记的事带相对时间：“3 天前 10-23”“今天”“昨天 10-25”。"""
     a = datetime.fromtimestamp(float(ts), tz)

@@ -82,6 +82,7 @@ class GroupHome:
         r.add_post("/api/her/replan", self.her_replan)
         r.add_post("/api/group/notes", self.group_notes)
         r.add_post("/api/group/mute", self.group_mute)
+        r.add_post("/api/group/stop", self.group_stop)            # 32.0 叫停 / 恢复（和群里发 /stop、/go 一样）
         r.add_post("/api/group/say", self.group_say)
         r.add_post("/api/group/nudge", self.group_nudge)
         r.add_get("/api/settings", self.settings_get)
@@ -431,6 +432,7 @@ class GroupHome:
                 "id": gid, "name": name or str(gid), "total": agg["n"] or 0, "her": agg["her"] or 0,
                 "today": agg["today"] or 0, "her_today": agg["her_today"] or 0, "last": agg["last"],
                 "people": agg["people"] or 0, "muted": bool(self.db.get(f"qq_mute_{gid}")),
+                "stopped": (float((gc.stopped(gid) or {}).get("until") or 0) or None) if hasattr(gc, "stopped") else None,
                 "replies_10min": n10, "last_reply": st.last_reply_ts or None,
                 "night": bool(self.db.get(f"qq_night_{gid}")),
                 "last_msg": dict(last[0]) if last else None,
@@ -587,6 +589,8 @@ class GroupHome:
                        "items": [{"ts": x.get("ts"), "kind": x.get("kind"), "text": x.get("text") or "",
                                   "topic": x.get("topic") or ""} for x in sh_today[-5:]]},
             "idle": {"last": idle_ts, "today": bool(idle_ts and idle_ts >= t0)},
+            "prompt_size": self.db.get(f"prompt_size_{gid}") or {},          # 32.0 提示词多大、“群里的人”截了多少
+            "stopped": (float((gc.stopped(gid) or {}).get("until") or 0) or None) if hasattr(gc, "stopped") else None,
         }
         trend = []
         for i in range(6, -1, -1):
@@ -879,6 +883,21 @@ class GroupHome:
         return web.json_response({"ok": True, "muted": muted,
                                   "message": "这个群她先不说话了（消息照样记）" if muted else "她又可以在这个群说话了"})
 
+    async def group_stop(self, req):
+        """32.0 小屋里叫停 / 恢复：minutes > 0 叫停这么多分钟，0 恢复。"""
+        d = await self._json(req)
+        gid = self._gid(req, d)
+        try:
+            minutes = max(0, min(1440, int(d.get("minutes") or 0)))
+        except (TypeError, ValueError):
+            minutes = 0
+        if minutes:
+            until = self.gc.stop_now(gid, minutes, by="小屋")
+            return web.json_response({"ok": True, "stopped": until,
+                                      "message": f"叫停了，{datetime.fromtimestamp(until, self.cfg.tz):%H:%M} 前她什么都不说"})
+        self.gc.resume(gid, by="小屋")
+        return web.json_response({"ok": True, "stopped": None, "message": "恢复了"})
+
     async def group_say(self, req):
         """替她在群里说一句（原样发出去，记成她说的）。"""
         d = await self._json(req)
@@ -1017,9 +1036,16 @@ class GroupHome:
             st.append(x)
         names = self.gc.names(gid)
         facts = []
+        from aigroup.memory.facts import TEMP_BANDS, temp_label
+        temp = {name: 0 for _, name in TEMP_BANDS}
+        tnow = time.time()
         for f in self.gc.memory.facts(gid, limit=60, valid_only=False):
             f["about"] = ("她自己" if f["subject_id"] == -1 else "群" if not f["subject_id"]
                           else names.get(str(f["subject_id"]), str(f["subject_id"])))
+            f["strength"] = round(self.gc.memory._strength_of(f, tnow), 2)      # 32.0 记忆体温
+            f["temp"] = temp_label(f["strength"])
+            if not (f.get("t_invalid") and float(f["t_invalid"]) < tnow):
+                temp[f["temp"]] += 1
             facts.append(f)
         daily = []
         for i in range(1, 8):
@@ -1031,7 +1057,7 @@ class GroupHome:
         return web.json_response({"expressions": ex, "jargon": jg, "learn": bool(self.gc.gk(gid).get("learn", True)),
                                   "lore": lore,
                                   "knowledge": self.gc.knowledge.entries(gid, 100) if getattr(self.gc, "knowledge", None) else [],
-                                  "stickers": st, "facts": facts, "daily": daily,
+                                  "stickers": st, "facts": facts, "fact_temp": temp, "daily": daily,
                                   "norms": self.db.get(f"qq_group_norms_{gid}") or ""})
 
     async def sticker_set(self, req):

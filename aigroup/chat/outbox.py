@@ -7,11 +7,14 @@
 2. 静音：小屋里让这个群先别说话时，任何一条路都发不出去。
 3. 每天总上限（send_per_day，默认 300 条）：防止哪里出了循环把群刷屏。
 4. 只追加的账本 qq_actions：什么时候、发了什么、成没成、为什么没成（小屋“今天她做了什么”和日报用）。
+5. 32.0 叫停（dafeiyu-phone 的 /stop）：把她拉进群的人在群里发 /stop [分钟]，她马上停下——正在想的那一轮取消、
+   接下来不接话、不冒泡、不分享、提醒顺延，连叫她也不回；/go 恢复，/状态 看一眼。叫停、恢复也记进账本（kind=control）。
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 
 log = logging.getLogger("aigroup.group")
@@ -29,6 +32,28 @@ CREATE TABLE IF NOT EXISTS qq_actions (        -- 24.0 她往外发的每一条�
 );
 CREATE INDEX IF NOT EXISTS idx_qq_actions ON qq_actions(group_id, ts);
 """
+
+
+STOP_RX = re.compile(r"^[/／]\s*(stop|停|叫停)\s*(\d{1,4})?\s*(分钟|分|min|m|小时|h)?\s*$", re.I)
+GO_RX = re.compile(r"^[/／]\s*(go|start|继续|恢复)\s*$", re.I)
+STATUS_RX = re.compile(r"^[/／]\s*(status|状态)\s*$", re.I)
+
+
+def parse_control(text: str) -> tuple[str, int | None] | None:
+    """32.0 群里的控制口令：('stop', 分钟或 None) / ('go', None) / ('status', None)；不是口令返回 None。
+    前面 @ 了她也认（“@小满 /stop 30”）。"""
+    t = re.sub(r"^(@\S+\s*)+", "", str(text or "").strip())
+    m = STOP_RX.match(t)
+    if m:
+        n = int(m.group(2)) if m.group(2) else None
+        if n is not None and (m.group(3) or "").lower() in ("小时", "h"):
+            n *= 60
+        return "stop", n
+    if GO_RX.match(t):
+        return "go", None
+    if STATUS_RX.match(t):
+        return "status", None
+    return None
 
 
 class DryRun(RuntimeError):
@@ -87,11 +112,19 @@ class OutboxMixin:
                                         (gid, t0)).fetchone()["n"])
 
     async def _gated_send(self, raw, gid, segs, *a, **kw):
+        control = bool(kw.pop("_control", False))        # 32.0 叫停 / 恢复的确认：不受叫停、静音、上限影响
         kind, text = seg_summary(segs)
         if self.dry_run(gid):
             self._action(gid, kind, text, False, "演练")
             log.info("群 %s【演练，没真发】%s", gid, text[:60] or kind)
             raise DryRun("演练模式：没真发")
+        if control:
+            mid = await raw(gid, segs, *a, **kw)
+            self._action(gid, "control", text, True, "", mid)
+            return mid
+        if self.stopped(gid):
+            self._action(gid, kind, text, False, "叫停")
+            raise RuntimeError("管理员叫停了")
         if self.muted(gid):
             self._action(gid, kind, text, False, "静音")
             raise RuntimeError("这个群在小屋里被设成先别说话")
@@ -108,6 +141,76 @@ class OutboxMixin:
             raise
         self._action(gid, kind, text, True, "", mid)
         return mid
+
+    # ================= 32.0 叫停 =================
+    def is_admin(self, gid: int, uid: int) -> bool:
+        admins = set()
+        for x in self.gk(gid).get("admins") or []:
+            try:
+                admins.add(int(x))
+            except (TypeError, ValueError):
+                pass
+        return bool(uid) and (uid == self.owner_id or uid in admins)
+
+    def stopped(self, gid: int, now: float | None = None) -> dict:
+        d = self.db.get(f"qq_stop_{gid}") or {}
+        return d if float(d.get("until") or 0) > (now or time.time()) else {}
+
+    def stop_now(self, gid: int, minutes: float, by: str = "", now: float | None = None) -> float:
+        """叫停：记 kv、取消正在想的那一轮、丢掉攒着没回的消息（恢复后不去补回停之前的话）。返回停到什么时候。"""
+        now = now or time.time()
+        until = now + max(1.0, float(minutes)) * 60
+        self.db.set(f"qq_stop_{gid}", {"until": until, "by": by[:20], "ts": now})
+        st = self._st(gid)
+        st.batch_texts = []
+        st.talk_note = ""
+        if st.pending and not st.pending.done() and st.pending is not _current_task():
+            st.pending.cancel()
+        self._action(gid, "control", f"叫停 {int(minutes)} 分钟", True, by[:80])
+        log.warning("群 %s：%s 叫停 %d 分钟（/stop），到 %s 前什么都不说", gid, by or "管理员", int(minutes),
+                    time.strftime("%H:%M", time.localtime(until)))
+        return until
+
+    def resume(self, gid: int, by: str = "") -> bool:
+        was = bool(self.stopped(gid))
+        self.db.set(f"qq_stop_{gid}", None)
+        self._action(gid, "control", "恢复", True, by[:80])
+        log.warning("群 %s：%s 让她恢复说话（/go）", gid, by or "管理员")
+        return was
+
+    def stop_status(self, gid: int, now: float | None = None) -> str:
+        now = now or time.time()
+        d = self.stopped(gid, now)
+        head = (f"叫停中，还有 {max(1, round((float(d['until']) - now) / 60))} 分钟（{time.strftime('%H:%M', time.localtime(float(d['until'])))} 恢复）"
+                if d else "静音中（小屋里关的）" if bool(self.db.get(f"qq_mute_{gid}")) else "正常")
+        sm = self.actions_summary(gid, now - 86400)
+        return f"{head}；24 小时发了 {sm['sent']} 条，没发成 {sm['failed']} 条"
+
+    async def control_cmd(self, gid: int, uid: int, name: str, text: str, mid=None) -> bool:
+        """群里收到 /stop、/go、/状态：管理员发的就照做（这条消息照样记进聊天记录，但不拿去接话）；别人发的当普通聊天。"""
+        if not self.gk(gid).get("stop_cmd", True):
+            return False
+        cmd = parse_control(text)
+        if not cmd or not self.is_admin(gid, uid):
+            return False
+        self._record(gid, uid, name, text, mid)
+        kind, n = cmd
+        if kind == "stop":
+            m = n if n else int(self.gk(gid).get("stop_minutes", 60) or 60)
+            until = self.stop_now(gid, m, by=name)
+            reply = f"收到，我先停下，{time.strftime('%H:%M', time.localtime(until))} 前不说话（发 /go 我就回来）"
+        elif kind == "go":
+            reply = "好，我回来了" if self.resume(gid, by=name) else "我本来就在（没被叫停）"
+        else:
+            reply = self.stop_status(gid)
+        if self.gk(gid).get("stop_ack", True) and getattr(self.ob, "ready", True):
+            from aigroup.onebot import text_seg
+            try:
+                sid = await self.ob.send_group(gid, [text_seg(reply)], _control=True)
+                self._record(gid, self.ob.self_id or 0, self.brain.persona.name, reply, sid, role="assistant")
+            except Exception as e:  # noqa: BLE001
+                log.info("群 %s：叫停的确认没发出去：%s", gid, e)
+        return True
 
     def actions(self, gid: int, since: float, limit: int = 200) -> list[dict]:
         return [dict(r) for r in self.db.conn.execute(
@@ -127,3 +230,11 @@ class OutboxMixin:
                 key = str(r["why"]).split("：")[0]
                 out["why"][key] = out["why"].get(key, 0) + r["n"]
         return json.loads(json.dumps(out))
+
+
+def _current_task():
+    import asyncio
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None

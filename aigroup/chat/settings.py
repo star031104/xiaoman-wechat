@@ -281,6 +281,12 @@ DEFAULTS = {
     "far_name": True,                # 微信不能引用：回的是好几条以前的话时，开头点个名
     "far_name_distance": 3,          # 隔了几条群友消息算“以前的话”
     "metrics_daily": True,           # 每晚算昨天的确定性指标和“个性保留”（eval/daily.py，不花钱）
+    # ---- 32.0 注入预算 / 叫停（参考 dafeiyu-phone） ----
+    "roster_chars": 4800,            # “群里的人”整段最多多少字（0 = 不限）；超了从后往前去掉“其他人”（每个人的画像 28.0 已经有上限）
+    "stop_cmd": True,                # 管理员在群里发 /stop [分钟]：她马上停下（连叫她也不回）；/go 恢复；/状态 看状态
+    "stop_minutes": 60,              # /stop 不写分钟时停多久
+    "stop_ack": True,                # 收到 /stop、/go、/状态 时回一句确认（这句不受叫停影响）
+    "admins": [],                    # 除了把她拉进群的人（owner_id），还有谁能发 /stop（填群友的 id）
 }
 
 # 渠道不一样、默认值不一样的几个（QQ 能点表情、能戳一戳，补消息少补一点；微信做不到点表情和戳）
@@ -396,6 +402,9 @@ KNOBS = {
     "human_examples": ("参考群友的接法", "bool", None, None, None, "以前群里有人说过类似的话，下一个群友是怎么接的，给她学口吻（不照抄）"),
     "dry_run": ("演练（不真发）", "bool", None, None, None, "打开后她照常想、照常“说”，但什么都不发进群，只记进发送账本；测新版本用"),
     "send_per_day": ("每天最多发几条", "int", 0, 2000, 10, "所有路一起算（接话、冒泡、分享、提醒、表情包）；0 = 不限"),
+    "roster_chars": ("“群里的人”最多多少字", "int", 0, 20000, 100, "32.0 超了从后往前去掉不常说话的人（每个人的画像本来就有 1300 字上限）；0 = 不限"),
+    "stop_cmd": ("群里发 /stop 叫停", "bool", None, None, None, "32.0 把她拉进群的人（和“管理员”里的人）发 /stop [分钟]：马上停、连叫她也不回；/go 恢复；/状态 看状态"),
+    "stop_minutes": ("/stop 默认停几分钟", "int", 1, 1440, 10, "32.0 /stop 后面没写分钟时"),
     "share_min_score": ("分享评分卡门槛", "int", 0, 20, 1, "新鲜 / 相关 / 有意思 / 可信 / 能聊 各 0~4 分，加起来到这个数才分享"),
     "agent_prefilter": ("查资料前先用规则筛", "bool", None, None, None, "没有问句、时间、数字、比赛、链接这类信号就不调“想一想”，回得更快"),
     "listener_mode": ("听者", "str", None, None, None, "auto：先只记录，和你的标注一致率够了自动接管；on：直接管；shadow：只记录；off：不用"),
@@ -477,5 +486,5 @@ _MAIN = ("talkativeness", "max_per_10min", "cooldown_seconds", "max_bubbles", "u
          "active_hours", "idle_chance", "welcome_chance", "share_chance", "group_note", "owner_note", "call_names", "pace",
          "stickers", "see_images", "voice_reply", "hear_voice", "night_catch_up", "memory_recall", "profile_every",
          "agent", "agent_per_day", "search_per_hour", "read_turn", "meme_lookup", "critic_v2", "pick_clean",
-         "dry_run", "send_per_day")
+         "dry_run", "send_per_day", "stop_cmd")
 MAIN_KNOBS = tuple(k for k in _MAIN if k in KNOBS)

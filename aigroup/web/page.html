@@ -506,7 +506,9 @@ body:not(.admin) .side .adm-gt{display:none}
     <div class="seg" id="gseg"></div>
     <div class="search"><span data-i="search"></span><input class="input" id="cq" placeholder="搜聊天记录（内容或名字）"></div>
     <label class="chk"><span class="switch"><input type="checkbox" id="mute"><span></span></span>这个群先别说话</label>
+    <button class="btn sm ghost" id="stopBtn" title="和在群里发 /stop 一样：正在想的那一轮取消，叫她也不回">叫停 1 小时</button>
   </div>
+  <div id="stopNote" class="notice" hidden><span data-i="pause"></span><span id="stopTxt"></span></div>
   <div id="muteNote" class="notice" hidden><span data-i="pause"></span>她在这个群“闭麦”中：消息照样记、照样认识人，只是不主动说话（你替她说的除外）。</div>
   <div class="chatwrap">
     <div class="card chatcard">
@@ -646,6 +648,7 @@ body:not(.admin) .side .adm-gt{display:none}
     </div>
     <div class="card c7">
       <div class="card-h"><h3><span data-i="book"></span>她记的事</h3><span class="sp"></span><span class="hint">聊到了会想起来；过时的点“过时”</span></div>
+      <div class="small muted" id="factTemp" style="padding:0 16px 6px"></div>
       <div class="card-b"><ul class="rows" id="factList"></ul></div>
     </div>
     <div class="card c5">
@@ -926,7 +929,7 @@ async function loadState(){
   $("groups").innerHTML=S.groups.map(g=>{const c=hue(g.id);const lm=g.last_msg;
     return `<div class="gcard"><div class="h"><div class="gava" style="background:${c}">${esc(initial(g.name))}</div>
       <div class="grow-x"><div class="nm ell">${esc(g.name)}</div><div class="id">${g.id}</div></div>
-      ${g.muted?'<span class="tag wait">闭麦中</span>':g.night?'<span class="tag">早上要补回</span>':'<span class="tag ok">正常</span>'}</div>
+      ${g.stopped&&g.stopped*1000>Date.now()?'<span class="tag wait">叫停中</span>':g.muted?'<span class="tag wait">闭麦中</span>':g.night?'<span class="tag">早上要补回</span>':'<span class="tag ok">正常</span>'}</div>
       <div class="gstats"><div><b>${g.today}</b><span>今天消息</span></div><div><b>${g.her_today}</b><span>她说的</span></div><div><b>${g.mentions_today}</b><span>有人找她</span></div><div><b>${g.effect_rate==null?"—":Math.round(g.effect_rate*100)+"%"}</b><span>说完有人接</span></div></div>
       ${multi()&&g.mood?`<div class="meta">在这个群：${esc(g.mood)}${g.own_knobs.length?` · 单独调过 ${g.own_knobs.length} 个开关`:""}</div>`:""}
       ${lm?`<div class="glast" title="${esc(lm.content)}"><b>${lm.role==="assistant"?esc(p.name):esc(lm.name)}</b>：${esc(lm.content)} <span class="muted">· ${ago(lm.ts)}</span></div>`:'<div class="glast muted">还没有消息</div>'}
@@ -948,6 +951,7 @@ async function loadToday(){const gid=HSEL!=="all"?HSEL:"";
 function paintAlerts(){const A=[],H=TD.health||{},nm=(S&&S.persona&&S.persona.name)||"她";
   const WX=(S&&S.wechat)||{};
   if(CH==="wechat"&&WX.not_logged_in)A.push(`<div class="notice">${icon("info")}<span><b>微信掉登录了</b>（微信官方夜里常这样）：打开 <a href="../wechat/" target="_blank">微信网页窗口</a>（小屋的用户名密码），点“我知道了”→“登录”，再在${esc(nm)}的手机微信上确认，几秒后会自动接上</span></div>`);
+  if(TD.today.stopped&&TD.today.stopped*1000>Date.now())A.push(`<div class="notice dry">${icon("info")}<span><b>叫停中</b>：${fmtTime(TD.today.stopped)} 前${esc(nm)}什么都不说（群里发 /go 或在“群聊”页点“恢复说话”）</span></div>`);
   if(TD.today.dry_run)A.push(`<div class="notice dry">${icon("info")}<span><b>演练中</b>：${esc(nm)}照常想、照常“说”，但不会真的发消息，只记进账本</span></div>`);
   for(const [k,v] of Object.entries(H)){const since=v.since||v.ts;
     A.push(`<div class="notice">${icon("info")}<span><b>${esc(k)}</b>：${esc(v.msg||"出错了")}${since?` <span class="muted">· 从 ${esc(fmtDay(since))} ${fmtTime(since)} 开始${v.n>1?`，出现 ${v.n} 次`:""}</span>`:""}</span></div>`)}
@@ -957,7 +961,8 @@ function paintToday(){paintAlerts();const T=TD.today,sd=T.sends||{},L=T.llm||{},
   const kinds=Object.entries(sd.by_kind||{}).map(([k,n])=>`${KIND_CN[k]||k} ${n}`).join(" · ");
   $("tdNums").innerHTML=[[`${sd.sent||0} 条`,"发出去"+(kinds?`（${kinds}）`:"")],[`${sd.failed||0} 条`,"没发成"],
     [`${ac.n||0} 次`,"主动开口"],[pctS(ac.rate),ac.done?`被接住（${ac.engaged}/${ac.done}）`:"被接住（还没算出来）"],
-    [`${sh.n||0} 次`,"分享"],[`${L.searches||0} 次`,"查资料"],[usdS(L.usd),`花费 · 调用 ${L.calls||0} 次`],[pctS(L.cache_hit),"缓存命中"]]
+    [`${sh.n||0} 次`,"分享"],[`${L.searches||0} 次`,"查资料"],[usdS(L.usd),`花费 · 调用 ${L.calls||0} 次`],[pctS(L.cache_hit),"缓存命中"],
+    ...(T.prompt_size&&T.prompt_size.system?[[`${T.prompt_size.system+T.prompt_size.user} 字`,`提示词（群里的人 ${T.prompt_size.roster}${T.prompt_size.roster_cut?`，超预算截了 ${T.prompt_size.roster_cut}`:""}）`]]:[])]
     .map(([a,b])=>`<div><b>${esc(a)}</b><span>${esc(b)}</span></div>`).join("");
   const sub=[];const why=Object.entries(sd.why||{});
   if(why.length)sub.push(`没发成的原因：${why.map(([k,n])=>`<span class="tag warm">${esc(k)} ${n}</span>`).join("")}`);
@@ -1037,7 +1042,7 @@ async function loadChat(){
   mkSeg($("gseg"),S.groups.map(g=>[String(g.id),g.name,g.today]),GSEL,v=>{GSEL=+v;CH.q="";$("cq").value="";loadChat()});
   $("gseg").hidden=S.groups.length<2;
   const g=S.groups.find(x=>x.id===GSEL);
-  $("mute").checked=g.muted;$("muteNote").hidden=!g.muted;$("gnotes").value=g.notes||"";
+  $("mute").checked=g.muted;$("muteNote").hidden=!g.muted;$("gnotes").value=g.notes||"";paintStop(g);
   $("ginfo").innerHTML=[["群号",g.id],["累计消息",g.total+" 条"],["她说过",g.her+" 句"],["说过话的人",g.people+" 个"],["她上次说话",g.last_reply?ago(g.last_reply):"还没有"],["10 分钟内她说了",g.replies_10min+" 轮"]]
     .map(([a,b])=>`<dt>${a}</dt><dd>${esc(b)}</dd>`).join("");
   CH.msgs=[];CH.force=true;$("newMsg").hidden=true;
@@ -1075,6 +1080,10 @@ function renderChat(toBottom){
 $("newMsg").onclick=()=>{const el=$("chat");el.scrollTop=el.scrollHeight;$("newMsg").hidden=true};
 $("chat").addEventListener("scroll",()=>{const el=$("chat");if(el.scrollHeight-el.scrollTop-el.clientHeight<60)$("newMsg").hidden=true});
 let cqT;$("cq").oninput=()=>{clearTimeout(cqT);cqT=setTimeout(()=>{CH.q=$("cq").value.trim();CH.force=true;fetchMsgs(true)},300)};
+function paintStop(g){const on=!!(g.stopped&&g.stopped*1000>Date.now());$("stopBtn").textContent=on?"恢复说话":"叫停 1 小时";
+  $("stopNote").hidden=!on;if(on)$("stopTxt").textContent=`叫停中：${fmtTime(g.stopped)} 前她什么都不说（叫她也不回，提醒顺延）。群里把她拉进来的人发 /go 也能恢复。`}
+$("stopBtn").onclick=async()=>{const g=S.groups.find(x=>x.id===GSEL);const on=!!(g.stopped&&g.stopped*1000>Date.now());
+  try{const r=await api("/api/group/stop",{gid:GSEL,minutes:on?0:60});toast(r.message);g.stopped=r.stopped;paintStop(g)}catch(e){toast("出错了："+e.message)}};
 $("mute").onchange=async()=>{try{const r=await api("/api/group/mute",{gid:GSEL,muted:$("mute").checked});toast(r.message);
   const g=S.groups.find(x=>x.id===GSEL);g.muted=r.muted;$("muteNote").hidden=!r.muted}catch(e){toast("出错了："+e.message)}};
 $("saveNotes").onclick=async()=>{try{const r=await api("/api/group/notes",{gid:GSEL,text:$("gnotes").value});toast(r.message);
@@ -1273,8 +1282,10 @@ async function loadLearn(){
       <div class="meta">出现 ${x.count} 次 · ${x.is_jargon===1?"真黑话":x.is_jargon===0?"普通词":"待判断"}${x.guess?" · 字面猜："+esc(x.guess):""} · ${x.used?'<span style="color:var(--accent-ink)">会用</span>':"暂不用"}</div></div>
       <div class="lrow-acts">${lBtns("jargon",x)}</div></li>`).join("")
     :'<li class="empty">还没发现黑话</li>';
+  const FT=r.fact_temp||{};$("factTemp").innerHTML=Object.keys(FT).length?"记忆体温："+Object.entries(FT).map(([k,n])=>`<span class="tag ${k==="清楚"?"ok":k==="有点淡"?"":"wait"}">${esc(k)} ${n}</span>`).join(" ")+
+    ` <span class="muted">· 从最后一次有人提起算，半衰期 30 天，被提起越多忘得越慢；“快忘了”的她说的时候会带“好像”</span>`:"";
   $("factList").innerHTML=r.facts.length?r.facts.map(f=>{const dead=f.t_invalid&&f.t_invalid*1000<Date.now(),till=f.t_invalid&&!dead;const src={self:"他自己说的",other:"听别人说的",guess:"猜的"}[f.source]||"";return `<li><div class="grow"><div>${dead?'<s class="muted">':''}<b>${esc(f.about)}</b>：${esc(f.text)}${dead?'</s>':''}</div>
-      <div class="meta">${src?`<span class="tag ${f.source==="self"?"ok":f.source==="guess"?"wait":""} fsrc">${src}</span> `:""}${fmtDay(f.t_valid)} 起 · ${dead?"已过时":till?"有效到 "+fmtDay(f.t_invalid):"一直有效"} · 想起 ${f.hits} 次</div></div>
+      <div class="meta">${src?`<span class="tag ${f.source==="self"?"ok":f.source==="guess"?"wait":""} fsrc">${src}</span> `:""}${fmtDay(f.t_valid)} 起 · ${dead?"已过时":till?"有效到 "+fmtDay(f.t_invalid):"一直有效"}${f.temp&&!dead?` · <span class="tag ${f.temp==="清楚"?"ok":f.temp==="有点淡"?"":"wait"}">${esc(f.temp)} ${Math.round((f.strength||0)*100)}%</span>`:""}${(f.evidence||1)>1?` · 被提起 ${f.evidence} 次`:""}</div></div>
       <div class="lrow-acts"><button class="btn sm ghost" data-fact="${f.id}" data-act="${dead?"restore":"expire"}">${dead?"恢复":"过时"}</button>
       <button class="btn sm ghost danger" data-fact="${f.id}" data-act="delete" aria-label="删掉">${icon("x")}</button></div></li>`}).join("")
     :'<li class="empty">还没记什么事（整理群聊时会记）</li>';

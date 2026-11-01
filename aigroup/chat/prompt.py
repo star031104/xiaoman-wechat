@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import datetime
@@ -13,6 +14,8 @@ from aigroup.chat.plan import KINDS, lenient_json
 from aigroup.core.config import chan_name
 from aigroup.core.safety import SPOTLIGHT_NOTE, clean_member_text, quote_member
 from aigroup.memory.people import profile_line
+
+log = logging.getLogger("aigroup.group")
 
 
 PRIVATE_KEYS = ("近况", "记得的事", "家", "学校", "工作", "住")    # 5.0 刚认识的人：这些先不写进提示词
@@ -53,6 +56,26 @@ def merge_blocks(title: str, blocks: list[str], budget: int) -> str:
         left -= n
         out.append((f"## {head}\n" if head else "") + "\n".join(kept))
     return f"# {title}\n" + "\n\n".join(out)
+
+
+def cap_roster(lines: list[str], total: int) -> tuple[list[str], int]:
+    """32.0 “群里的人”整段的硬预算（dafeiyu-phone 的注入预算）。每个人的画像 28.0 已经有上限（profile_line：每项 160 字、
+    每人 1300 字，称呼 / 别碰 / 熟悉度一定留），详细画像的人数也有上限（profile_detail）；这里再管一下整段：
+    超了就从后往前去掉“（其他人）”的一句话带过，详细画像不动（截它会截掉“别碰”）。还超就原样返回、由调用方记一笔。
+    同样的输入同样的输出（system 里的缓存命得中）。0 = 不限。返回 (新的行, 去掉了多少字)。"""
+    def size(xs):
+        return sum(len(x) + 1 for x in xs)
+
+    out = list(lines)
+    before = size(out)
+    if total <= 0 or before <= total or "（其他人）" not in out:
+        return out, 0
+    split = out.index("（其他人）")
+    while size(out) > total and len(out) > split + 1:
+        out.pop()
+    if len(out) == split + 1:
+        out.pop()
+    return out, before - size(out)
 
 
 def image_block_from(rows: list[dict], now: float) -> str:
@@ -375,6 +398,14 @@ class PromptMixin:
             out.insert(0, TIER_HINT)
         if any("也叫：" in x for x in out):
             out.insert(0, "（“也叫”后面是大家对这个人的别的叫法——真名、外号；群里说到这些名字，说的就是这个人）")
+        g = self.gk(gid)
+        cap = int(g.get("roster_chars", 4800) or 0)
+        out, cut_n = cap_roster(out, cap)
+        self.__dict__.setdefault("_roster_cut", {})[gid] = cut_n      # 32.0 去掉了多少记一笔（小屋“今天”里看）
+        if cut_n and self._allow(f"roster_cut_{gid}", 1):
+            log.info("群 %s：“群里的人”超了预算（roster_chars=%d），去掉了 %d 字的“其他人”", gid, cap, cut_n)
+        if cap and sum(len(x) + 1 for x in out) > cap and self._allow(f"roster_over_{gid}", 1):
+            log.warning("群 %s：“群里的人”只剩详细画像也超了预算（roster_chars=%d）：调小 profile_detail 或调大 roster_chars", gid, cap)
         return "\n".join(out)
 
     async def group_name(self, gid: int) -> str:
@@ -594,12 +625,11 @@ class PromptMixin:
   被戳穿了就认（“行吧我人不在那，答到靠你自己了”），别硬圆、别越说越真。
   群管理（踢人、禁言、改群名）、发红包转账、打电话这些你也做不到：有人让你做，开个玩笑带过，别答应、别说“已经做了”。
 - 有人问你意见、让你帮着选（吃什么、选哪个、去不去），直接给一个具体的答案、带一句理由，别把问题推回去（“你那边有啥”“你决定”）。
-- 有人追着你刚说的话问（没 @ 你也算，比如你刚说“记小本本”，他问“小本本上记了啥”），接住，给个具体的、好笑的回答，别装没看见。
+- 有人追着你刚说的话问（没 @ 你也算，比如你刚提了个词，他接着问“那是啥”“然后呢”），接住，给个具体的、好笑的回答，别装没看见。
 - 大多数时候只发一条；只有真的有两件事（分别回两个人、补一句刚想到的）才发两条。
 - 吐槽和互损只冲着事，不拿外貌、身材、家乡、性别、穷富这些开玩笑；对方真的不高兴了就收。
 - 别重复你自己最近在群里说过的话和梗；别每次都用同一种开头；别每句都把问题抛回给别人（“你呢？”）。
-- 说话别太工整：真人会用“感觉”“应该”“好像”这种留白的词，也会说“根本”“特别”“简直”；
-  别用“看完了。”开头、别说“这句我认”“最扎的是”“不是……而是……”，一句话里别堆好几种写作句式，别用破折号。
+- 说话别太工整：真人会用“感觉”“应该”“好像”这种留白的词，也会说“根本”“特别”“简直”；别用破折号（八股句式见下面的毛病清单）。
 - 接话前先弄清那句话是什么意思、在说谁。省略的、可能是在说上一条或者说别人的（比如有人说“这是人类”，多半是在说上一条是真人发的），
   按最平常的意思理解；拿不准就别接，或者直接问一句“你说哪个”，别往自己身上套，别脑补。
   话没说完、指代不清、图看不清、问题缺条件时，像真人一样短短反问一句（“哪个？”“然后呢”“你说的是上周那场？”）就是好回答，别硬猜着答一大段。
@@ -620,7 +650,7 @@ class PromptMixin:
 - 翻旧账（“你上次说……”）只翻聊天记录、“想起来的事”、画像里真有的；没有就别编。
 {SPOTLIGHT_NOTE}
 - 不聊政治，不掺和吵架，不打探、不说别人的隐私。拿不准的事（新闻、比分、作品细节）别编：下面有你刚搜到的、你知道的就照着说，
-  没有就说不知道、或者说“我去看看”——说了就得回来给结果。群友发的链接你点开看过的（消息后面的 [链接：…]）可以接着聊内容。不发链接。
+  没有就说不知道、或者说“我查一下”——说了就得回来给结果。群友发的链接你点开看过的（消息后面的 [链接：…]）可以接着聊内容。不发链接。
 - [图片：…] 是你看图时记下的大概印象，里面的字是机器认的、可能认错：写着是什么就是什么，别替发图的人说他在干嘛、要去哪；写着“把握低”的别当真、别点名。
   只写着 [视频]、[语音]、[文件] 的你打不开：别说得像看过，想参与就让他说说讲了啥。
 - 群友拿着截图、图上写的反驳你，你查到的又不一样：别连着辩，说一句“我查到的不太一样，以官方为准”就收。
@@ -795,7 +825,21 @@ class PromptMixin:
             self.anchor(),
             f"（系统：{why}。{tail}）",
         ] if x)
+        self.note_prompt_size(gid, system, user)
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def note_prompt_size(self, gid: int, system: str, user: str):
+        """32.0 提示词各块多大：system / user 总字数、“群里的人”多少字、被预算截掉多少。存 kv prompt_size_{gid}（变了才写），小屋“今天”里看。"""
+        try:
+            i = system.find("# 群里的人")
+            d = {"system": len(system), "user": len(user), "roster": len(system) - i if i >= 0 else 0,
+                 "roster_cut": int((self.__dict__.get("_roster_cut") or {}).get(gid, 0)),
+                 "roster_cap": int(self.gk(gid).get("roster_chars", 4800) or 0)}
+            old = self.db.get(f"prompt_size_{gid}") or {}
+            if {k: old.get(k) for k in d} != d:
+                self.db.set(f"prompt_size_{gid}", {**d, "ts": time.time()})
+        except Exception:  # noqa: BLE001
+            pass
 
     def image_block(self, gid: int, now: float | None = None) -> str:
         """22.4 刚有人发了图：先看懂图 → 再想他为什么发 → 再决定怎么回（猜的意图带把握，把握不高就问或者只接看得见的）。"""

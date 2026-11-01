@@ -120,6 +120,9 @@ class IngestMixin:
         name = clean_name((sender.get("card") or sender.get("nickname") or str(uid)).strip())
         f = flatten(ev.get("message"), self.ob.self_id, self.names(gid, members=True))
         text = clean_member_text(f.text)        # 换行、伪造的“#编号 你：”“（系统：”都洗掉
+        if ("/" in text or "／" in text) and hasattr(self, "control_cmd") \
+                and await self.control_cmd(gid, uid, name, text, ev.get("message_id")):
+            return                                  # 32.0 管理员的 /stop、/go、/状态：照做，不拿去接话
         called = self._called(text)             # 只看他自己打的字（不看引用的内容、图片描述）
         st = self._st(gid)
         if f.images and self.gk(gid).get("see_images") and self.brain.llm.vision:
