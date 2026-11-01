@@ -129,6 +129,40 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .panels details[open].card>summary::after{transform:rotate(-135deg)}
 .panels details.card>.card-b{padding-top:0}
 .chatbar{display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-4)}
+/* 32.1 叫停：开关和叫停放一组，窄屏整组换到下一行 */
+.chatctl{display:flex;gap:var(--sp-3);align-items:center;flex:none}
+.stopbox{position:relative}
+.stopbox .menu{top:calc(100% + 6px);min-width:196px}
+.stopbox .menu .mh{padding:6px 12px 4px;font-size:var(--fs-micro);color:var(--ink-3)}
+.stopbtn{display:inline-flex;align-items:center;gap:6px}
+.stop-on{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 4px 0 12px;border-radius:var(--r-pill);background:var(--warn-soft);color:var(--warn);font-size:var(--fs-meta);font-weight:600;white-space:nowrap}
+.stop-on .btn{min-height:28px}
+.pdot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none;animation:pdot 2s ease-in-out infinite}
+@keyframes pdot{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.pdot{animation:none}}
+.alerts .notice.stopn{display:grid;grid-template-columns:auto 1fr auto;align-items:center;column-gap:10px}
+.alerts .notice.stopn .btn{white-space:nowrap}
+.alerts .notice.stopn>.pdot{align-self:start;margin-top:.55em}
+.stop-on .s-short{display:none}
+@media (max-width:640px){.chatbar .search{flex:1 1 100%}.chatctl{width:100%;flex-wrap:wrap;row-gap:8px}.chatctl .chk{white-space:nowrap}
+  .stopbox{margin-left:auto}.stopbox .menu{right:0}.stop-on .s-long{display:none}.stop-on .s-short{display:inline}
+  .alerts .notice.stopn{grid-template-columns:auto 1fr;row-gap:8px}.alerts .notice.stopn .btn{grid-column:2;justify-self:start}}
+/* 32.1 记忆体温 */
+.ftemp-head{margin:2px 0 14px}
+.tbar{display:flex;gap:2px;height:10px;border-radius:var(--r-pill);overflow:hidden;background:var(--surface-2)}
+.tbar i{display:block;height:100%;min-width:3px;background:var(--c)}
+.tlegend{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:8px;font-size:var(--fs-meta);color:var(--ink-2)}
+.tlegend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.tlegend span::before{content:"";width:9px;height:9px;border-radius:3px;background:var(--c)}
+.tlegend b{font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
+.ftemp-note{margin-top:6px;font-size:var(--fs-micro);color:var(--ink-3);line-height:1.6}
+.ffilter{margin:0 0 6px}
+.tm{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.tm .cells{display:inline-flex;gap:2px}
+.tm .cells i{width:5px;height:10px;border-radius:2px;background:var(--line-2)}
+.tm .cells i.on{background:var(--c)}
+.tmore{display:flex;justify-content:center;padding-top:10px}
+:root{--t0:var(--accent);--t1:color-mix(in srgb,var(--accent) 45%,var(--surface-3));--t2:var(--honey);--t3:var(--ink-3)}
 .chk{display:inline-flex;gap:8px;align-items:center;font-size:var(--fs-meta);color:var(--ink-2);cursor:pointer}
 
 /* ---------- 工作台：群友 ---------- */
@@ -505,10 +539,11 @@ body:not(.admin) .side .adm-gt{display:none}
   <div class="chatbar">
     <div class="seg" id="gseg"></div>
     <div class="search"><span data-i="search"></span><input class="input" id="cq" placeholder="搜聊天记录（内容或名字）"></div>
-    <label class="chk"><span class="switch"><input type="checkbox" id="mute"><span></span></span>这个群先别说话</label>
-    <button class="btn sm ghost" id="stopBtn" title="和在群里发 /stop 一样：正在想的那一轮取消，叫她也不回">叫停 1 小时</button>
+    <div class="chatctl">
+      <label class="chk"><span class="switch"><input type="checkbox" id="mute"><span></span></span>这个群先别说话</label>
+      <div class="stopbox" id="stopBox"></div>
+    </div>
   </div>
-  <div id="stopNote" class="notice" hidden><span data-i="pause"></span><span id="stopTxt"></span></div>
   <div id="muteNote" class="notice" hidden><span data-i="pause"></span>她在这个群“闭麦”中：消息照样记、照样认识人，只是不主动说话（你替她说的除外）。</div>
   <div class="chatwrap">
     <div class="card chatcard">
@@ -648,8 +683,7 @@ body:not(.admin) .side .adm-gt{display:none}
     </div>
     <div class="card c7">
       <div class="card-h"><h3><span data-i="book"></span>她记的事</h3><span class="sp"></span><span class="hint">聊到了会想起来；过时的点“过时”</span></div>
-      <div class="small muted" id="factTemp" style="padding:0 16px 6px"></div>
-      <div class="card-b"><ul class="rows" id="factList"></ul></div>
+      <div class="card-b"><div id="factTemp"></div><div class="seg ffilter" id="factSeg" hidden></div><ul class="rows" id="factList"></ul><div class="tmore" id="factMore" hidden></div></div>
     </div>
     <div class="card c5">
       <div class="card-h"><h3><span data-i="quote"></span>群规矩</h3><span class="sp"></span><span class="hint">整理群聊时总结的，她会照着来</span></div>
@@ -951,18 +985,22 @@ async function loadToday(){const gid=HSEL!=="all"?HSEL:"";
 function paintAlerts(){const A=[],H=TD.health||{},nm=(S&&S.persona&&S.persona.name)||"她";
   const WX=(S&&S.wechat)||{};
   if(CH==="wechat"&&WX.not_logged_in)A.push(`<div class="notice">${icon("info")}<span><b>微信掉登录了</b>（微信官方夜里常这样）：打开 <a href="../wechat/" target="_blank">微信网页窗口</a>（小屋的用户名密码），点“我知道了”→“登录”，再在${esc(nm)}的手机微信上确认，几秒后会自动接上</span></div>`);
-  if(TD.today.stopped&&TD.today.stopped*1000>Date.now())A.push(`<div class="notice dry">${icon("info")}<span><b>叫停中</b>：${fmtTime(TD.today.stopped)} 前${esc(nm)}什么都不说（群里发 /go 或在“群聊”页点“恢复说话”）</span></div>`);
+  if(isStopped(TD.today.stopped))A.push(`<div class="notice stopn"><i class="pdot" aria-hidden="true"></i><span><b>叫停中</b>${multi()?`（${esc(gname(TD.gid))}）`:""}：还剩 ${esc(leftTxt(TD.today.stopped))}，${fmtTime(TD.today.stopped)} 自动恢复。这期间${esc(nm)}什么都不说、叫她也不回，提醒顺延；群里发 /go 也能恢复</span><button class="btn sm" type="button" data-resume="${TD.gid}">恢复说话</button></div>`);
   if(TD.today.dry_run)A.push(`<div class="notice dry">${icon("info")}<span><b>演练中</b>：${esc(nm)}照常想、照常“说”，但不会真的发消息，只记进账本</span></div>`);
   for(const [k,v] of Object.entries(H)){const since=v.since||v.ts;
     A.push(`<div class="notice">${icon("info")}<span><b>${esc(k)}</b>：${esc(v.msg||"出错了")}${since?` <span class="muted">· 从 ${esc(fmtDay(since))} ${fmtTime(since)} 开始${v.n>1?`，出现 ${v.n} 次`:""}</span>`:""}</span></div>`)}
-  $("alerts").innerHTML=A.join("")}
+  $("alerts").innerHTML=A.join("");
+  document.querySelectorAll("[data-resume]").forEach(b=>b.onclick=()=>setStop(+b.dataset.resume,0))}
+const kchars=n=>n>=10000?`${(n/10000).toFixed(1)} 万字`:`${n} 字`;
+function promptSub(p){const cap=p.roster_cap?` / ${p.roster_cap}`:"";
+  return `提示词 · 群里的人 ${p.roster}${cap.replace(" / ","/")}${p.roster_cut?` · 去掉 ${p.roster_cut}`:""}`}
 function paintToday(){paintAlerts();const T=TD.today,sd=T.sends||{},L=T.llm||{},ac=T.active||{},sh=T.shares||{};
   $("tdT").textContent=multi()?`今天她在「${gname(TD.gid)}」做了什么`:"今天她做了什么";
   const kinds=Object.entries(sd.by_kind||{}).map(([k,n])=>`${KIND_CN[k]||k} ${n}`).join(" · ");
   $("tdNums").innerHTML=[[`${sd.sent||0} 条`,"发出去"+(kinds?`（${kinds}）`:"")],[`${sd.failed||0} 条`,"没发成"],
     [`${ac.n||0} 次`,"主动开口"],[pctS(ac.rate),ac.done?`被接住（${ac.engaged}/${ac.done}）`:"被接住（还没算出来）"],
     [`${sh.n||0} 次`,"分享"],[`${L.searches||0} 次`,"查资料"],[usdS(L.usd),`花费 · 调用 ${L.calls||0} 次`],[pctS(L.cache_hit),"缓存命中"],
-    ...(T.prompt_size&&T.prompt_size.system?[[`${T.prompt_size.system+T.prompt_size.user} 字`,`提示词（群里的人 ${T.prompt_size.roster}${T.prompt_size.roster_cut?`，超预算截了 ${T.prompt_size.roster_cut}`:""}）`]]:[])]
+    ...(T.prompt_size&&T.prompt_size.system?[[kchars(T.prompt_size.system+T.prompt_size.user),promptSub(T.prompt_size)]]:[])]
     .map(([a,b])=>`<div><b>${esc(a)}</b><span>${esc(b)}</span></div>`).join("");
   const sub=[];const why=Object.entries(sd.why||{});
   if(why.length)sub.push(`没发成的原因：${why.map(([k,n])=>`<span class="tag warm">${esc(k)} ${n}</span>`).join("")}`);
@@ -1080,10 +1118,27 @@ function renderChat(toBottom){
 $("newMsg").onclick=()=>{const el=$("chat");el.scrollTop=el.scrollHeight;$("newMsg").hidden=true};
 $("chat").addEventListener("scroll",()=>{const el=$("chat");if(el.scrollHeight-el.scrollTop-el.clientHeight<60)$("newMsg").hidden=true});
 let cqT;$("cq").oninput=()=>{clearTimeout(cqT);cqT=setTimeout(()=>{CH.q=$("cq").value.trim();CH.force=true;fetchMsgs(true)},300)};
-function paintStop(g){const on=!!(g.stopped&&g.stopped*1000>Date.now());$("stopBtn").textContent=on?"恢复说话":"叫停 1 小时";
-  $("stopNote").hidden=!on;if(on)$("stopTxt").textContent=`叫停中：${fmtTime(g.stopped)} 前她什么都不说（叫她也不回，提醒顺延）。群里把她拉进来的人发 /go 也能恢复。`}
-$("stopBtn").onclick=async()=>{const g=S.groups.find(x=>x.id===GSEL);const on=!!(g.stopped&&g.stopped*1000>Date.now());
-  try{const r=await api("/api/group/stop",{gid:GSEL,minutes:on?0:60});toast(r.message);g.stopped=r.stopped;paintStop(g)}catch(e){toast("出错了："+e.message)}};
+// 32.1 叫停：没停时是“叫停”按钮 + 时长菜单；停着时是“叫停中 · 还剩 N 分钟 [恢复]”。和群里发 /stop、/go 一样
+const STOP_OPTS=[[15,"15 分钟"],[60,"1 小时"],[180,"3 小时"],["morning","到明早"]];
+const isStopped=t=>!!(t&&t*1000>Date.now());
+function leftTxt(t){const m=Math.max(1,Math.round((t*1000-Date.now())/60000));return m<60?`${m} 分钟`:`${Math.floor(m/60)} 小时${m%60?` ${m%60} 分`:""}`}
+function paintStop(g){const box=$("stopBox");if(!box||!g)return;
+  if(isStopped(g.stopped)){box.innerHTML=`<span class="stop-on" role="status" title="${esc(fmtTime(g.stopped))} 自动恢复；叫她也不回，提醒顺延"><i class="pdot" aria-hidden="true"></i><span class="s-long">叫停中 · 还剩 </span><span class="s-short">停 · </span>${esc(leftTxt(g.stopped))}<button class="btn sm" id="stopGo" type="button">恢复</button></span>`;
+    $("stopGo").onclick=()=>setStop(g.id,0);return}
+  box.innerHTML=`<button class="btn sm ghost stopbtn" id="stopBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="和在群里发 /stop 一样：正在想的那一轮取消，接下来什么都不说">${icon("pause")}叫停</button>
+    <div class="menu" id="stopMenu" role="menu" hidden><div class="mh">停多久（叫她也不回）</div>${STOP_OPTS.map(([v,t])=>`<button type="button" role="menuitem" data-stop="${v}"><span>${t}</span><span class="muted" style="margin-left:auto">${v==="morning"?"起床时恢复":"到 "+fmtTime(Date.now()/1000+v*60)}</span></button>`).join("")}</div>`;
+  const b=$("stopBtn"),m=$("stopMenu");
+  b.onclick=e=>{e.stopPropagation();m.hidden=!m.hidden;b.setAttribute("aria-expanded",String(!m.hidden))};
+  m.querySelectorAll("[data-stop]").forEach(x=>x.onclick=()=>{m.hidden=true;setStop(g.id,x.dataset.stop)})}
+document.addEventListener("click",e=>{const m=$("stopMenu");if(m&&!m.hidden&&!e.target.closest("#stopBox")){m.hidden=true;const b=$("stopBtn");if(b)b.setAttribute("aria-expanded","false")}});
+async function setStop(gid,v){
+  const body=v==="morning"?{gid,until:"morning"}:{gid,minutes:+v||0};
+  try{const r=await api("/api/group/stop",body);toast(r.message);
+    const g=S&&S.groups.find(x=>x.id===gid);if(g){g.stopped=r.stopped;paintStop(g)}
+    if(TD&&TD.gid===gid){TD.today.stopped=r.stopped;paintAlerts()}
+    if(cur==="home")loadState()}catch(e){toast("出错了："+e.message)}}
+setInterval(()=>{const g=S&&S.groups&&S.groups.find(x=>x.id===GSEL);if(g&&g.stopped){if(!isStopped(g.stopped))g.stopped=null;paintStop(g)}
+  if(TD&&TD.today&&TD.today.stopped)paintAlerts()},30000);
 $("mute").onchange=async()=>{try{const r=await api("/api/group/mute",{gid:GSEL,muted:$("mute").checked});toast(r.message);
   const g=S.groups.find(x=>x.id===GSEL);g.muted=r.muted;$("muteNote").hidden=!r.muted}catch(e){toast("出错了："+e.message)}};
 $("saveNotes").onclick=async()=>{try{const r=await api("/api/group/notes",{gid:GSEL,text:$("gnotes").value});toast(r.message);
@@ -1247,6 +1302,36 @@ async function loadSpot(){
   $("spotBox").innerHTML=(say+mm)||'<div class="empty">今天没有要点的了</div>';
   $("spotBox").querySelectorAll("[data-sk]").forEach(b=>b.onclick=async()=>{try{await api("/api/spot",{gid:LSEL,kind:b.dataset.sk,ref:+b.dataset.sr,ok:+b.dataset.so});
     b.closest(".spot").remove();if(!$("spotBox").querySelector(".spot"))loadSpot()}catch(e){toast("没存上："+e.message)}})}
+// 32.1 她记的事：记忆体温（四档的分段条 + 每条一个小刻度）、按档筛、默认先看 15 条
+const TEMPS=[["清楚","--t0",4],["有点淡","--t1",3],["快忘了","--t2",2],["几乎想不起","--t3",1]];
+let FACTS=[],FTEMP={},FSEL="all",FSHOW=15;
+const factDead=f=>!!(f.t_invalid&&f.t_invalid*1000<Date.now());
+function tmeter(f){const t=TEMPS.find(x=>x[0]===f.temp);if(!t)return"";
+  return `<span class="tm" style="--c:var(${t[1]})" title="记忆强度 ${Math.round((f.strength||0)*100)}%：从最后一次有人提起算，半衰期 30 天，被提起越多忘得越慢"><span class="cells" aria-hidden="true">${[1,2,3,4].map(i=>`<i class="${i<=t[2]?"on":""}"></i>`).join("")}</span>${esc(f.temp)}</span>`}
+function paintFacts(){
+  const live=FACTS.filter(f=>!factDead(f)),dead=FACTS.length-live.length;
+  const tot=Object.values(FTEMP).reduce((a,b)=>a+b,0);
+  $("factTemp").innerHTML=tot?`<div class="ftemp-head"><div class="tbar" role="img" aria-label="记忆体温：${TEMPS.map(([k])=>`${k} ${FTEMP[k]||0}`).join("，")}">${TEMPS.filter(([k])=>FTEMP[k]).map(([k,c])=>`<i style="--c:var(${c});flex:${FTEMP[k]}" title="${k} ${FTEMP[k]} 条"></i>`).join("")}</div>
+    <div class="tlegend">${TEMPS.map(([k,c])=>`<span style="--c:var(${c})">${k} <b>${FTEMP[k]||0}</b></span>`).join("")}</div>
+    <div class="ftemp-note">按“最后一次有人提起”算，半衰期 30 天，被提起越多忘得越慢；“快忘了”的她说起来会带“好像”。只是显示，不会自动删。</div></div>`:"";
+  const fade=live.filter(f=>f.temp&&f.temp!=="清楚").length;
+  const opts=[["all","全部",FACTS.length],["clear","记得清",live.length-fade],["fade","变淡了",fade],["dead","过时",dead]].filter(([v,,n])=>v==="all"||n);
+  if(!opts.some(o=>o[0]===FSEL))FSEL="all";
+  $("factSeg").hidden=opts.length<3;
+  mkSeg($("factSeg"),opts,FSEL,v=>{FSEL=v;FSHOW=15;paintFacts()});
+  const pick=FACTS.filter(f=>FSEL==="all"?true:FSEL==="dead"?factDead(f):FSEL==="fade"?!factDead(f)&&f.temp&&f.temp!=="清楚":!factDead(f)&&(!f.temp||f.temp==="清楚"));
+  const show=pick.slice(0,FSHOW);
+  $("factList").innerHTML=show.length?show.map(f=>{const dead=factDead(f),till=f.t_invalid&&!dead;const src={self:"他自己说的",other:"听别人说的",guess:"猜的"}[f.source]||"";return `<li><div class="grow"><div>${dead?'<s class="muted">':''}<b>${esc(f.about)}</b>：${esc(f.text)}${dead?'</s>':''}</div>
+      <div class="meta">${src?`<span class="tag ${f.source==="self"?"ok":f.source==="guess"?"wait":""} fsrc">${src}</span> `:""}${!dead?tmeter(f)+" · ":""}${fmtDay(f.t_valid)} 起 · ${dead?"已过时":till?"有效到 "+fmtDay(f.t_invalid):"一直有效"}${(f.evidence||1)>1?` · 被提起 ${f.evidence} 次`:""}</div></div>
+      <div class="lrow-acts"><button class="btn sm ghost" data-fact="${f.id}" data-act="${dead?"restore":"expire"}">${dead?"恢复":"过时"}</button>
+      <button class="btn sm ghost danger" data-fact="${f.id}" data-act="delete" aria-label="删掉">${icon("x")}</button></div></li>`}).join("")
+    :`<li class="empty">${FACTS.length?"这一档没有":"还没记什么事（整理群聊时会记）"}</li>`;
+  const more=pick.length-show.length;
+  $("factMore").hidden=more<=0;
+  if(more>0){$("factMore").innerHTML=`<button class="btn sm ghost" type="button">再看 ${Math.min(more,30)} 条（还有 ${more} 条）</button>`;
+    $("factMore").firstChild.onclick=()=>{FSHOW+=30;paintFacts()}}
+  document.querySelectorAll("#factList [data-fact]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;if(a==="delete"&&!confirm("删掉这条？"))return;
+    try{const x=await api("/api/learned/fact",{id:+b.dataset.fact,delete:a==="delete",expire:a==="expire"});toast(x.message);loadLearn()}catch(e){toast("出错了："+e.message)}})}
 async function loadLearn(){
   if(!S)await loadState();if(!S||!S.groups.length){$("exList").innerHTML='<li class="empty">还没配置群</li>';return}
   if(!LSEL||!S.groups.some(g=>g.id===LSEL))LSEL=S.groups[0].id;
@@ -1282,13 +1367,7 @@ async function loadLearn(){
       <div class="meta">出现 ${x.count} 次 · ${x.is_jargon===1?"真黑话":x.is_jargon===0?"普通词":"待判断"}${x.guess?" · 字面猜："+esc(x.guess):""} · ${x.used?'<span style="color:var(--accent-ink)">会用</span>':"暂不用"}</div></div>
       <div class="lrow-acts">${lBtns("jargon",x)}</div></li>`).join("")
     :'<li class="empty">还没发现黑话</li>';
-  const FT=r.fact_temp||{};$("factTemp").innerHTML=Object.keys(FT).length?"记忆体温："+Object.entries(FT).map(([k,n])=>`<span class="tag ${k==="清楚"?"ok":k==="有点淡"?"":"wait"}">${esc(k)} ${n}</span>`).join(" ")+
-    ` <span class="muted">· 从最后一次有人提起算，半衰期 30 天，被提起越多忘得越慢；“快忘了”的她说的时候会带“好像”</span>`:"";
-  $("factList").innerHTML=r.facts.length?r.facts.map(f=>{const dead=f.t_invalid&&f.t_invalid*1000<Date.now(),till=f.t_invalid&&!dead;const src={self:"他自己说的",other:"听别人说的",guess:"猜的"}[f.source]||"";return `<li><div class="grow"><div>${dead?'<s class="muted">':''}<b>${esc(f.about)}</b>：${esc(f.text)}${dead?'</s>':''}</div>
-      <div class="meta">${src?`<span class="tag ${f.source==="self"?"ok":f.source==="guess"?"wait":""} fsrc">${src}</span> `:""}${fmtDay(f.t_valid)} 起 · ${dead?"已过时":till?"有效到 "+fmtDay(f.t_invalid):"一直有效"}${f.temp&&!dead?` · <span class="tag ${f.temp==="清楚"?"ok":f.temp==="有点淡"?"":"wait"}">${esc(f.temp)} ${Math.round((f.strength||0)*100)}%</span>`:""}${(f.evidence||1)>1?` · 被提起 ${f.evidence} 次`:""}</div></div>
-      <div class="lrow-acts"><button class="btn sm ghost" data-fact="${f.id}" data-act="${dead?"restore":"expire"}">${dead?"恢复":"过时"}</button>
-      <button class="btn sm ghost danger" data-fact="${f.id}" data-act="delete" aria-label="删掉">${icon("x")}</button></div></li>`}).join("")
-    :'<li class="empty">还没记什么事（整理群聊时会记）</li>';
+  FACTS=r.facts||[];FTEMP=r.fact_temp||{};paintFacts();
   $("normText").value=r.norms||"";
   $("stkList").innerHTML=r.stickers.length?r.stickers.map(x=>`<div class="stk"><img src="api/sticker?id=${x.id}" alt="${esc(x.descr||x.emotion||"表情包")}">
       <div class="small"><b>${esc(x.emotion||"还没懂")}</b>${x.usage?" · "+esc(x.usage):""}</div><div class="meta small muted">见过 ${x.seen} 次 · ${x.users} 人 · 她用了 ${x.used} 次</div>
@@ -1310,8 +1389,7 @@ async function loadLearn(){
   document.querySelectorAll("[data-lore]").forEach(b=>b.onclick=async()=>{const body={id:+b.dataset.lore};if(b.dataset.del){if(!confirm("删掉这条？"))return;body.delete=true}else body.status=b.dataset.st;
     try{const x=await api("/api/lore",body);toast(x.message||x.error);loadLearn()}catch(e){toast("出错了："+e.message)}});
   loadPair();loadLabel();loadHumane();loadAgent();loadCalib();loadChecks();loadRules();loadLedger();loadFeed();markEmpty();
-  document.querySelectorAll("[data-fact]").forEach(b=>b.onclick=async()=>{const a=b.dataset.act;if(a==="delete"&&!confirm("删掉这条？"))return;
-    try{const x=await api("/api/learned/fact",{id:+b.dataset.fact,delete:a==="delete",expire:a==="expire"});toast(x.message);loadLearn()}catch(e){toast("出错了："+e.message)}});
+
   document.querySelectorAll("[data-stk]").forEach(b=>b.onclick=async()=>{try{const x=await api("/api/learned/sticker",{id:+b.dataset.stk,status:b.dataset.st});toast(x.message);loadLearn()}catch(e){toast("出错了："+e.message)}});
   document.querySelectorAll("[data-lk]").forEach(b=>b.onclick=async()=>{
     const body={kind:b.dataset.lk,id:+b.dataset.id};if(b.dataset.del){if(!confirm("删掉这条？"))return;body.delete=true}else body.status=b.dataset.st;

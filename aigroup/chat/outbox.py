@@ -56,6 +56,20 @@ def parse_control(text: str) -> tuple[str, int | None] | None:
     return None
 
 
+def minutes_until(hhmm: str, now: float, tz=None, least: float = 10) -> int:
+    """32.1 小屋“叫停到明早”：从现在到下一个 hhmm（她的起床时间）还有几分钟；不到 least 分钟就算明天的。"""
+    from datetime import datetime, timedelta
+    try:
+        h, m = (int(x) for x in str(hhmm or "08:00").split(":")[:2])
+    except ValueError:
+        h, m = 8, 0
+    cur = datetime.fromtimestamp(now, tz)
+    t = cur.replace(hour=h % 24, minute=m % 60, second=0, microsecond=0)
+    if (t - cur).total_seconds() < least * 60:
+        t += timedelta(days=1)
+    return max(1, int(round((t - cur).total_seconds() / 60)))
+
+
 class DryRun(RuntimeError):
     """演练模式：这一条没真发。"""
 

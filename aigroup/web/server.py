@@ -891,6 +891,9 @@ class GroupHome:
             minutes = max(0, min(1440, int(d.get("minutes") or 0)))
         except (TypeError, ValueError):
             minutes = 0
+        if d.get("until") == "morning":                   # 32.1 到明早她起床的时候（wake_time，默认 08:00）
+            from aigroup.chat.outbox import minutes_until
+            minutes = minutes_until(str(self.gc.gk(gid).get("wake_time") or "08:00"), time.time(), self.cfg.tz)
         if minutes:
             until = self.gc.stop_now(gid, minutes, by="小屋")
             return web.json_response({"ok": True, "stopped": until,
@@ -1039,14 +1042,14 @@ class GroupHome:
         from aigroup.memory.facts import TEMP_BANDS, temp_label
         temp = {name: 0 for _, name in TEMP_BANDS}
         tnow = time.time()
-        for f in self.gc.memory.facts(gid, limit=60, valid_only=False):
+        for f in self.gc.memory.facts(gid, limit=200, valid_only=False):        # 32.1 小屋里分档、分页看，多给一些
             f["about"] = ("她自己" if f["subject_id"] == -1 else "群" if not f["subject_id"]
                           else names.get(str(f["subject_id"]), str(f["subject_id"])))
             f["strength"] = round(self.gc.memory._strength_of(f, tnow), 2)      # 32.0 记忆体温
             f["temp"] = temp_label(f["strength"])
-            if not (f.get("t_invalid") and float(f["t_invalid"]) < tnow):
-                temp[f["temp"]] += 1
             facts.append(f)
+        for f in self.gc.memory.facts(gid, limit=100000, valid_only=True):     # 32.1 体温按全部有效的算，不只是列出来的
+            temp[temp_label(self.gc.memory._strength_of(f, tnow))] += 1
         daily = []
         for i in range(1, 8):
             day = self.brain.now() - timedelta(days=i)

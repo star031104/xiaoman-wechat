@@ -161,3 +161,16 @@ def test_temp_follows_strength(cfg, brain):
     assert temp_label(m.strength(now - 45 * 86400, now=now)) in ("快忘了", "有点淡")
     assert temp_label(m.strength(now - 400 * 86400, now=now)) == "几乎想不起"
     assert temp_label(m.strength(now - 400 * 86400, now=now, evidence=3)) != "清楚"
+
+
+# ---------------- 32.1 小屋：叫停到明早 ----------------
+def test_minutes_until_morning():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from aigroup.chat.outbox import minutes_until
+    tz = ZoneInfo("Asia/Shanghai")
+    at = lambda h, m: datetime(2026, 11, 1, h, m, tzinfo=tz).timestamp()
+    assert minutes_until("08:00", at(23, 0), tz) == 9 * 60
+    assert minutes_until("08:00", at(2, 30), tz) == 5 * 60 + 30          # 半夜：就是今天早上
+    assert minutes_until("08:00", at(7, 55), tz) == 24 * 60 + 5          # 不到 10 分钟算明天的
+    assert minutes_until("bad", at(23, 0), tz) == 9 * 60
