@@ -34,6 +34,21 @@ def _terms(text: str) -> set[str]:
 WEEK = "一二三四五六日天"
 _DAY_RX = re.compile(r"(大前天|前天|昨天|昨晚|昨儿|上(个)?(周|星期|礼拜)([一二三四五六日天])|(周|星期|礼拜)([一二三四五六日天])(那天|那次|那会|晚上|下午|上午|中午)|"
                      r"(\d{1,2})(?:月|-(?=\d{2}))(\d{1,2})(日|号)?|(?<![\d月\-])(\d{1,2})(号|日)(?![位线机楼房桌种])(那天|那次|晚上|下午|上午|中午)?)")
+_RANGE_RX = re.compile(r"上(个)?(周|星期|礼拜)(?![一二三四五六日天])|前几天|前两天|这几天|最近几天|上回|上次")
+
+
+def range_refs(text: str, now: datetime) -> tuple[datetime, datetime] | None:
+    """34.0 一段时间：“上周”→ 上周一到上周日；“前几天 / 这几天 / 上次”→ 前 4 天。今天不算。"""
+    m = _RANGE_RX.search(text or "")
+    if not m:
+        return None
+    base = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if m.group(2):
+        start = base - timedelta(days=base.weekday() + 7)
+        return start, start + timedelta(days=7)
+    return base - timedelta(days=4), base
+
+
 def day_refs(text: str, now: datetime) -> list[datetime]:
     """一句话里提到的过去的某一天（今天不算；最多两天，按出现顺序）。"""
     out: list[datetime] = []
@@ -212,7 +227,8 @@ class AutobioMixin:
             return ""
         days = day_refs(text, self.brain.now())
         if not days:
-            return ""
+            rg = range_refs(text, self.brain.now())
+            return self.range_block(gid, rg) if rg else ""
         from aigroup.core.safety import clean_member_text
         out = []
         for d in days:
@@ -236,6 +252,21 @@ class AutobioMixin:
                 lines = ["- 那天群里没什么记录（可能你那天不在线）：别编，说记不清了"]
             out.append(f"## {d:%m-%d}（星期{WEEK[d.weekday()]}）\n" + "\n".join(lines))
         return "# 刚才提到的那天群里的事（照这个说，别把日子记混；这里没有的就说记不清）\n" + "\n".join(out)
+
+    def range_block(self, gid: int, rg) -> str:
+        """34.0 “上周 / 前几天”：那几天每天的日报看点各一两条（没日报的天跳过）。"""
+        a, b = rg
+        out, d = [], a
+        while d < b and len(out) < 7:
+            rep = self.db.get(f"qq_daily_{gid}_{d:%Y-%m-%d}") or {}
+            hl = [str(x) for x in (rep.get("highlights") or [])[:2]]
+            if hl:
+                out.append(f"- {d:%m-%d}（星期{WEEK[d.weekday()]}）：" + "；".join(hl))
+            d += timedelta(days=1)
+        if not out:
+            return ""
+        return (f"# {a:%m-%d} 到 {(b - timedelta(days=1)):%m-%d} 这几天群里的事（刚才提到了“上周 / 前几天”；照这个说，没写的就说记不清）\n"
+                + "\n".join(out))
 
     def human_examples_block(self, gid: int, text: str, k: int = 2) -> str:
         """以前群里有人说过类似的话时，下一个群友是怎么接的（学口吻和分寸）。"""

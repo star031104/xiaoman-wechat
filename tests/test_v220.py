@@ -34,7 +34,7 @@ def test_shadow_mode_only_logs(cfg, brain):
 
 
 def test_ask_ledger_repeat_and_closed(cfg, brain):
-    gc, _ = _gc(cfg, brain)
+    gc, _ = _gc(cfg, brain, ask_close_unanswered=False)     # 33.0 问了没人理会自动关 3 天：这里测的是“别问了”
     now = time.time()
     gc.note_asks(GROUP, ["AG 今天赢了没"], FRIEND, now - 3600)
     assert "已经问过" in gc._ask_repeat(GROUP, "AG 那场比分出来没？", FRIEND, now)

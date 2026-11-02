@@ -150,7 +150,7 @@ BACKLOG_ASK = re.compile(r"[？?]|(了吗|了没|吗|呢|啥时候|几点|多少
                          r"一起|来不来|去不去|要不要|约(你|吗|不)|等你|叫你")                      # 约她、叫她做事的也补回
 CARE_RX = re.compile(r"记得|别忘|注意|小心|多喝|早点睡|擦药|上药|别熬夜|好好休息|悠着点|慢点|别太累|"
                      r"别熬了|别熬|早点躺|快睡|先睡|去睡|看完(就|这局)?睡")    # 26.0 10-26 凌晨一个多小时催睡 4 次
-CLOSE_RX = re.compile(r"别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|别(再)?提.{1,6}了|压力(很|好|太)?大|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了|"
+CLOSE_RX = re.compile(r"催命|我求你|何意味|有啥关系|有啥好看|别催|关你啥事|别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|别(再)?提.{1,6}了|压力(很|好|太)?大|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了|"
                       r"求你了|求求你|放过我|饶了我|"
                       r"之前发过|早就?发过|发过了|早发了|已经发了|早就?说过了|说过了|早就有了")      # 23.2 “老大那文档发了没”→“之前发过了”
 # 23.1 视频 / 语音：她看不到内容时，这些说法等于装看过
@@ -194,6 +194,8 @@ FAILURE_MODES = [
     "拿资料里没证实的说法（标了大概 / 不太确定 / 只有一家这么说，或者资料里根本没有）去纠正别人，或者在别人表态时说教（“骂归骂”“别把两件事混一起”“理性看待”）",
     "说了自己的幕后（小屋、标注、门控、提示词，或者“够我更新好几版了”“我又迭代了”这种拿更新 / 版本 / 部署说自己的话）",
 ]
+# 33.0 v2 只拦底线：这几条是风格类，自检命中只记录（critic_style，影子）
+STYLE_IDX = {9, 11, 14, 16, 17}
 # 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
 PHRASE_FAMILIES = {
     "记仇 / 小本本 / 不记": re.compile(r"小本本|记仇|不记(了|仇)|就不记|这(条|句|个)不记|记下了|记上了|记岔|当(你)?没听见|当没说|这(条|句)不算"),
@@ -448,6 +450,9 @@ class ChecksMixin:
                                          "ORDER BY id LIMIT 8", (gid, r["ts"], r["ts"] + 1800)).fetchall()
             if any(CLOSE_RX.search(str(a["content"] or "")) for a in after):
                 r["closed_until"] = r["ts"] + days * 86400
+                self.db.conn.execute("UPDATE qq_asks SET closed_until=? WHERE id=?", (r["closed_until"], r["id"]))
+            elif not after and now - r["ts"] > 1800 and self.gk(gid).get("ask_close_unanswered", True):
+                r["closed_until"] = r["ts"] + 3 * 86400          # 33.0 问了半小时没人理：同一件事 3 天别再问（11-02 复盘）
                 self.db.conn.execute("UPDATE qq_asks SET closed_until=? WHERE id=?", (r["closed_until"], r["id"]))
         self.db.conn.commit()
         for r in rows:
@@ -711,7 +716,7 @@ class ChecksMixin:
         for fam, rx in PHRASE_FAMILIES.items():            # 23.2 换个说法也算同一个梗：一天一次
             if rx.search(t) and not rx.search(users):
                 n = sum(1 for x in lines if rx.search(x))
-                if n >= 1:
+                if n >= (3 if fam.startswith("记仇") and hasattr(self, "v2") and self.v2(gid) else 1):   # 33.0 小本本是按钮梗
                     return f"「{fam}」这一类说法你今天已经用过 {n} 次了（换个词也算同一个梗）：别再用，说正事或者不说"
         for g in sorted(mine):
             n = sum(1 for x in lines if g in x)
@@ -1032,5 +1037,9 @@ class ChecksMixin:
                                                              temperature=0.0, max_tokens=200), 8)
             d = json.loads(re.search(r"\{.*\}", out or "", re.S).group(0))
         except Exception:  # noqa: BLE001
+            return ""
+        if (hasattr(self, "v2") and self.v2(gid) and isinstance(d, dict) and d.get("bad") is True
+                and critic_index(d.get("which")) in STYLE_IDX):
+            self.check_log(gid, "critic_style", "shadow", text, f"{critic_index(d.get('which'))}：{str(d.get('why') or '')[:150]}")
             return ""
         return critic_verdict(d, v2=bool(self.gk(gid).get("critic_v2", True)))

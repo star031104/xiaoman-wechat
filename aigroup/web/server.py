@@ -589,7 +589,8 @@ class GroupHome:
                        "items": [{"ts": x.get("ts"), "kind": x.get("kind"), "text": x.get("text") or "",
                                   "topic": x.get("topic") or ""} for x in sh_today[-5:]]},
             "idle": {"last": idle_ts, "today": bool(idle_ts and idle_ts >= t0)},
-            "prompt_size": self.db.get(f"prompt_size_{gid}") or {},          # 32.0 提示词多大、“群里的人”截了多少
+            "prompt_size": self.db.get(f"prompt_size_{gid}") or {},
+            "v33": gc.v33_metrics(gid) if hasattr(gc, "v33_metrics") else {},          # 33.0 高光指标          # 32.0 提示词多大、“群里的人”截了多少
             "stopped": (float((gc.stopped(gid) or {}).get("until") or 0) or None) if hasattr(gc, "stopped") else None,
         }
         trend = []

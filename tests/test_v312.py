@@ -118,7 +118,7 @@ def test_backlog_prompt_note(cfg, brain):
 
 
 def test_ask_repeat_ignores_names(cfg, brain):
-    gc, _ = _gc(cfg, brain)
+    gc, _ = _gc(cfg, brain, ask_close_unanswered=False)
     names = gc._name_terms(GROUP)
     gc.note_asks(GROUP, ["小王凌晨的球赛你追了没"], FRIEND, now=time.time() - 3 * 3600)
     if "小王" in names:
@@ -172,7 +172,7 @@ def test_claims_today_in_critic_and_research(cfg, brain):
 
 def test_filler_waits_a_minute():
     from aigroup.chat.settings import DEFAULTS
-    assert DEFAULTS["agent_filler_after"] >= 60
+    assert 20 <= DEFAULTS["agent_filler_after"] <= 60          # 34.1 60 → 25：深查 25 秒还没好先回一句
 
 
 def test_note_deploy(tmp_path):

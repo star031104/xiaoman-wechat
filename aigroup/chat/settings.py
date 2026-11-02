@@ -77,13 +77,34 @@ DEFAULTS = {
     "agent_deep_seconds": 40,      # 深查最多多少秒
     "agent_deep_thinking": True,   # 深查打开思考模式（更准、慢一倍）
     "agent_filler": True,          # 被问到、要深查时先说一句“等我看看”（每个群 10 分钟最多一次）
-    "agent_filler_after": 60,      # 23.3 查了这么多秒还没查完才说“等我看看”；31.2 10 → 60（10-29 一天 5 句，都在 1 分钟内跟了答案）
+    "sports_data": True,
+    "sticker_auto_prob": 0.2,      # 34.0 没写表情包时，短的、不是问句的话按意思配一张的概率
+    "sticker_describe_n": 8,       # 34.0 每次整理时给几张表情包看图补“意思”
+    "ocr": True,                   # 34.0 截图先过 OCR，引用图上的字只认 OCR           # 34.1 查资料时先拿赛事数据接口的赛程比分（aigroup/net/sports.py）
+    "agent_filler_after": 25,      # 34.1 60 → 25：要读网页的深查，25 秒还没好先回一句      # 23.3 查了这么多秒还没查完才说“等我看看”；31.2 10 → 60（10-29 一天 5 句，都在 1 分钟内跟了答案）
     "remember_web": True,          # 搜到 / 读到的要点记下来，以后聊到关键词想起来，常用到的变成她的兴趣
     "weekly_reflect": True,        # 每周一回想这一周，写几句“这一周的我”放进提示词（人物跟着经历慢慢变）
     # —— 4.2 人物慢慢长（chat/grow.py）——
     "monthly_self": True,          # 每月整理一次“我是怎样的人”（把每周的回想沉淀成稳定的性格和口味）
     "plans": True,                 # 记住群里约好的事：到点提醒大家、事后问结果
-    "plans_per_day": 3,            # 每个群每天最多提醒 / 问几次
+    "plans_per_day": 2,            # 每个群每天最多提醒 / 问几次（33.0 3 → 2，11-02 复盘）
+    # ---- 33.0 重分解（见 aigroup/chat/v33.py）----
+    "persona_version": "v2",       # v2：新人设（≤1500 字 + 示例）、只拦底线、关系四档、按钮梗、想念、情绪动作；v1：旧人设
+    "persona_v2_file": "persona/local_xiaoman_wx.v2.md",
+    "fav_name": "老大",            # 偏心对象（把她拉进群的人）在她嘴里的叫法
+    "fav_burst_cap": 5,            # 对偏心对象 3 分钟最多几条
+    "chat_temperature": 1.1,       # v2 主回复的温度
+    "tiers": True,                 # 关系四档
+    "tier_close_calls": 20,        # 30 天里叫她 / 回她多少次算熟人
+    "longing": True,               # 想念值：他冒头先阴阳一句；一整天不见白天 @ 他一次
+    "longing_hours": 6,            # 醒着的几个小时不见算想念满
+    "buttons": True,               # 按钮梗：人机 → 炸毛、话痨 → 委屈、记小本本 → 真记
+    "v33_emotions": True,          # 情绪写成动作
+    "sleep_hours": "01:30-07:30",  # 这段时间被叫只回半句梦话（老大叫她能醒半小时）
+    "plans_no_fun": True,          # 看比赛、开黑这种娱乐不记成要追问的约定
+    "plans_expire_12h": True,      # 该问的时候过了 12 小时还没问：作废
+    "ask_close_unanswered": True,  # 问了半小时没人理：同一件事 3 天别再问
+    "topic_watch_strict": True,    # 每天跟进只跟最近一天群友还在聊的、同一件事最多连跟 3 天
     "fix_knowledge": True,         # 有人说“不对 / 其实是……”时，对一下她记的知识，对的就改
     "share_per_day": 1,            # 每个群每天最多主动分享几次刷到的东西（0 = 关）
     "share_min_score": 13,         # 24.0 分享评分卡（新鲜/相关/有意思/可信/能聊 各 0~4）到这个分才分享
@@ -258,9 +279,9 @@ DEFAULTS = {
     "pick_clean": True,              # 27.0 有毛病先在她自己写的别的说法里挑没毛病的；没被叫到就不重写（挑不出就不说）
     "rethink_on_stop": True,         # 27.0 想的时候有人说“别提了 / 压力很大 / 别问了”：重新想一次
     "memory_merge": True,            # 28.0 记忆合成几块（关于这个群 / 关于你自己 / 和这几句有关的），每块有字数上限
-    "mem_self_chars": 1800,          # 28.0 “关于你自己”最多多少字
-    "mem_group_chars": 1800,         # 28.0 “关于这个群”最多多少字
-    "mem_recall_chars": 2200,        # 28.0 “和这几句有关的”最多多少字
+    "mem_self_chars": 1000,          # 28.0 “关于你自己”最多多少字
+    "mem_group_chars": 1200,         # 28.0 “关于这个群”最多多少字
+    "mem_recall_chars": 1800,        # 28.0 “和这几句有关的”最多多少字
     "critic_v2": True,               # 26.0 自检先分事实 / 看法 / 玩笑 / 关心：玩笑、看法不拿去对资料；只指毛病、不写替换句
     "rewrite_minimal": True,         # 26.0 重写只改有毛病的几个字，保留原来的接法、语气、玩笑；改不了就不说
     "drop_not_rewrite": True,        # 26.0 已经回过 / 突然翻旧事：没被叫到就不说（以前会重写成另一句旧话）
@@ -282,7 +303,7 @@ DEFAULTS = {
     "far_name_distance": 3,          # 隔了几条群友消息算“以前的话”
     "metrics_daily": True,           # 每晚算昨天的确定性指标和“个性保留”（eval/daily.py，不花钱）
     # ---- 32.0 注入预算 / 叫停（参考 dafeiyu-phone） ----
-    "roster_chars": 4800,            # “群里的人”整段最多多少字（0 = 不限）；超了从后往前去掉“其他人”（每个人的画像 28.0 已经有上限）
+    "roster_chars": 3000,            # “群里的人”整段最多多少字（0 = 不限）；超了从后往前去掉“其他人”（每个人的画像 28.0 已经有上限）
     "stop_cmd": True,                # 管理员在群里发 /stop [分钟]：她马上停下（连叫她也不回）；/go 恢复；/状态 看状态
     "stop_minutes": 60,              # /stop 不写分钟时停多久
     "stop_ack": True,                # 收到 /stop、/go、/状态 时回一句确认（这句不受叫停影响）
@@ -304,6 +325,12 @@ DEAD_KNOBS = ("interject_chance", "owner_chance", "interest_boost", "question_bo
 
 # 小屋里能调的“性格开关”：键 → (标签, 类型, 最小, 最大, 步长, 说明)
 KNOBS = {
+    "persona_version": ("人设版本", "str", None, None, None, "v2 = 33.0 新人设（只拦底线、偏心老大、按钮梗）；v1 = 旧人设，点一下就能切回去"),
+    "fav_name": ("她叫你什么", "str", None, None, None, "偏心对象（把她拉进群的人）在她嘴里的叫法"),
+    "chat_temperature": ("说话的随机度", "float", 0.5, 1.5, 0.05, "v2 主回复的温度；高一点更活，太高会乱说"),
+    "longing": ("想念老大", "bool", None, None, None, "他隔很久冒头她先阴阳一句；一整天不见白天 @ 他一次（连续 3 次没理就歇 7 天）"),
+    "buttons": ("按钮梗", "bool", None, None, None, "被叫人机炸毛、被嫌话痨委屈、“记小本本”真记"),
+    "sleep_hours": ("睡觉时段", "str", None, None, None, "这段时间被叫只回半句梦话；老大叫她能醒半小时；留空 = 不睡"),
     "talkativeness": ("话痨度", "float", 0, 1, 0.05, "最近 1 小时里留给她的发言份额；她说多了会自动收紧"),
     "max_per_10min": ("10 分钟最多说几轮", "int", 1, 30, 1, "被叫到时放宽到两倍"),
     "max_bubbles": ("一次最多几条", "int", 1, 5, 1, "一轮回复最多拆成几条消息"),
@@ -482,7 +509,7 @@ def clean_knob(key: str, val):
 
 
 # 27.1 小屋“性格开关”默认只显示这些常用的（其余点“显示全部”才出来；调过的总会显示）。以前 141 个全摊开，找不到要调的
-_MAIN = ("talkativeness", "max_per_10min", "cooldown_seconds", "max_bubbles", "unprompted_per_day", "unprompted_hours",
+_MAIN = ("persona_version", "fav_name", "chat_temperature", "longing", "buttons", "sleep_hours", "talkativeness", "max_per_10min", "cooldown_seconds", "max_bubbles", "unprompted_per_day", "unprompted_hours",
          "active_hours", "idle_chance", "welcome_chance", "share_chance", "group_note", "owner_note", "call_names", "pace",
          "stickers", "see_images", "voice_reply", "hear_voice", "night_catch_up", "memory_recall", "profile_every",
          "agent", "agent_per_day", "search_per_hour", "read_turn", "meme_lookup", "critic_v2", "pick_clean",

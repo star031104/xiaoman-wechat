@@ -19,6 +19,9 @@ from datetime import datetime, timedelta
 from aigroup.core.safety import looks_like_order
 
 log = logging.getLogger("aigroup.group")
+# 33.0 看比赛、熬夜看球、开黑这种娱乐：不记成要事后追问的约定（11-02 复盘：19 次追问里 11 次是比赛，换来“催命鬼”“我求你”）
+FUN_RX = re.compile(r"看.{0,6}(比赛|球|直播|赛|KPL|LPL|S1\d)|熬夜看|上号|开黑|打完|赢没|赢了没|鞭尸|被回|单走|打\s*[A-Za-z]{3,}|"
+                    r"(IG|BLG|AG|T1|KPL|LPL|LCK|VCT|S1\d|瓦|王者|LOL).{0,6}(打|vs|VS|对|比赛|赛)")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS qq_closeness (
@@ -56,6 +59,7 @@ DIGEST_EXTRA = """7. 好|话题|你的态度：你（“你”）在聊天里亲
    时间写成 YYYY-MM-DD HH:MM（只知道哪天就写 YYYY-MM-DD）；大家一起参加的活动写“提醒”（到点前叫一下大家），
    某个人自己的事（考试、面试、比赛、看病）写“问”（过后问他结果）。现在是 {now}，“明天”“周四”按这个算。最多 3 条，只写新的、确定的。
    只记真有结果、值得事后问的事；困了、吃饭、上班、看代码、下班这种日常状态不算，不要写。
+   看比赛、熬夜看球、上号开黑、打游戏这种娱乐不算（除非他说了“到时候告诉你 / 记得问我”）；别人回过的话（“被回 别鞭尸”）不算约定。
 9. 在|那个人的编号|城市|到哪天|为什么：聊天里说到某人现在在哪个城市、或者住在哪（出差、旅游、回老家、住、上学、工作），
    城市写中文名（国外的写英文名，比如 Tokyo）；到哪天写 YYYY-MM-DD，不知道写 -；为什么写 出差 / 旅游 / 回家 / 住 / 上学 / 工作 之一。
    只写确定的、新的，最多 3 条。"""
@@ -356,6 +360,9 @@ class GrowMixin:
 
     def add_plan(self, gid: int, uid: int, who: str, what: str, when: str, kind: str = "ask") -> int:
         now = self.brain.now()
+        if kind == "ask" and FUN_RX.search(what) and self._gk(gid).get("plans_no_fun", True):
+            log.info("群 %s：「%s」是娱乐 / 看比赛，不记成要追问的约定（33.0）", gid, what)
+            return 0
         due, all_day = parse_due(when, now)
         if due is None:
             return 0
@@ -620,6 +627,16 @@ class GrowMixin:
                         log.info("群 %s 打气失败：%s", gid, e)
                 return True
             late_s = now - due
+            if (p["kind"] == "ask" and late_s - (0 if p["all_day"] else 2 * 3600) > 12 * 3600
+                    and g.get("plans_expire_12h", True)):
+                # 33.0 过了能问的时候 12 小时还没问出去：作废，不第二天下午补问（11-02“打完了没”问的是前天的事）
+                self.db.conn.execute("UPDATE qq_plans SET status='expired' WHERE id=?", (p["id"],))
+                self.db.conn.commit()
+                log.info("群 %s：约定「%s」过了 12 小时没问出去，作废", gid, p["what"])
+                continue
+            ukey = f"qq_plans_u_{gid}_{p['user_id']}_{self.brain.now():%Y-%m-%d}"
+            if p["user_id"] and p["kind"] == "ask" and self.db.get(ukey):
+                continue                                 # 33.0 同一个人一天最多追问一次
             if p["kind"] == "remind":
                 if late_s > 6 * 3600:                    # 19.0 晚太多了：提醒没意义了，改成过后问一句
                     self.db.conn.execute("UPDATE qq_plans SET kind='ask' WHERE id=?", (p["id"],))
@@ -651,6 +668,8 @@ class GrowMixin:
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s 提醒失败：%s", gid, e)
             if said:
+                if p["user_id"] and p["kind"] == "ask":
+                    self.db.set(ukey, time.time())
                 self.db.conn.execute("UPDATE qq_plans SET status='done', fired=? WHERE id=?", (time.time(), p["id"]))
                 self.db.set(day_key, int(self.db.get(day_key, 0) or 0) + 1)
                 self.db.set(f"qq_plans_last_{gid}", time.time())

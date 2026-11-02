@@ -373,6 +373,8 @@ class Memory:
             db.conn.execute("ALTER TABLE qq_facts ADD COLUMN source TEXT NOT NULL DEFAULT ''")
         if "evidence" not in cols:               # 16.0 这件事有几次独立的证据；“你猜的”要 ≥2 次才拿来用
             db.conn.execute("ALTER TABLE qq_facts ADD COLUMN evidence INTEGER NOT NULL DEFAULT 1")
+        if "replaced_by" not in cols:            # 34.0 被哪条新说法取代（能说出“以前……后来……”）
+            db.conn.execute("ALTER TABLE qq_facts ADD COLUMN replaced_by INTEGER")
         if "heard_by" not in cols:               # 20.2 这件事被说出来的时候谁在（那条消息前 30 分钟到后 2 小时说过话的人）
             db.conn.execute("ALTER TABLE qq_facts ADD COLUMN heard_by TEXT NOT NULL DEFAULT ''")
         if "last_said" not in cols:              # 24.0 群友上一次又提起这件事的时间（只有再被提起才加强，被她想起不算）
@@ -426,6 +428,9 @@ class Memory:
             (gid, speaker, subject, text, kind if kind in ("fact", "event", "plan", "opinion", "experience") else "fact", msg_id, now,
              until if until and until > now else None, now, source if source in ("self", "other", "guess", "said") else "",
              ",".join(str(u) for u in self.present(gid, msg_id)), now))
+        for rid in replaces or []:
+            self.db.conn.execute("UPDATE qq_facts SET replaced_by=? WHERE id=? AND group_id=? AND replaced_by IS NULL",
+                                 (cur.lastrowid, int(rid), gid))
         self.db.conn.commit()
         self.last_new = True
         return int(cur.lastrowid)
@@ -630,6 +635,15 @@ class Memory:
         self._idx[gid] = (top, rows, bm)
         return rows, bm
 
+    def before_text(self, f: dict) -> str:
+        """34.0 这条取代了哪条旧的（最近的一条）。"""
+        try:
+            r = self.db.conn.execute("SELECT text FROM qq_facts WHERE replaced_by=? ORDER BY id DESC LIMIT 1",
+                                     (int(f.get("id") or 0),)).fetchone()
+        except Exception:  # noqa: BLE001
+            return ""
+        return str(r["text"]) if r else ""
+
     def prompt_block(self, found: dict, names: dict | None = None, focus: list | None = None) -> str:
         from aigroup.core.safety import clean_member_text, quote_member
         lines = []
@@ -647,7 +661,9 @@ class Memory:
             fuzzy = ""
             if f.get("created") and self._strength_of(f, time.time()) < 0.35:
                 fuzzy = "（记得不太清了：说的时候带个“好像”“我记得是”）"     # 20.0 记忆会淡：太久没想起的别说得斩钉截铁
-            lines.append(f"- （{day}）{who}{clean_member_text(f['text'], 120)}{src}{exp}{fuzzy}{self.presence_note(f, names, focus)}")
+            was = self.before_text(f)
+            lines.append(f"- （{day}）{who}{clean_member_text(f['text'], 120)}{src}{exp}{fuzzy}"
+                         f"{('（以前是：' + clean_member_text(was, 40) + '）') if was else ''}{self.presence_note(f, names, focus)}")
         for m in found.get("messages") or []:
             day = datetime.fromtimestamp(m["ts"], self.tz).strftime("%m-%d %H:%M")
             who = "你" if m["role"] == "assistant" else m["name"]

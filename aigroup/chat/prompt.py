@@ -478,7 +478,8 @@ class PromptMixin:
         if not hasattr(self, "_last_sigs") or not isinstance(self._last_sigs, dict):
             self._last_sigs = {}
         self._last_sigs[gid] = []
-        if t is not None and t.signatures and self.gk(gid).get("signatures", True) and drop != "signatures":
+        if (t is not None and t.signatures and self.gk(gid).get("signatures", True) and drop != "signatures"
+                and not (hasattr(self, "v2") and self.v2(gid))):          # 33.0 v2 不用人格签名
             sigs = t.pick(text, f, int(self.gk(gid).get("signature_k", 3) or 3))
             if sigs:
                 out.append("# 这种时候的你（你一贯是这样的）\n" + "\n".join(s.render() for s in sigs))
@@ -493,7 +494,8 @@ class PromptMixin:
         if held:
             out.append("# 你之前想说、还没说出口的（现在合适就说，不合适就继续憋着，别硬塞）\n"
                        + "\n".join(f"- {h}" for h in held))
-        if p.examples and self.gk(gid).get("persona_examples", True) and drop != "examples":
+        if (p.examples and self.gk(gid).get("persona_examples", True) and drop != "examples"
+                and not (hasattr(self, "v2") and self.v2(gid))):          # 33.0 v2 的示例在 system 里
             scored = sorted(((-sum(1 for w in e.keywords if w and w in text), i, e) for i, e in enumerate(p.examples)),
                             key=lambda x: (x[0], x[1]))
             exs = [e for sc, _, e in scored if sc < 0][:int(self.gk(gid).get("example_k", 2) or 2)]
@@ -673,6 +675,9 @@ class PromptMixin:
             p.body,
             rules,
         ]
+        v2 = bool(hasattr(self, "v2") and self.v2(gid))
+        if v2:                       # 33.0 身份层 + 底线层：v2 人设（≤1500 字 + 示例）代替旧人设、人格文件和 29 条相处规则
+            static = self.v2_static(gid, gname, fmt, getattr(self.ob, "prompt_hint", ""))
         gnotes = self.db.get(f'qq_group_notes_{gid}')
         selfcore = self.db.get(f'qq_selfcore_{gid}')
         reflect = self.db.get(f'qq_reflect_{gid}')
@@ -770,7 +775,10 @@ class PromptMixin:
         if mood and "sad" in (self.__dict__.get("_situ_flags") or {}).get(gid, set()):
             # 24.0（dsh-mood）：在聊的人状态不好时，先收起她自己的情绪表演（不管她这会儿是得意还是不服气）
             state = [x for x in state if x != mood] + ["在聊的人状态不太好：先把你自己的心情放一边，别显摆、别闹脾气，陪着就好。"]
-        drift = self.drift_anchor((getattr(self, "_drift", {}) or {}).get(gid, ""))
+        if v2:                       # 33.0 关系、按钮梗、想念、情绪、睡觉：拼进“此刻”
+            state += self.v33_state(gid, mentioned=mentioned, owner_spoke=owner_spoke, ign=ign, now_dt=now, focus=focus,
+                                    sad="sad" in ((self.__dict__.get("_situ_flags") or {}).get(gid) or set()))
+        drift = "" if v2 else self.drift_anchor((getattr(self, "_drift", {}) or {}).get(gid, ""))
         skip = '"act": "skip"' if plan else "[跳过]"
         if why:
             pass
@@ -822,7 +830,7 @@ class PromptMixin:
             situ,
             hx,
             drift,
-            self.anchor(),
+            (self.v2_anchor(gid) if v2 else self.anchor()),
             f"（系统：{why}。{tail}）",
         ] if x)
         self.note_prompt_size(gid, system, user)

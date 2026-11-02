@@ -49,6 +49,7 @@ from aigroup.chat.settings import DEAD_KNOBS, DEFAULTS, GLOBAL_ONLY, KNOBS, grou
 from aigroup.chat.listener import ListenerMixin
 from aigroup.chat.social import SocialMixin
 from aigroup.chat.speak import SpeakMixin
+from aigroup.chat.v33 import V33Mixin
 from aigroup.chat.state import GroupState
 from aigroup.chat.trace import Tracer
 from aigroup.core.store import ensure_columns
@@ -90,7 +91,7 @@ MSG_COLUMNS = {"to_her": "INTEGER NOT NULL DEFAULT 0",   # 这条是在叫她（
 
 class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, PromptMixin, PeopleMixin, DigestMixin,
                 NetMixin, GrowMixin, EvalMixin, StyleMixin, InsightMixin, AgentMixin, HumaneMixin, SocialMixin,
-                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, PromiseMixin, MemeMixin):
+                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, PromiseMixin, MemeMixin, V33Mixin):
     """她在群里的一切：收消息 → 判断要不要说 → 说 → 看效果；空闲时冒泡、整理记忆。
 
     这个类只负责把各部分装起来、放共用的小工具；具体的活在各个 Mixin 里（见文件开头的说明）。

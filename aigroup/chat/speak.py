@@ -535,8 +535,10 @@ class SpeakMixin:
                 pass
         t_l = time.time()
         tm["prompt"] = round(t_l - t_b, 1)                # 29.0 拼提示词（召回、画像、天气……）
+        v2t = (float(self.gk(gid).get("chat_temperature", 1.1) or 1.1)
+               if hasattr(self, "v2") and self.v2(gid) else None)              # 33.0 v2 温度高一点（默认 0.9 太像客服）
         raw = await b.llm.chat(messages, role=str(self.gk(gid).get("route") or "chat"),
-                               json_mode=bool(self.gk(gid).get("plan_json", True)))
+                               json_mode=bool(self.gk(gid).get("plan_json", True)), temperature=v2t)
         tm["llm"] = round(time.time() - t_l, 1)
         tlog.info("群 %s 原文：%s", gid, raw)
         fresh = self.db.conn.execute("SELECT COUNT(*) n, IFNULL(MAX(to_her), 0) h FROM qq_group_messages "
@@ -917,6 +919,14 @@ class SpeakMixin:
             t_n = time.time()
             bubbles = await self._check_numbers(gid, bubbles, web, messages, raw, mentioned, use_plan)
             tm["numbers"] = round(time.time() - t_n, 1)
+        if (not sticker and plan and bubbles and not web and not mentioned and self.gk(gid).get("stickers", True)
+                and random.random() < float(self.gk(gid).get("sticker_auto_prob", 0.2) or 0)
+                and len("".join(bubbles)) <= 30 and not any(("?" in x or "？" in x) for x in bubbles)):
+            # 34.0 没写表情包：短的、不是在问问题、不是认真答事实的话，按意思配一张（astrbot_plugin_stealer：0.2）
+            lu = next((str(r["content"] or "") for r in reversed(self._rows(gid, 4)) if r["role"] == "user"), "")
+            if self.stickers.match(gid, " ".join(bubbles) + " " + lu, 0.35):
+                sticker = "auto:" + " ".join(bubbles) + " " + lu
+                log.info("群 %s：按意思配了一张表情包", gid)
         # 30.0 别人刚发表情包时也可以回表情包（只抽一次，发的时候照这个来）
         sticker_ok = bool(sticker) and (not last_is_sticker or random.random() < float(self.gk(gid).get("sticker_on_sticker", 0.5)))
         if (bubbles and sticker_ok and not mentioned and not must and why is None and self.gk(gid).get("cold_sticker", True)
@@ -937,7 +947,8 @@ class SpeakMixin:
             h3 = int(self.db.conn.execute("SELECT COUNT(*) n FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>?",
                                           (gid, time.time() - 180)).fetchone()["n"])
             room = burst_room(h3, len(bubbles), bool(mentioned or must),
-                              int(self.gk(gid).get("burst_3min_cap", 3) or 3))
+                              self.v33_burst_cap(gid, owner_spoke) if hasattr(self, "v33_burst_cap")
+                              else int(self.gk(gid).get("burst_3min_cap", 3) or 3))     # 33.0 对老大可以多发几条
             if room < len(bubbles):
                 log.info("群 %s：最近 3 分钟已经说了 %d 条，这次只发 %d 条", gid, h3, room)
                 if room <= 0:
@@ -947,6 +958,9 @@ class SpeakMixin:
             from aigroup.chat.address import shape_bubbles
             bubbles = shape_bubbles(bubbles, self.recent_sizes(gid), random.random(),
                                     long=bool(plan and plan.get("len") == "long"))
+        if bubbles and hasattr(self, "v2") and self.v2(gid):     # 33.0 出口层：句末句号、套话
+            from aigroup.chat.v33 import exit_clean
+            bubbles = [x for x in (exit_clean(b_) for b_ in bubbles) if x]
         # ---- 偶尔打错一个字，再补一句“*正确的字” ----
         if bubbles and not (mentioned or web) and random.random() < float(self.gk(gid).get("typo_rate", 0)):   # 30.1 认真答事实时不打错字
             j = random.randrange(len(bubbles))
@@ -1029,8 +1043,8 @@ class SpeakMixin:
                 try:
                     await asyncio.sleep(random.uniform(0.5, 1.5) * min(1.0, pace) if pace else 0)
                     mid = await self.ob.send_group(gid, [image_seg(pick_s["file"].read_bytes(), sticker=True)])
-                    self._record(gid, self.ob.self_id or 0, b.persona.name, f"[表情包:{pick_s['emotion']}]", mid,
-                                 role="assistant")
+                    self._record(gid, self.ob.self_id or 0, b.persona.name,
+                                 f"[表情包:{pick_s.get('meaning') or pick_s['emotion']}]", mid, role="assistant")
                     self.stickers.used(pick_s["id"])
                     sent_ids.append(mid)
                     sent_txt.append(f"[表情包:{pick_s['emotion']}]")

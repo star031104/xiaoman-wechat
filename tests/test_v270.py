@@ -107,4 +107,4 @@ def test_profile_line_caps_keep_must():
 
 def test_main_knobs_listed():
     from aigroup.chat.settings import KNOBS, MAIN_KNOBS
-    assert 20 <= len(MAIN_KNOBS) <= 32 and all(k in KNOBS for k in MAIN_KNOBS) and "talkativeness" in MAIN_KNOBS
+    assert 20 <= len(MAIN_KNOBS) <= 40 and all(k in KNOBS for k in MAIN_KNOBS) and "talkativeness" in MAIN_KNOBS

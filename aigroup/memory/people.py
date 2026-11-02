@@ -45,7 +45,7 @@ def active_time(hours: list[int]) -> str:
 
 
 FIELD_CHARS = 160      # 28.0 画像里每一项最多多少字（口头禅、兴趣、说话风格常常一项就三四百字）
-PERSON_CHARS = 1300    # 28.0 一个人的画像最多多少字（以前 3 个人就 6000 字，占 system 三分之一多）
+PERSON_CHARS = 800     # 28.0 一个人的画像最多多少字（以前 3 个人就 6000 字，占 system 三分之一多）（33.0 1300 → 800：人设里已经写了三个人）
 
 
 def _cut(v, n: int = FIELD_CHARS) -> str:

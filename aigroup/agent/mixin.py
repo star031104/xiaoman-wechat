@@ -348,6 +348,8 @@ def brief_block(goal: str, d: dict, fresh: bool = True) -> str:
     if d.get("claims"):
         def _one(c):                             # 30.2 只有一家来源这么说：标出来，别拿去纠正别人
             sites = {str(s.get("site") or "").strip().lower() for s in (c.get("sources") or []) if isinstance(s, dict)}
+            if any(k in x for x in sites for k in ("赛事数据接口", "直播吧", "腾讯", "vlr", "liquipedia")):
+                return ""                         # 34.1 赛程比分来自结构化数据接口：一家就够，不算“只有一家这么说”
             return "（只有一家这么说）" if len(sites - {""}) == 1 and c.get("confidence") == "high" else ""
         lines += [f"- {c['text']}{word.get(c['confidence'], '')}{_one(c)}" for c in d["claims"]]
     else:
@@ -447,22 +449,36 @@ class AgentMixin:
             return []
         n = int(self.gk(gid).get("topic_watch_max", 2) or 0)
         prompt = (f"这是一个朋友群。下面是群里这几天的聊天（节选）和群里的 AI 群友这一周查过的问题。挑出群里这几天一直在聊、"
-                  f"接下来还会有新进展、值得每天看一眼的事（最多 {n} 件）：比如一项正在进行的比赛 / 赛季、正在追的连载、"
-                  "一件还没结果的事（在等的发布、在投的岗位方向）。只是一次性聊过、问过的不算；没有就返回空列表。\n"
+                  f"接下来还会有新进展、值得每天看一眼的事（最多 {n} 件）：比如一件还没结果的事（在等的发布、在投的岗位方向）、正在追的连载、"
+                  "一项正在进行的赛事。必须是群友（不是 AI）最近一天自己还在聊的；只是一次性聊过、问过的不算；没有就返回空列表。\n"
                   "每件写：topic（几个字）、query（今天去搜什么，具体到能搜到最新进展，比如“S16 世界赛 今天 赛果 下一轮对阵”）。\n\n"
                   "# 查过的问题\n" + "\n".join(f"- {g}" for g in goals) + f"\n\n# 聊天节选（从早到晚）\n{chat}\n\n"
                   '只输出 JSON：{"topics": [{"topic": "...", "query": "..."}]}')
         d = await self.brain.llm.json([{"role": "user", "content": prompt}], default={}, role="helper")
         picked = []
+        day24 = " ".join(str(r["content"] or "") for r in self.db.conn.execute(
+            "SELECT content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>?", (gid, time.time() - 86400)))
+        hist = dict(self.db.get(f"topic_watch_hist_{gid}") or {})
+        today_s = f"{self.brain.now():%Y-%m-%d}"
         for t in ((d.get("topics") if isinstance(d, dict) else None) or [])[:n]:
             if not isinstance(t, dict) or not str(t.get("query") or "").strip():
                 continue
             q, topic = str(t["query"]).strip()[:80], str(t.get("topic") or "").strip()[:20]
+            grams = {topic[i:i + 2] for i in range(max(0, len(topic) - 1))}
+            if self.gk(gid).get("topic_watch_strict", True) and not any(x in day24 for x in grams if x.strip()):
+                log.info("群 %s 跟进「%s」：最近一天群友没聊，不跟", gid, topic)    # 33.0
+                continue
+            days = sorted(set(hist.get(topic) or []))[-3:]
+            if self.gk(gid).get("topic_watch_strict", True) and len(days) >= 3:
+                log.info("群 %s 跟进「%s」：已经连跟 3 天，停", gid, topic)          # 33.0
+                continue
+            hist[topic] = (days + [today_s])[-5:]
             try:
                 await self._agent_research(gid, q, "quick", False, question=topic or q, qtype="recent")
                 picked.append(topic or q)
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 跟进「%s」出错：%s", gid, topic, e)
+        self.db.set(f"topic_watch_hist_{gid}", hist)
         if picked:
             log.info("群 %s 每天跟进：%s", gid, "、".join(picked))
             self.db.set(f"topic_watch_last_{gid}", {"ts": time.time(), "topics": picked})
@@ -695,6 +711,12 @@ class AgentMixin:
                                                                    + self._asker_note(gid, qtype)
                                                                    + self._said_note(gid, goal + " " + question),
                                                                    context=self.transcript(gid, 6))}]
+        sp = await self.sports_brief(gid, goal + " " + question) if hasattr(self, "sports_brief") else ""
+        if sp:                                       # 34.1 比分、赛程只认赛事数据接口；够回答就一轮交卷
+            msgs[-1]["content"] += ("\n\n" + sp + "\n（上面是赛事数据接口直接拿到的赛程比分：比分、时间、对阵、谁晋级照这个说，别再去搜比分；"
+                                    "问的就是这些的话直接交卷，不够才搜新闻和背景）")
+            if qtype in ("", "fact", "recent", "calc"):
+                rounds, deadline = 1, min(deadline, 15.0)
         from aigroup.agent.tools import DEPTH, QUESTION
         QUESTION.set(question or goal)
         DEPTH.set(depth)
@@ -711,6 +733,8 @@ class AgentMixin:
         finally:
             if filler is not None and not filler.done():
                 filler.cancel()
+        if sp:
+            res.tool_text.append(sp)
         d = parse_brief(res.text)
         dropped = verify_citations(d, "\n".join(res.tool_text)) if g.get("agent_verify_cites", True) else 0
         if g.get("agent_verify_cites", True):
@@ -733,6 +757,22 @@ class AgentMixin:
         if g.get("remember_web", True) and d.get("confidence") != "low" and d.get("claims"):   # 25.1 只记查到的事实，不记她的判断
             self._spawn(self.learn(gid, goal, [{"title": goal, "snippet": "；".join(d["answer_points"][:3])}]))
         return brief_block(goal, d)
+
+    async def sports_brief(self, gid: int, text: str) -> str:
+        """34.1 和这句话有关的赛程比分（直播吧、腾讯赛事、vlr.gg、Liquipedia；见 aigroup/net/sports.py）。"""
+        if not self.gk(gid).get("sports_data", True):
+            return ""
+        if getattr(self, "_sports", None) is None:
+            from aigroup.net.sports import SportsHub
+            self._sports = SportsHub()
+        try:
+            out = await self._sports.brief(text)
+        except Exception as e:  # noqa: BLE001
+            log.info("群 %s 赛事数据出错：%s", gid, e)
+            return ""
+        if out:
+            log.info("群 %s 赛事数据：%s", gid, out.splitlines()[0][:80])
+        return out
 
     async def _recheck_major(self, d: dict, steps: list[str]) -> dict:
         """21.0 重大消息只有一个来源：降到“中”；研究员没搜过辟谣的，补搜一次“xx 辟谣 / 澄清”，搜到就记进 counter。"""

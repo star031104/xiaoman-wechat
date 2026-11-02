@@ -68,6 +68,23 @@ def relevant(query: str, results: list[dict]) -> bool:
     return any(w in text for w in words)
 
 
+def fresh_filter(res: list[dict], days: int, today=None) -> list[dict]:
+    """34.0 要最近几天的：日期早于窗口的、看不出日期的都丢掉（混进旧资料准确率至少掉 20%，ACL 2025 HOH）。"""
+    from datetime import date, datetime, timedelta
+    if not days:
+        return res
+    lo = (today or date.today()) - timedelta(days=int(days) + 1)
+    out = []
+    for r in res or []:
+        try:
+            d = datetime.strptime(str(r.get("date") or "")[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if d >= lo:
+            out.append(r)
+    return out
+
+
 def pub_date(v) -> str:
     """Tavily 的 published_date（RFC 2822 或 ISO）→ YYYY-MM-DD；认不出返回空。"""
     s = str(v or "").strip()
@@ -150,7 +167,7 @@ class WebSearch:
         c = dict(cfg.get("net") or {})
         self.enabled = bool(c.get("search", True))
         self.tavily_key = str(c.get("tavily_key") or "").strip()
-        self.tavily_first = bool(c.get("tavily_first", True))      # 13.0 配了 Key 就先用 Tavily（结果干净，服务器上不会被风控）
+        self.tavily_first = bool(c.get("tavily_first", False))   # 34.1 True → False：Tavily 降为备用      # 13.0 配了 Key 就先用 Tavily（结果干净，服务器上不会被风控）
         self.proxy = cfg.get("proxy") or None
         self.timeout = float(c.get("search_timeout", 12))
         self._cache: dict[str, list[dict]] = {}
@@ -158,7 +175,8 @@ class WebSearch:
         self.kv = None                    # 19.0 GroupChat 挂上数据库：记 Tavily 这个月用了几次、免费额度用完没
         self.ds_key = deepseek_key(cfg) if c.get("deepseek_search", True) else ""
         # 20.4.3 默认先用 Tavily 的每月免费额度，用完（或出错）再用 DeepSeek；search_first: deepseek 改回 DeepSeek 在前
-        self.ds_first = str(c.get("search_first") or "tavily").lower() == "deepseek"
+        self.ds_first = str(c.get("search_first") or "deepseek").lower() == "deepseek"   # 34.1 默认 DeepSeek 在前（0.35 秒、带日期和权威度）
+        self.fresh_strict = bool(c.get("fresh_strict", True))       # 34.0 要最近几天时，旧的和没日期的都不要
         self.ds_usd = float(c.get("deepseek_search_usd", 0.0007) or 0)    # 24.0 一次 DeepSeek 搜索 / 读网页记多少美元
         self.ds_ip = str(c.get("deepseek_ip") or "").strip()      # 20.1 固定按哪个 IP 出结果（不同 IP 前 10 只重合 0.58）
         self.buckets = {"DeepSeek": Bucket(float(c.get("deepseek_qps", 5))), "Tavily": Bucket(float(c.get("tavily_qps", 2)))}
@@ -396,6 +414,11 @@ class WebSearch:
             except Exception as e:  # noqa: BLE001
                 log.info("%s搜索失败（%s）：%s", name, q, e)
                 continue
+            if got and days and self.fresh_strict:
+                n0 = len(got)
+                got = fresh_filter(got, int(days))
+                if len(got) < n0:
+                    log.info("查资料：「%s」去掉 %d 条旧的 / 没日期的（要最近 %d 天）", q, n0 - len(got), days)
             if got:
                 self._cache[ck] = got
                 if len(self._cache) > 200:

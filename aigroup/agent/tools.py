@@ -33,6 +33,13 @@ SCHEMAS = {
             "days": {"type": "integer", "description": "只要最近几天的新闻（7~30）；0 = 不限（查资料、百科、数据页用 0）"},
             "site": {"type": "string", "description": "只搜这个网站（域名，比如 vlr.gg）；不限就不填"},
         }, "required": ["query"]}},
+    "scores": {
+        "description": "赛程和比分（结构化数据接口，比搜索准）：足球、篮球、羽毛球、乒乓球、网球、斯诺克等体育，"
+                       "英雄联盟、王者荣耀、无畏契约、CS2、Dota2 等电竞。返回前 3 天到后 7 天的对阵、时间（北京时间）、比分、状态。"
+                       "问比分、赛程、谁赢了、几点打先用这个。",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "项目 + 队名 / 选手 / 赛事，比如“S16 T1”“王者荣耀 KPL 狼队”“羽毛球 石宇奇”“CS2 IEM”"},
+        }, "required": ["query"]}},
     "read_url": {
         "description": "打开任何网页读正文（表格也在，Markdown）。被拦、要脚本加载的会自动换办法（仿浏览器、真浏览器、国外的经 Tavily 读）。"
                        "页面长时用 find 只看和问题有关的段落（最省）；links=true 会附上页面上的链接（编号 + 文字 + 网址），可以接着 read_url 点进去；"
@@ -82,7 +89,7 @@ SCHEMAS = {
         }, "required": ["expr"]}},
 }
 
-DEFAULT = ["web_search", "read_url", "recall", "bili", "esports", "weather", "calc"]
+DEFAULT = ["web_search", "scores", "read_url", "recall", "bili", "esports", "weather", "calc"]
 
 # 20.1 一次研究里搜过的词（tool_loop 开始时换一份新的；同一轮并行的几个调用共用）
 import contextvars  # noqa: E402
@@ -261,6 +268,14 @@ class Toolbox:
             kw["prefer"] = "deepseek"
         res, eng = await self.web.agent_search(q, 6, days, **kw)
         return format_results(res, eng)
+
+    async def t_scores(self, a: dict) -> str:
+        if getattr(self, "_sports", None) is None:
+            from aigroup.net.sports import SportsHub
+            self._sports = SportsHub()
+        q = str(a.get("query") or "").strip()
+        out = await self._sports.brief(q + " 比赛") if q else ""
+        return out or "（赛事数据接口里没找到，换 web_search 搜新闻）"
 
     async def t_read_url(self, a: dict) -> str:
         url = str(a.get("url") or "").strip()

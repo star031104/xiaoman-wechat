@@ -63,6 +63,7 @@ def test_stickers_collect_label_and_send(cfg, brain, monkeypatch):
         return {"post_type": "message", "message_type": "group", "group_id": GROUP, "user_id": uid, "message_id": mid,
                 "sender": {"card": "x"}, "message": [{"type": "image", "data": {
                     "url": "https://q/abc", "file": "0123456789abcdef0123456789abcdef.gif", "sub_type": 1}}]}
+    gc.stickers.steal_prob = 0.0                  # 34.0 第一次见到有概率收；这里测“一个人发过不存”
     _run(gc, stk(FRIEND, 1))
     assert not list(gc.stickers.dir.glob("*")) if gc.stickers.dir.exists() else True    # 1 个人发过：不存
     _run(gc, stk(FRIEND2, 2))

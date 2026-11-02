@@ -120,6 +120,9 @@ class IngestMixin:
         name = clean_name((sender.get("card") or sender.get("nickname") or str(uid)).strip())
         f = flatten(ev.get("message"), self.ob.self_id, self.names(gid, members=True))
         text = clean_member_text(f.text)        # 换行、伪造的“#编号 你：”“（系统：”都洗掉
+        if ("小本本" in text and ("/" in text or "／" in text) and hasattr(self, "notebook_cmd")
+                and await self.notebook_cmd(gid, uid, name, text, ev.get("message_id"))):
+            return                                  # 33.0 /小本本：查她记的事
         if ("/" in text or "／" in text) and hasattr(self, "control_cmd") \
                 and await self.control_cmd(gid, uid, name, text, ev.get("message_id")):
             return                                  # 32.0 管理员的 /stop、/go、/状态：照做，不拿去接话
@@ -157,6 +160,8 @@ class IngestMixin:
                 if self.g.get("remember_web", True):
                     self.learn_link(gid, desc)
         mentioned = f.mentioned or reply_to_her or called or bool(ev.get("_poke"))
+        if hasattr(self, "button_hit") and self.button_hit(gid, uid, clean_member_text(f.text), to_her=bool(mentioned)):
+            mentioned = True                        # 33.0 按钮梗被按了：一定有反应
         if hasattr(self, "talk_control"):
             tn = self.talk_control(gid, uid, text, bool(mentioned) or bool(st.last_reply_ts and time.time() - st.last_reply_ts < 60))
             if tn:
@@ -467,13 +472,25 @@ class IngestMixin:
             except Exception:  # noqa: BLE001
                 pass
         names = "、".join(self.member_names(gid)[:12]) if gid is not None and hasattr(self, "member_names") else ""
+        ocr = ""
+        if not thumb and self.gk(gid).get("ocr", True):    # 34.0 截图先过 OCR：引用图上的字只认这里
+            try:
+                from aigroup.net.ocr import ocr_text
+                ocr = await asyncio.wait_for(asyncio.to_thread(ocr_text, data), 10)
+            except Exception as e:  # noqa: BLE001
+                log.info("OCR 没跑完：%s", e)
+            if len(re.sub(r"\W", "", ocr)) < 6:
+                ocr = ""
         try:
             desc = (await self.brain.llm.describe_image(
                 base64.b64encode(data).decode(), "",
                 prompt=GROUP_IMAGE_PROMPT.format(who=who, names=names or "（不知道）")
                 + ("\n\n（30.1 这是一张很小的缩略图，原图没下下来：只写看得清的大概是什么；看不清的字一个也别写、别猜，别写人名；"
-                   "最后加一句“缩略图，看不清细节”。）" if thumb else "")))
-            desc = trim_desc(desc, 180)          # 22.2 以前硬截 100 字，会截在引号中间（“電話「5478”）
+                   "最后加一句“缩略图，看不清细节”。）" if thumb else "")
+                + (f"\n\n（OCR 认出的图上原文，要写图上的字只能照这个抄，别自己补：{ocr}）" if ocr else "")))
+            desc = trim_desc(desc, 180)
+            if ocr:
+                desc += f"｜图上原字（OCR）：{ocr[:120]}"          # 22.2 以前硬截 100 字，会截在引号中间（“電話「5478”）
             if desc:
                 self.db.set(key, desc)
             return desc

@@ -271,6 +271,8 @@ class DigestMixin:
         if self.gk(gid).get("stickers", True):
             try:
                 await self.stickers.label(self.brain.llm)
+                if self.brain.llm.vision and hasattr(self.stickers, "describe_files"):
+                    await self.stickers.describe_files(self.brain.llm, int(self.gk(gid).get("sticker_describe_n", 8) or 8))
             except Exception as e:  # noqa: BLE001
                 log.info("给表情包猜意思失败：%s", e)
 

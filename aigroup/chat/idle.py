@@ -72,6 +72,8 @@ class IdleMixin:
                 continue
             if hasattr(self, "weather_tick") and await self.weather_tick(gid, st):     # 4.4 在外地的群友那边要变天
                 continue
+            if hasattr(self, "longing_tick") and await self.longing_tick(gid, st):    # 33.0 一整天没见老大：@ 他一次
+                continue
             if hasattr(self, "plans_tick") and await self.plans_tick(gid, st):     # 约好的事：到点提醒 / 事后问
                 continue
             if hasattr(self, "feed_tick"):                       # 20.2 后台攒“刷到的”候选（不调大模型）
