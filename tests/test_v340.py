@@ -122,3 +122,12 @@ def test_fact_replaced_by(cfg, brain):
 def test_ocr_graceful():
     from aigroup.net.ocr import ocr_text
     assert ocr_text(b"") == "" and ocr_text(b"not an image") == ""
+
+
+def test_event_nicknames_match():                    # 34.1 问“世界赛”“S赛”“国乒”，接口里写的是“全球总决赛”“WTT”
+    assert tokens("英雄联盟世界赛") == ["世界赛"] and tokens("S赛决赛") == ["S赛"] and tokens("国乒今晚") == ["国乒"]
+    t = (datetime.now(TZ8) + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M")
+    h = _hub({"zhibo8.com": Z8.format(t=t), "list.htm": json.dumps({"list": []})})
+    assert "林德 vs 王楚钦" in asyncio.run(h.brief("国乒今晚打谁"))
+    lol = asyncio.run(h.brief("世界赛谁赢了"))
+    assert "没找到" not in lol and "IG" in lol

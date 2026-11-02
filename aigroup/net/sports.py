@@ -24,7 +24,7 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 LP_UA = "XiaomanBot/1.0 (small private group-chat bot; +https://github.com/star031104/xiaoman-wechat)"
 
 # 话题 → 用哪些来源。顺序就是优先级；zhibo8 是兜底（体育和一部分电竞都有）
-LOL_RX = re.compile(r"英雄联盟|\bLOL\b|\blol\b|撸啊撸|LPL|LCK|\bS1\d\b|世界赛|全球总决赛|\bMSI\b|德杯|T1|BLG|TES|JDG|\bIG\b|\biG\b|WBG|LNG|NIP|\bAL\b|Gen\.?G|HLE|\bDK\b|\bKT\b|\bG2\b|FNC|faker|Faker")
+LOL_RX = re.compile(r"英雄联盟|\bLOL\b|\blol\b|撸啊撸|LPL|LCK|\bS1\d\b|\bS\d{1,2}赛|S赛|[Ww]orlds|世界赛|全球总决赛|\bMSI\b|德杯|T1|BLG|TES|JDG|\bIG\b|\biG\b|WBG|LNG|NIP|\bAL\b|Gen\.?G|HLE|\bDK\b|\bKT\b|\bG2\b|FNC|faker|Faker")
 KOG_RX = re.compile(r"王者荣耀|王者|KPL|kpl|KCC|挑战者杯|AG超玩会|成都AG|狼队|TTG|eStar|EDG\.M|北京WB|\bWB\b|DYG|RNG\.M|KSG|DRG|济南RW|LGD\.NBW|南京Hero|Hero久竞|厦门VG|西安WE|TES\.A|情久")
 VAL_RX = re.compile(r"无畏契约|瓦洛兰特|瓦罗兰特|valorant|Valorant|VCT|\b瓦\b|瓦的|看瓦|瓦比赛|PRX|Paper Rex|Sentinels|FNATIC|EDG瓦|DRX|Team Heretics")
 LP_GAMES = [   # (Liquipedia wiki, 叫法)
@@ -52,6 +52,14 @@ STOP = {"比赛", "比分", "赛程", "今天", "今晚", "明天", "明晚", "�
         "有什么", "什么", "哪些", "哪个", "怎么样", "如何", "能不能", "会不会", "还能", "今年", "夺冠", "冠军", "打得", "看看", "这周",
         "下周", "上周", "周末", "这几天", "打谁", "跟谁", "对手", "谁打", "晋级", "淘汰", "决赛", "半决赛", "小组赛", "直播", "比赛吗",
         "几号", "比多少", "赢没", "打完", "开始", "结束", "情况", "消息", "战绩", "排名", "一场", "那个", "这个", "我们", "你们", "他们"}
+# 赛事的俗称 → 数据里的叫法（问“世界赛”“S赛”，接口里写的是“全球总决赛”）。只是赛事名的词找不到也不算“没找到”
+EVENT_SYN = {"世界赛": ["全球总决赛", "worlds", "world championship"], "s赛": ["全球总决赛", "worlds"],
+             "worlds": ["全球总决赛", "worlds"], "全球总决赛": ["全球总决赛", "worlds"], "季中赛": ["msi", "季中"],
+             "msi": ["msi", "季中"], "major": ["major"], "总决赛": ["总决赛", "final"], "冠军赛": ["champions", "冠军赛"],
+             "冠军杯": ["champions", "冠军杯"], "大师赛": ["masters", "大师赛"], "国际邀请赛": ["the international", "国际邀请赛"],
+             "ti": ["the international"], "季后赛": ["playoff", "季后赛"], "常规赛": ["regular", "常规赛"]}
+NICK_SYN = {"国乒": ["乒乓", "wtt", "ittf"], "国羽": ["羽毛球", "bwf"], "乒乓": ["乒乓", "wtt", "ittf"],
+            "羽毛球": ["羽毛球", "bwf"], "国足": ["国足", "中国"], "网球": ["网球", "atp", "wta"]}
 FILL = re.compile(r"[的了吗呢吧啊和跟在是有啥么呀哦嘛也都还就又与及或要能会去看打谁赢输场次个]")
 
 
@@ -64,7 +72,11 @@ def is_sports(text: str) -> bool:
 def tokens(text: str) -> list[str]:
     t = str(text or "")
     out = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9.\-]{1,}|\d+[A-Za-z]+[A-Za-z0-9]*", t) if w.lower() not in ("vs", "bo3", "bo5", "bo1")]
+    out += [w for w in ("世界赛", "全球总决赛", "季中赛", "国际邀请赛", "总决赛", "冠军赛", "大师赛", "季后赛", "常规赛") if w in t]
+    if re.search(r"(?<![A-Za-z])[Ss]赛", t):
+        out.append("S赛")
     for seg in re.findall(r"[\u4e00-\u9fff]{2,}", t):
+        seg = re.sub(r"英雄联盟|王者荣耀|无畏契约|瓦洛兰特|瓦罗兰特|反恐精英|刀塔|世界赛|全球总决赛|季中赛|国际邀请赛|总决赛|冠军赛|大师赛|季后赛|常规赛", " ", seg)
         seg = re.sub("|".join(sorted(STOP, key=len, reverse=True)), " ", seg)
         seg = FILL.sub(" ", seg)
         out += [x for x in seg.split() if len(x) >= 2 and x not in STOP]
@@ -328,7 +340,11 @@ class SportsHub:
         game_words = {"英雄联盟", "王者荣耀", "王者", "无畏契约", "瓦洛兰特", "电竞", "lol", "kpl", "dota", "cs2", "csgo", "cs",
                       "valorant", "vct", "刀塔", "反恐精英"}
         toks = [x for x in toks if not (esports and x in game_words)]
-        hit = [m for m in ms if any(x in hay(m) for x in toks)]
+        def has(x, h):
+            return any(a in h for a in EVENT_SYN.get(x) or NICK_SYN.get(x) or [x])
+        hit = [m for m in ms if any(has(x, hay(m)) for x in toks)]
+        if toks and not hit and all(x in EVENT_SYN for x in toks):   # 只说了“世界赛”“major”这类赛事名：按游戏给最近的
+            toks = []
         if toks and not hit:
             return (f"# 赛程比分（赛事数据接口：{'、'.join(used) or '直播吧'}；{now:%m-%d %H:%M} 拉取）\n"
                     f"- 前 {back_days:g} 天到后 {ahead_days:g} 天里没找到和「{'、'.join(toks[:4])}」有关的比赛（直播吧只列有直播的场次）")
