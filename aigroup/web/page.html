@@ -28,19 +28,26 @@ details.more.nums{margin-top:var(--sp-3);border-top:0;padding-top:0}
 details.more.nums .minis{margin-top:var(--sp-3)}
 .groups{display:flex;flex-direction:column;gap:var(--sp-3)}
 .groups.multi{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
-.gcard{border-radius:var(--r);padding:14px 16px;background:var(--surface-2);display:flex;flex-direction:column;gap:10px}
+.gcard{border-radius:var(--r);padding:14px 16px;background:var(--surface-2);display:flex;flex-direction:column;gap:10px;box-shadow:inset 0 0 0 1px var(--line)}
 .gcard .h{display:flex;gap:12px;align-items:center}
 .gava{width:40px;height:40px;border-radius:var(--r);display:grid;place-items:center;color:#fff;font-weight:700;flex:none}
 .gcard .nm{font-weight:700}
 .gcard .id{font-size:var(--fs-micro);color:var(--ink-3);font-family:var(--mono)}
 .gstats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.gstats div{background:var(--surface);border-radius:var(--r-sm);padding:6px 4px;text-align:center}
+.gstats div{background:var(--surface);border-radius:var(--r-sm);padding:6px 4px;text-align:center;box-shadow:inset 0 0 0 1px var(--line)}
 .gstats b{display:block;font-size:var(--fs-t3);font-variant-numeric:tabular-nums}
 .gstats span{font-size:var(--fs-micro);color:var(--ink-3)}
 .glast{font-size:var(--fs-meta);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gcard .f{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cmp{width:100%;border-collapse:collapse;font-size:var(--fs-meta)}
-.cmp th,.cmp td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp th,.cmp td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+.cmp tr:first-child th{font-size:var(--fs-micro);letter-spacing:.04em;color:var(--ink-3);border-bottom-color:var(--line-2)}
+.cmp tr:not(:first-child):hover>*{background:color-mix(in srgb,var(--accent-soft) 50%,transparent)}
+.cmp tr:last-child>*{border-bottom:0}
+/* 35.0 表格里的数据条 */
+.db{position:relative;display:inline-flex;align-items:center;justify-content:flex-end;gap:6px}
+.db::before{content:"";height:6px;border-radius:3px;width:calc(var(--p,0) * 36px + 2px);background:var(--c,var(--s1));opacity:.85;order:-1;flex:none;margin-right:auto}
+.db.soft::before{opacity:.35}
 .cmp th{color:var(--ink-3);font-weight:500;white-space:nowrap}
 .cmp td.win{color:var(--ink);font-weight:700}
 .cmp td small{color:var(--ink-3);font-weight:400}
@@ -77,7 +84,7 @@ details.more.nums .minis{margin-top:var(--sp-3)}
 .pref button:hover{color:var(--bad)}
 .sched{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-5)}
 .sched h4{margin:0 0 var(--sp-2);font-size:var(--fs-sm);color:var(--ink-2);display:flex;align-items:center;gap:6px}
-.sched h4 svg{color:var(--honey)}
+.sched h4 svg{color:var(--accent)}
 @media (max-width:1000px){.sched{grid-template-columns:1fr}}
 .bdlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:var(--sp-2);margin-top:var(--sp-3)}
 .bd{display:flex;align-items:center;gap:8px;border-radius:var(--r-sm);padding:6px 8px;background:var(--surface-2)}
@@ -109,7 +116,7 @@ details.more.nums .minis{margin-top:var(--sp-3)}
 .m .b{padding:8px 12px;border-radius:4px 16px 16px 16px;background:var(--surface-2);white-space:pre-wrap;word-break:break-word;line-height:1.6}
 .m.her{align-self:flex-end;flex-direction:row-reverse}
 .m.her .body{align-items:flex-end}
-.m.her .b{background:var(--solid);color:var(--on-solid);border-radius:16px 4px 16px 16px}
+.m.her .b{background:var(--grad);color:#fff;border-radius:16px 4px 16px 16px}
 .m.owner .b{background:var(--tint-4)}
 .m .b .at{color:var(--accent-ink);font-weight:600} .m.her .b .at{color:var(--on-solid);text-decoration:underline}
 .m .b .sys{color:var(--ink-3);font-size:var(--fs-meta)}
@@ -124,7 +131,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .panels{display:flex;flex-direction:column;gap:var(--sp-3)}
 .panels details.card>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:16px 18px;font-weight:700}
 .panels details.card>summary::-webkit-details-marker{display:none}
-.panels details.card>summary svg{color:var(--honey)}
+.panels details.card>summary svg{color:var(--accent)}
 .panels details.card>summary::after{content:"";margin-left:auto;width:7px;height:7px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(45deg);transition:transform .15s}
 .panels details[open].card>summary::after{transform:rotate(-135deg)}
 .panels details.card>.card-b{padding-top:0}
@@ -162,12 +169,12 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .tm .cells i{width:5px;height:10px;border-radius:2px;background:var(--line-2)}
 .tm .cells i.on{background:var(--c)}
 .tmore{display:flex;justify-content:center;padding-top:10px}
-:root{--t0:var(--accent);--t1:color-mix(in srgb,var(--accent) 45%,var(--surface-3));--t2:var(--honey);--t3:var(--ink-3)}
+:root{--t0:var(--accent);--t1:color-mix(in srgb,var(--accent) 45%,var(--surface-3));--t2:var(--accent-2);--t3:var(--ink-3)}
 .chk{display:inline-flex;gap:8px;align-items:center;font-size:var(--fs-meta);color:var(--ink-2);cursor:pointer}
 
 /* ---------- 工作台：群友 ---------- */
 .ppl{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--sp-3);margin-top:var(--sp-3)}
-.pcard{border:0;border-radius:var(--r-lg);padding:14px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,transform .15s;text-align:left;box-shadow:var(--shadow);font:inherit;color:inherit}
+.pcard{border:0;border-radius:var(--r-lg);padding:14px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:box-shadow .15s,transform .15s;text-align:left;box-shadow:0 0 0 1px var(--card-line),var(--shadow);font:inherit;color:inherit}
 .pcard:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
 .pcard .h{display:flex;gap:10px;align-items:flex-start}
 .pcard .pa{width:40px;height:40px;font-size:var(--fs-sm)}
@@ -181,7 +188,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .pcard .ft{display:flex;align-items:flex-end;gap:10px;font-size:var(--fs-micro);color:var(--ink-3);margin-top:auto}
 .pcard .ft b{color:var(--ink);font-size:var(--fs-meta)}
 .spark{display:flex;gap:1px;align-items:flex-end;height:22px;flex:1}
-.spark i{flex:1;background:var(--s1);opacity:.7;border-radius:1px;min-height:1px}
+.spark i{flex:1;background:linear-gradient(to top,var(--s1),var(--s2));opacity:.8;border-radius:1px;min-height:1px}
 .spark i.z{background:var(--surface-3);opacity:1}
 .ppl .empty{grid-column:1/-1}
 .rel{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:var(--sp-5)}
@@ -294,7 +301,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .mb{margin-bottom:var(--sp-4)}
 .grow-x{flex:1;min-width:0}
 .wbmain{min-width:0}
-.home-h .emo{width:34px;height:34px;border-radius:12px;display:inline-grid;place-items:center;background:var(--honey-soft);color:var(--honey)}
+.home-h .emo{width:34px;height:34px;border-radius:11px;display:inline-grid;place-items:center;background:var(--grad);color:#fff;box-shadow:0 6px 14px -6px rgba(85,82,217,.6)}
 body:not(.admin) .side .adm-gt{display:none}
 .mt{margin-top:var(--sp-3)}
 /* 30.0 手机上：表格能横着滑、按钮和开关目录换行、卡片内边距收一点、输入框不撑出屏幕 */
@@ -876,21 +883,35 @@ function tipAt(el,ev,html){const t=$("tip");t.innerHTML=html;t.style.display="bl
   const r=t.getBoundingClientRect();let x=ev.clientX+14,y=ev.clientY+14;if(x+r.width>innerWidth-8)x=ev.clientX-r.width-14;
   t.style.left=x+scrollX+"px";t.style.top=y+scrollY+"px";t.style.position="absolute"}
 function hideTip(){$("tip").style.display="none"}
+/* 35.0 小图：近两周的走势线、今天 24 小时的热度条、接话率圆环 */
+function sparkSvg(data,color,labels){if(!data||data.length<2)return"";const W=200,H=34,mx=Math.max(1,...data),n=data.length;
+  const pt=i=>[+(i*(W-4)/(n-1)+2).toFixed(1),+(H-3-(H-8)*data[i]/mx).toFixed(1)],P=data.map((_,i)=>pt(i)),gid="sg"+Math.random().toString(36).slice(2,8);
+  const line=P.map(p=>p.join(",")).join(" "),[lx,ly]=P[n-1];
+  return `<svg class="sk" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".28"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>`+
+    `<polygon points="2,${H} ${line} ${W-2},${H}" fill="url(#${gid})"/><polyline points="${line}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`+
+    `<circle cx="${lx}" cy="${ly}" r="2.6" fill="${color}"/></svg>`+(labels?`<div class="meta" style="display:flex;justify-content:space-between;font-size:11px;margin-top:2px"><span>${esc(labels[0])}</span><span>两周</span></div>`:"")}
+function hourStrip(all){if(!all.length)return"";const mx=Math.max(1,...all),h=new Date().getHours();
+  return `<div style="display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:12px;height:22px" title="今天每小时的群消息">${all.map((v,i)=>`<i style="border-radius:2px;background:${i>h?"var(--surface-2)":v?`color-mix(in srgb,var(--s4) ${Math.round(18+82*v/mx)}%,var(--surface-2))`:"var(--surface-3)"}"></i>`).join("")}</div>`+
+    `<div class="meta" style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px"><span>0 时</span><span>今天每小时</span><span>23 时</span></div>`}
+function ringSvg(r){const R=22,C=2*Math.PI*R,v=Math.max(0,Math.min(1,r||0)),gid="rg"+Math.random().toString(36).slice(2,8);
+  return `<svg class="ring" viewBox="0 0 56 56" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="var(--s1)"/><stop offset="1" stop-color="var(--s2)"/></linearGradient></defs>`+
+    `<circle cx="28" cy="28" r="${R}" fill="none" stroke="var(--surface-3)" stroke-width="6"/><circle cx="28" cy="28" r="${R}" fill="none" stroke="url(#${gid})" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(C*v).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 28 28)"/></svg>`}
 function barChart(el,labels,series,{h=180,fmtLabel=l=>l,every=1,title=l=>l}={}){
   const W=Math.max(300,Math.min(760,el.clientWidth||640)),H=h*(W<500?1.15:1),pl=30,pb=22,pt=8,n=labels.length,max=Math.max(1,...series.flatMap(s=>s.data));
   const nice=v=>{const p=Math.pow(10,Math.floor(Math.log10(v)));const m=v/p;return Math.max(1,(m<=1?1:m<=2?2:m<=2.5?2.5:m<=5?5:10)*p)};
   const step=nice(max/4),top=step*4,bw=(W-pl)/n,g=[];
-  for(let i=0;i<=4;i++){const y=pt+(H-pt-pb)*(1-i/4);g.push(`<line x1="${pl}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--grid)"/>`+
+  const gid="bg"+(el.id||"x");g.push(`<defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--s1)"/><stop offset="1" stop-color="var(--s1)" stop-opacity=".55"/></linearGradient></defs>`);
+  for(let i=0;i<=4;i++){const y=pt+(H-pt-pb)*(1-i/4);g.push(`<line x1="${pl}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--grid)" ${i?'stroke-dasharray="3 4"':""}/>`+
     `<text x="${pl-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="var(--ink-3)">${+(step*i).toFixed(1)}</text>`)}
   let bars="";const k=series.length;
   labels.forEach((l,i)=>{const x0=pl+i*bw;const inner=bw*0.72,gap=(bw-inner)/2;
     series.forEach((s,j)=>{if(s.line)return;const v=s.data[i],bh=(H-pt-pb)*v/top;
       const sw=s.overlay?inner*0.55:inner, sx=s.overlay?x0+gap+(inner-sw)/2:x0+gap;
-      bars+=`<rect x="${sx}" y="${H-pb-bh}" width="${sw}" height="${Math.max(0,bh)}" rx="2.5" fill="${s.color}"/>`});
+      bars+=`<rect x="${sx}" y="${H-pb-bh}" width="${sw}" height="${Math.max(0,bh)}" rx="${Math.min(4,sw/2)}" fill="${s.color==="var(--s1)"?`url(#${gid})`:s.color}"/>`});
     if(i%every===0)bars+=`<text x="${x0+bw/2}" y="${H-6}" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">${esc(fmtLabel(l,i))}</text>`;
     bars+=`<rect class="hit" data-i="${i}" x="${x0}" y="${pt}" width="${bw}" height="${H-pt-pb}" fill="transparent"/>`});
   series.filter(s=>s.line).forEach(s=>{const pts=s.data.map((v,i)=>`${pl+i*bw+bw/2},${H-pb-(H-pt-pb)*v/(s.max||top)}`);
-    bars+=`<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`+
+    bars+=`<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" style="filter:drop-shadow(0 2px 4px color-mix(in srgb,${s.color} 40%,transparent))"/>`+
       s.data.map((v,i)=>`<circle cx="${pl+i*bw+bw/2}" cy="${H-pb-(H-pt-pb)*v/(s.max||top)}" r="2.6" fill="var(--surface)" stroke="${s.color}" stroke-width="1.6"/>`).join("")});
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img">${g.join("")}${bars}</svg>`;
   el.querySelectorAll(".hit").forEach(r=>{r.onmousemove=ev=>{const i=+r.dataset.i;
@@ -952,7 +973,10 @@ async function loadState(){
   const vs=(now,old)=>old==null?"":now>old?`<span class="up">↑ ${now-old}</span> 比昨天`:now<old?`<span class="down">↓ ${old-now}</span> 比昨天`:"和昨天一样";
   $("kpis").innerHTML=[["今天群消息",k.today,"",yd?vs(k.today,yd.msgs):""],["她说了",k.her_today,"句",yd?vs(k.her_today,yd.her):""],["有人找她",k.mentions_today,"次",""],
     ["她说完有人接",k.effect_rate==null?"—":Math.round(k.effect_rate*100),k.effect_rate==null?"":"%",k.effect_rate==null?"还没数据":`近 7 天 ${k.effect_n} 次`]]
-    .map(([l,v,u,d],i)=>`<div class="stat ${i===1?"acc":""}"><div class="l">${l}</div><div class="v">${v}${u?`<small>${u}</small>`:""}</div><div class="d">${d||"&nbsp;"}</div></div>`).join("");
+    .map(([l,v,u,d],i)=>{const D2=(S.days||[]).slice(-14),viz=i===0?sparkSvg(D2.map(x=>x.msgs),"var(--s2)",D2.map(x=>x.day))
+        :i===1?sparkSvg(D2.map(x=>x.her),"var(--s1)",D2.map(x=>x.day)):i===2?hourStrip((S.hours||{}).all||[]):i===3&&k.effect_rate!=null?ringSvg(k.effect_rate):"";
+      const c=["var(--s2)","var(--s1)","var(--s4)","var(--s3)"][i];
+      return `<div class="stat ${i===1?"acc":""}" style="--c:${c}"><div class="l">${l}</div><div class="v">${v}${u?`<small>${u}</small>`:""}</div><div class="d">${d||"&nbsp;"}</div>${viz}</div>`}).join("");
   $("kpiMore").innerHTML=[["认识的人",`${k.people}`],["有画像",`${k.profiled}`+(multi()&&k.both_groups?` · ${k.both_groups} 个在不止一个群`:"")],["大模型调用",`${k.llm_calls}`+(k.llm_limited?` · 限流 ${k.llm_limited}`:"")],...okPills]
     .map(([a,b])=>`<div><b>${esc(b)}</b><span>${esc(a)}</span></div>`).join("");
   if(HSEL!=="all"&&!S.groups.some(g=>String(g.id)===HSEL))HSEL="all";
@@ -1012,8 +1036,9 @@ function paintToday(){paintAlerts();const T=TD.today,sd=T.sends||{},L=T.llm||{},
   $("tdActs").innerHTML=AC.length?AC.map(a=>`<li><div class="grow"><div>${esc(a.text||KIND_CN[a.kind]||a.kind)}</div><div class="meta">${fmtDay(a.ts)} ${fmtTime(a.ts)} · ${esc(KIND_CN[a.kind]||a.kind)}</div></div>${a.ok?'<span class="tag good">发了</span>':`<span class="tag warm">${esc(a.why||"没发成")}</span>`}</li>`).join(""):'<li class="empty">账本里还没有记录</li>';
   const R=TD.trend||[];
   $("trend").innerHTML=`<tr><th>日期</th><th class="num">群友</th><th class="num">她</th><th class="num">她占比</th><th class="num">被接住</th><th class="num">花费</th><th class="num">缓存</th></tr>`+
-    R.map((d,i)=>`<tr><th>${i===R.length-1?"今天":esc(d.day)}</th><td class="num">${d.msgs}</td><td class="num">${d.her}</td><td class="num ${d.her_share!=null&&d.her_share>0.25?"hi":""}">${pctS(d.her_share)}</td>`+
-      `<td class="num">${pctS(d.engaged_rate)}</td><td class="num">${usdS(d.usd)}</td><td class="num">${pctS(d.cache_hit)}</td></tr>`).join("");
+    (()=>{const mm=Math.max(1,...R.map(d=>d.msgs)),mh=Math.max(1,...R.map(d=>d.her)),db=(v,p,c,soft)=>`<span class="db ${soft?"soft":""}" style="--p:${p};--c:${c}">${v}</span>`;
+    return R.map((d,i)=>`<tr><th>${i===R.length-1?"今天":esc(d.day)}</th><td class="num">${d.msgs}</td><td class="num">${db(d.her,d.her/mh,"var(--s1)")}</td><td class="num ${d.her_share!=null&&d.her_share>0.25?"hi":""}">${pctS(d.her_share)}</td>`+
+      `<td class="num">${d.engaged_rate==null?"—":db(pctS(d.engaged_rate),d.engaged_rate,"var(--s3)")}</td><td class="num">${usdS(d.usd)}</td><td class="num">${pctS(d.cache_hit)}</td></tr>`).join("")})();
   paintEff()}
 function paintEff(){if(!TD)return;const all=$("effAll").checked,E=TD.effective||[],ch=E.filter(x=>x.changed),list=all?E:ch;
   $("effN").textContent=ch.length?`${ch.length} 个和默认不一样`:"全是默认值";
@@ -1108,7 +1133,7 @@ function renderChat(toBottom){
     const her=m.role==="assistant",owner=!her&&S.owner_id&&m.user_id==S.owner_id;
     const cont=prev&&prev.user_id===m.user_id&&prev.role===m.role&&m.ts-prev.ts<180;
     const nm=her?herName:m.name;
-    html+=`<div class="m ${her?"her":""} ${owner?"owner":""} ${cont?"cont":""}"><div class="pa" style="background:${her?"var(--solid)":hue(m.user_id)}">${esc(initial(nm))}${her?'<img src="avatar/avatar" alt="" onerror="this.remove()">':""}</div>
+    html+=`<div class="m ${her?"her":""} ${owner?"owner":""} ${cont?"cont":""}"><div class="pa" style="background:${her?"var(--grad)":hue(m.user_id)}">${esc(initial(nm))}${her?'<img src="avatar/avatar" alt="" onerror="this.remove()">':""}</div>
       <div class="body">${cont?"":`<div class="who"><b>${esc(nm)}</b>${owner?'<span class="tag" style="height:17px">你</span>':""}<span>${fmtTime(m.ts)}</span></div>`}
       <div class="b">${hl(m.content)}</div></div></div>`;prev=m}
   el.innerHTML=html;

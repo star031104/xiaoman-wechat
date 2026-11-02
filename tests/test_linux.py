@@ -71,8 +71,8 @@ def test_xsender_files_path_map(monkeypatch):
     from aigroup.wechat import linux
     fx = FakeX({22: "群A"})
     monkeypatch.setattr(linux, "xrun", fx)
-    s = linux.XSender({"path_map": {"/root/xiaoman/wechat/data": "/root/xwechat_files"}})
-    s.paste_send("群A", files=["/root/xiaoman/wechat/data/_out/a.png"])
+    s = linux.XSender({"path_map": {"/opt/xiaoman/wechat/data": "/root/xwechat_files"}})
+    s.paste_send("群A", files=["/opt/xiaoman/wechat/data/_out/a.png"])
     args, data = fx.clip
     assert "text/uri-list" in args and data.decode().startswith("file:///root/xwechat_files/_out/a.png")
 

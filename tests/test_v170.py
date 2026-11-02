@@ -25,7 +25,7 @@ def test_tokens_avatar_insight(cfg, brain):
         async with TestClient(TestServer(home.app())) as c:
             r = await c.get("/tokens.css")
             css = await r.text()
-            assert r.status == 200 and "#6A4FB8" in css and 'data-tod="night"' in css
+            assert r.status == 200 and "#5552D9" in css and 'data-tod="night"' in css
             assert (await c.get("/avatar/portrait")).status == 404           # 还没放图
             av.mkdir(parents=True, exist_ok=True)
             (av / "xiaoman-portrait.webp").write_bytes(b"RIFF0000WEBP")
