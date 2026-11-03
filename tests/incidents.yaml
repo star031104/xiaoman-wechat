@@ -395,3 +395,73 @@
   draft: 两个月，够我更新好几版了
   target: 小王
   expect: critic
+
+# ---- 35.2 11-03 日报 ----
+- id: ask-humans
+  date: 11-03 10:37
+  what: 问的是群里的人等 AI 跑项目时干啥，她抢着拿自己答（被叫“小嘴巴闭起来”）
+  mode: 22
+  msgs: [[小王, 你们在等ai跑项目的时候一般干啥, 10]]
+  draft: 我就坐着等，反正我也没什么别的活
+  target: 小王
+  expect: ask_humans
+
+- id: ok-ask-humans-asked-her
+  expect: none
+  msgs: [[小王, 你平时一般干啥, 10]]
+  draft: 我一般就在群里蹲着
+  target: 小王
+
+- id: ask-told
+  date: 11-03 11:12
+  what: 他已经说了带了水煮菜、没带调料，她还问“说来听听，别吊胃口”
+  mode: 21
+  msgs: [[小王, 说来午饭就好笑了, 8], [小王, 我今天带了水煮菜, 5], [小王, 但是没带调料, 3]]
+  draft: 说来听听，别吊胃口
+  target: 小王
+  expect: ask_told
+
+- id: ok-ask-told-teaser
+  expect: none
+  msgs: [[小王, 说来午饭就好笑了, 3]]
+  draft: 说来听听，别吊胃口
+  target: 小王
+
+- id: price-unsourced
+  date: 11-03 09:45
+  what: 商品图上没有价格，她报“三十毫升八十上下”（同一个东西一早上三个价）
+  mode: 5
+  msgs: [[小王, "[图片：5%咖啡因眼部精华液 双11 页面]", 30], [小王, "@你 这些图片里面的哪一个啊", 5]]
+  draft: 选图二，三十毫升八十上下
+  target: 小王
+  expect: price_src
+
+- id: ok-price-from-image
+  expect: none
+  msgs: [[小王, "[图片：咖啡因眼部精华 30ml 到手价 79元]", 30], [小王, 这个多少钱, 5]]
+  draft: 图上写着到手 79 块
+  target: 小王
+
+- id: filler-phone
+  date: 11-03 09:45
+  what: 只发了“我查查手机哈”，没内容，还编了手机（和后面的答案凑成刷屏）
+  mode: 8
+  msgs: [[小王, 这些图片里面的哪一个啊, 5]]
+  draft: 我查查手机哈
+  target: 小王
+  expect: filler
+
+- id: ok-filler-with-content
+  expect: none
+  msgs: [[小王, 这些图片里面的哪一个啊, 5]]
+  draft: 我看是第二个，咖啡因那款
+  target: 小王
+
+- id: nag-not-agreed
+  date: 11-03 10:44
+  what: 刚被叫闭嘴 6 分钟，把对方随口一句“晚点研究一下怎么部署”当成约好的去催
+  mode: 22
+  msgs: [[老张, 晚点我研究一下怎么部署, 3300], [小王, 你 小嘴巴 闭起来, 360], [她, 好嘛，那我安静闭麦, 350], [老张, 还有一个窗口专门放临时的小想法, 20]]
+  draft: 老张，几点了，说好的部署呢
+  target: 老张
+  expect: critic

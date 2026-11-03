@@ -975,7 +975,7 @@ class GroupHome:
         async with st.lock:
             try:
                 ok = await self.gc.speak(gid, mentioned=False, owner_spoke=False, trigger=None, who="", why=why,
-                                         must=True)        # 19.1 你在小屋里点的：不受“没人理不追发”“念头分”限制
+                                         must=True, manual=True)   # 19.1 你在小屋里点的：不受“没人理不追发”“念头分”限制；35.2 安静期也照说
             except Exception as e:  # noqa: BLE001
                 return web.json_response({"ok": False, "error": f"没说出来：{e}"})
         return web.json_response({"ok": bool(ok), "message": "她说了" if ok else "",

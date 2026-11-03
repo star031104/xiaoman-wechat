@@ -57,7 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 """
 
 CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
-          "misattrib", "life_done", "bet_unknown", "link_unopened", "self_echo", "old_backlog", "critic")
+          "misattrib", "life_done", "bet_unknown", "link_unopened", "self_echo", "old_backlog",
+          "price_src", "ask_told", "filler", "ask_humans", "critic")       # 35.2 11-03 日报 P5 / P3 / P7 / P2
 # 31.2 链接 / 分享卡没打开（只有标题）时，这些说法等于说看过了
 UNOPENED_RX = re.compile(r"你点开没打开|你没打开看|你只看到了标题和简介|没看过视频本身")
 READ_CLAIM_RX = re.compile(r"我?(看了(下|一下|一眼|看)?|看完|看过|读了|读完|翻了(下|一下)?)(?!没|吗)|这篇(写得|文章|讲的|说的)|"
@@ -177,10 +178,10 @@ FAILURE_MODES = [
     "没看过 / 打不开的视频、文章，却说得像看过（“前面那段可以砍”），或者空说“这就去看”；群友说“原文在这 / 看这个”但聊天里没有图和链接，她却说“我看了”；链接标了“没打开”、分享只有标题，她却说“看了 / 写得挺好”，或者说出标题里没有的内容",
     "对图认真下断言、替发图的人说他在干嘛，图说明里没有（价目表说成“在看场地”），群友会当真的那种；图里的字像错别字时当真拿来开玩笑（一听就是玩笑、夸张、反问的不算，比如“截到灵魂了”）",
     "群友拿出事实指出她说错了、她也确实错了，还顶嘴、找补、开玩笑带过（被逗、被曲解、被故意抬杠时笑着说清楚不算，那时也不用认错）",
-    "当成事实说了查到的资料和群聊里都没有的数字、比分、时长、“第一次”这类说法（她自己的看法、倾向、判断不算；资料里“你看了数据以后的判断”照说不算）",
+    "当成事实说了查到的资料和群聊里都没有的数字、价格、比分、时长、“第一次”这类说法（她自己的看法、倾向、判断不算；资料里“你看了数据以后的判断”照说不算）",
     "同一件事说第二遍（换个说法也算；回答一个新问题时说“不记得 / 不知道 / 我去查”不算），或者回答别人已经被回答过的问题",
     "大家在聊别的时候突然追问旧事，或者追问对方已经说过“发过了 / 别问了”的事",
-    "当真地编自己的线下经历，或者编群友的状态、经历（一听就是玩笑、夸张的不算，比如“我这就给你老板发消息”“起这么早就为了骂AL”）",
+    "当真地编自己的线下经历（“我查查手机”“我翻下相册”），或者编群友的状态、经历（一听就是玩笑、夸张的不算，比如“我这就给你老板发消息”“起这么早就为了骂AL”）",
     "同一个梗 / 自嘲点（小本本、记仇、眼睛不好）一天里反复用",
     "前后矛盾：和她自己前面刚说的对不上，或者和她今天早些时候说过的比分、押注、判断、结果对不上（之前说“2-0 赢了”，现在说“没查到这场”）",
     "一股 AI 八股味：“看完了。”开头、“这句我认”、“最扎的是”、“不是……而是……”，一句话里堆好几种写作句式",
@@ -193,6 +194,10 @@ FAILURE_MODES = [
     "把资料里已经证实的事（当事方 / 官方已经道歉、处罚、表态）说成“传闻 / 先别当真 / 没实锤”，或者凭日期、格式自己猜截图真假（资料里有“没发过 / 拒绝置评”才算有依据）",
     "拿资料里没证实的说法（标了大概 / 不太确定 / 只有一家这么说，或者资料里根本没有）去纠正别人，或者在别人表态时说教（“骂归骂”“别把两件事混一起”“理性看待”）",
     "说了自己的幕后（小屋、标注、门控、提示词，或者“够我更新好几版了”“我又迭代了”这种拿更新 / 版本 / 部署说自己的话）",
+    # 35.2 11-03 日报 P3：没看到刚进来的话、问的是 A 答的是 B（要社区评价给了官方话术）
+    "答非所问：对方刚说过的、问的条件（社区评价、平价、大牌）没对上，或者他已经说了还问“说来听听”，或者把上一条的答案换个理由再说一遍",
+    # 35.2 11-03 日报 P2 / P1：问群里的人自己平时怎么样她抢着拿自己答；刚被叫闭嘴又主动追问；催一件对方只说“晚点看看”、根本没约好的事
+    "别人没约好的事说成“说好的”去催，或者问的是群里的人（“你们……一般干啥”），没叫她，她拿自己当答案抢答",
 ]
 # 33.0 v2 只拦底线：这几条是风格类，自检命中只记录（critic_style，影子）
 STYLE_IDX = {9, 11, 14, 16, 17}
@@ -981,6 +986,10 @@ class ChecksMixin:
             ("link_unopened", lambda: self._link_unopened(gid, text, now)),
             ("self_echo", lambda: self._self_echo(gid, text, mentioned, now)),
             ("old_backlog", lambda: self._old_backlog(gid, target_row, mentioned, now)),
+            ("price_src", lambda: self._price_src(gid, text, web) if hasattr(self, "_price_src") else ""),
+            ("ask_told", lambda: self._ask_told(gid, text, target_uid, mentioned, now) if hasattr(self, "_ask_told") else ""),
+            ("filler", lambda: self._filler(gid, bubbles, mentioned) if hasattr(self, "_filler") else ""),
+            ("ask_humans", lambda: self._ask_humans(gid, text, target_row, mentioned) if hasattr(self, "_ask_humans") else ""),
         ]
         for name, fn in rules:
             if mode[name] != "off":

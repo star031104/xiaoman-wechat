@@ -18,6 +18,7 @@ from aigroup.chat.mood import Mood, turn_memory
 from aigroup.chat.plan import (
     AT_RE,
     BARE_ANSWER,
+    EMOJI_ONLY_RE,
     REACT_RE,
     TAG_RE,
     batch_features,
@@ -237,6 +238,20 @@ class SpeakMixin:
         tlog.info("群 %s：跟着复读了「%s」", gid, text)
         return True
 
+    async def _fail_reply(self, gid: int, trigger=None):
+        """35.2 P6 所有聊天接口都失败、被叫到的：回一句短的（10 分钟最多一次），别像没听见。"""
+        k = f"fail_reply_{gid}"
+        if time.time() - float(self.db.get(k, 0) or 0) < 600:
+            return
+        self.db.set(k, time.time())
+        text = random.choice(["脑子卡了一下，等我缓缓再回你", "刚卡住了，一会儿再说", "我这边卡了，稍后回你"])
+        try:
+            q = [reply_seg(trigger)] if (trigger and getattr(self.ob, "can_quote", True)) else []
+            mid = await self.ob.send_group(gid, q + [text_seg(text)])
+            self._record(gid, self.ob.self_id or 0, self.brain.persona.name, text, mid, role="assistant")
+        except Exception as e:  # noqa: BLE001
+            log.info("群 %s：卡住那句也没发出去：%s", gid, e)
+
     def human_delay(self, gid: int, key: str, scale: float) -> float:
         """她“看到消息”要多久：有 50 个以上的样本时，从这个群群友自己的回复间隔里抽一个（乘 scale，限制在 2~90 秒）；
         不够就用配置里的区间。"""
@@ -385,6 +400,13 @@ class SpeakMixin:
                 self.check_log(gid, "room_read", rm, "", hot)
                 if rm == "on":
                     ok, why = False, f"{hot}，先不插"
+        if ok and not mentioned and not corrected and not asked and texts:
+            if not guess and hasattr(self, "to_others") and self.to_others(gid, texts):
+                ok, why = False, "在跟别人说（@ / 回复别人的）"           # 35.2 P4 有人 @ 别人“蹲到告诉我”，她接“你要蹲啥”
+            elif hasattr(self, "budget_left"):
+                bl = self.budget_left(gid, now)
+                if bl:
+                    ok, why = False, bl                           # 35.2 P8 门控日志里看得到“额度用完”
         gate_id = None
         if texts and not quiet:
             gate_id = self.gate.add(gid, mentioned, p, thr, ok, feats, explore=explore, judge=judged,
@@ -484,6 +506,8 @@ class SpeakMixin:
                         self.note_bid(gid, "", "", answered=bool(said))
                 except Exception as e:  # noqa: BLE001
                     log.warning("群 %s 回复失败：%s", gid, e)
+                    if mentioned and "接口都失败" in str(e) and self.gk(gid).get("chat_fail_reply", True):
+                        await self._fail_reply(gid, trigger)       # 35.2 P6 叫到她却没想出来：回一句短的
         finally:
             st.speaking = False
             if st.batch_texts and (not st.pending or st.pending.done() or st.pending is asyncio.current_task()):
@@ -493,7 +517,7 @@ class SpeakMixin:
                     why: str | None = None, note: str = "", interest: bool = False, gate_id: int | None = None,
                     focus: list[int] | None = None, query: str = "", last_is_sticker: bool = False, web: str = "",
                     must: bool = False, _rethink: int = 0, may_ignore: bool = False, pitch: bool = False,
-                    bid: bool = False) -> bool:
+                    bid: bool = False, manual: bool = False) -> bool:
         """问大模型、质检、发。why 为空 = 在接群友的话（跳过时才算进退避）；冒泡、欢迎新人、小屋 nudge 会给 why。
         must：生日、约好的事、打气这类“这次一定要说”的，不受每天主动开口的预算限制，新消息来了也照样说（会重新想）。"""
         b = self.brain
@@ -506,6 +530,18 @@ class SpeakMixin:
         cap = int(self.gk(gid).get("unprompted_per_day", 0) or 0)
         if not mentioned and not must and cap and self.unprompted_today(gid) >= cap:      # 13.0 每天主动开口的总预算（插话、冒泡、分享共用）
             log.info("群 %s：今天主动说的够多了（%d 次），这次不说", gid, cap)
+            self.gate.mark(gate_id, spoke=False)
+            return False
+        if not mentioned and not must and why is not None and hasattr(self, "budget_left"):
+            bl = self.budget_left(gid)                       # 35.2 P8 冒泡、分享、等等再说：额度按时段摊（接话在门控里算过）
+            if bl:
+                log.info("群 %s：%s，这次不说", gid, bl)
+                self.gate.mark(gate_id, spoke=False)
+                return False
+        if (not mentioned and not manual and hasattr(self, "preflight") and self.gk(gid).get("hush_all_paths", True)
+                and self.hushed(gid) and time.time() - float(st.__dict__.get("admit_ts") or 0) > 120):
+            # 35.2 P1 安静期：提醒、跟进、想念、分享这些 must 的也先不说（提醒会顺延再试；11-03 10:44 被叫闭嘴 6 分钟就去催“说好的部署”）
+            log.info("群 %s：安静中（%s），主动的这句先不说", gid, self.hushed(gid))
             self.gate.mark(gate_id, spoke=False)
             return False
         if why is not None and not mentioned and not must and hasattr(self, "lonely_reason"):
@@ -572,7 +608,7 @@ class SpeakMixin:
                                         why=why, note=note, interest=interest, gate_id=gate_id,
                                         focus=list(dict.fromkeys([*(focus or []), *new])), query=self._recent_text(gid),
                                         last_is_sticker=last_is_sticker, web=web, must=must, _rethink=_rethink + 1,
-                                        may_ignore=may_ignore, pitch=pitch, bid=bid)
+                                        may_ignore=may_ignore, pitch=pitch, bid=bid, manual=manual)
         mb = 1 if may_ignore else int(self.gk(gid)["max_bubbles"])
         if time.time() - float(st.__dict__.get("admit_ts") or 0) < 120:
             mb = 1                                         # 23.3 被纠正后认错：一句就够
@@ -814,9 +850,13 @@ class SpeakMixin:
                         c22 = []
                 c22_drop = [w[len(_DROP):] for w in c22 if w.startswith(_DROP)]
                 c22 = [w[len(_DROP):] if w.startswith(_DROP) else w for w in c22]
-                if c22_drop and not mentioned and not must:
+                if c22_drop and not mentioned and not manual:
                     # 23.2 替别人答、视频还没看完就空说“去看”：重写也还是这个毛病，没被叫到就直接不说
+                    # 35.2 P1 提醒、跟进这些 must 的也一样（以前 must 跳过这里，11-03 拦下的“说好的部署呢”重写一下照发）
                     log.info("群 %s：发前检查要不说（%s）", gid, c22_drop[0][:40])
+                    if hasattr(self, "note_blocked"):
+                        for c_ in cands:
+                            self.note_blocked(gid, " ".join(c_))
                     try:
                         from aigroup.chat.rules import note as _rnote
                         _rnote(self.db, gid, c22_drop, "拦下", " / ".join(cands[i] if i >= 0 else cands[0]))
@@ -942,14 +982,47 @@ class SpeakMixin:
             else:
                 return skip("blocked" if cands else "skip", qtxt)
         bubbles = list(bubbles or [])
+        if len(bubbles) >= 2 and hasattr(self, "_filler"):
+            from aigroup.chat.v352 import is_filler
+            keep_ = [x for x in bubbles if not is_filler(x)]
+            if keep_ and len(keep_) < len(bubbles):           # 35.2 P7 有内容的话旁边那句“等我一下 / 我找找看”：去掉
+                log.info("群 %s：去掉占位话：%s", gid, " / ".join(x for x in bubbles if is_filler(x))[:40])
+                bubbles = keep_
+        if (sticker_ok and bubbles and self.gk(gid).get("sticker_in_bubbles", True)
+                and len(bubbles) >= (1 if may_ignore else int(self.gk(gid)["max_bubbles"]))):
+            sticker_ok = False                                 # 35.2 P2 表情包也算一条（11-03 14:45 17 秒 3 条）
+        if hasattr(self, "preflight"):
+            pf = self.preflight(gid, bubbles or ["[表情包]"], mentioned=mentioned, manual=manual)
+            if pf:                                             # 35.2 P1 发出前最后再看一眼：安静中 / 刚判过不说
+                log.info("群 %s：%s，不发了", gid, pf)
+                return skip("blocked", pf)
+            late = [r for r in self.late_news(gid, last_id, [target_uid] if target_uid else list(focus or [])[:3])
+                    if not EMOJI_ONLY_RE.match(str(r["content"] or ""))] if bubbles and not must else []
+            if late:                                           # 35.2 P3 写的时候他又说了：被叫到就重想一次，没被叫到这句不发
+                lt = "；".join(str(r["content"] or "")[:20] for r in late[-2:])
+                if mentioned and _rethink == 0:
+                    log.info("群 %s：写稿时他又说了（%s），重新想", gid, lt)
+                    return await self.speak(gid, mentioned=mentioned, owner_spoke=owner_spoke, trigger=trigger, who=who,
+                                            why=why, note=note + f"（写的时候他又说了：{lt}。接他最新说的）", interest=interest,
+                                            gate_id=gate_id, focus=focus, query=self._recent_text(gid),
+                                            last_is_sticker=last_is_sticker, web=web, must=must, _rethink=_rethink + 1,
+                                            may_ignore=may_ignore, pitch=pitch, bid=bid, manual=manual)
+                if not mentioned:
+                    log.info("群 %s：写稿时他又说了（%s），这句不发，接着看新的", gid, lt)
+                    return skip("late", "写稿时又来了话")
         if bubbles and self.gk(gid).get("burst_send_check", True) and time.time() - float(st.__dict__.get("admit_ts") or 0) > 120:
             # 31.2 发之前再数一遍她最近 3 分钟发了几条（含“我去看看”这种先回的）：合起来别超过 3 条。
             # 想的那几十秒里她可能已经发了别的；先回一句 + 两条答案也会凑成 3 条以上（10-29 一问三条、9 分钟 7 条）
             h3 = int(self.db.conn.execute("SELECT COUNT(*) n FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>?",
                                           (gid, time.time() - 180)).fetchone()["n"])
-            room = burst_room(h3, len(bubbles), bool(mentioned or must),
+            # 35.2 表情包按一条算：房间不够先丢它
+            room = burst_room(h3, len(bubbles) + (1 if sticker_ok and self.gk(gid).get("sticker_in_bubbles", True) else 0),
+                              bool(mentioned or must),
                               self.v33_burst_cap(gid, owner_spoke) if hasattr(self, "v33_burst_cap")
                               else int(self.gk(gid).get("burst_3min_cap", 3) or 3))     # 33.0 对老大可以多发几条
+            if sticker_ok and self.gk(gid).get("sticker_in_bubbles", True) and room < len(bubbles) + 1:
+                sticker_ok = False
+                room = min(room, len(bubbles))
             if room < len(bubbles):
                 log.info("群 %s：最近 3 分钟已经说了 %d 条，这次只发 %d 条", gid, h3, room)
                 if room <= 0:
@@ -962,6 +1035,8 @@ class SpeakMixin:
         if bubbles and hasattr(self, "v2") and self.v2(gid):     # 33.0 出口层：句末句号、套话
             from aigroup.chat.v33 import exit_clean
             bubbles = [x for x in (exit_clean(b_) for b_ in bubbles) if x]
+        if bubbles and hasattr(self, "public_names"):
+            bubbles = self.public_names(gid, bubbles, must=must)     # 35.2 P2 当着别人别叫昵称
         # ---- 偶尔打错一个字，再补一句“*正确的字” ----
         if bubbles and not (mentioned or web) and random.random() < float(self.gk(gid).get("typo_rate", 0)):   # 30.1 认真答事实时不打错字
             j = random.randrange(len(bubbles))

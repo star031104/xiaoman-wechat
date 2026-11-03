@@ -98,6 +98,7 @@ class LLM:
         self._fg_active = 0
         self._fg_last = 0.0
         self.yield_seconds = float(c.get("background_yield_seconds", 25))
+        self.retry_5xx = bool(c.get("retry_5xx", True))      # 35.2 P6 5xx 先等 2 秒重试一次
         self.db = None                     # Brain 会把数据库挂上来，用来记每天的调用统计
         self.tz = cfg.get("tz")
         self._stats: dict = {}
@@ -244,7 +245,7 @@ class LLM:
         # 后台的活（整理记忆、日记）不赶时间：首选模型限流时等几秒再试一次，尽量用好模型
         patient = role in ("memory", "night")
         for p in self._chain(role):
-            for attempt in range(2 if (patient or json_mode) else 1):
+            for attempt in range(2 if (patient or json_mode or self.retry_5xx) else 1):
                 try:
                     t0 = time.time()
                     resp = await p.client.chat.completions.create(
@@ -268,6 +269,9 @@ class LLM:
                     self._record(role, p.name, False, limited=busy)
                     if patient and attempt == 0 and busy:
                         await asyncio.sleep(6)
+                        continue
+                    if attempt == 0 and re.search(r"\b50[234]\b|overload|Service Unavailable", str(e)) and self.retry_5xx:
+                        await asyncio.sleep(2)                 # 35.2 P6 服务器那边一时忙（11-03 17:43 503 ×14）：等 2 秒再试一次再换备用
                         continue
                     bad_img = role == "vision" and "400" in str(e) and "image" in str(e).lower()
                     if not (role == "gate" and "空内容" in str(e)) and not bad_img:  # 问一个字没问出来、这张图本身不行，都不算接口坏了（别让聊天的模型冷却）

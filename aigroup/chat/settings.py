@@ -230,7 +230,7 @@ DEFAULTS = {
     "ask_repeat_hours": 72,          # 同一件事多久内别再问（23.1：24 → 72）
     "ask_closed_days": 7,            # 对方说了“别问了 / 别鞭尸”：这件事多少天别再提
     # ---- 23.1 别刷屏、别说两遍 ----
-    "burst_max": 5,                  # 没被叫到时：她最近 5 分钟已经发了这么多条就先不说（接她的话也一样）
+    "burst_max": 4,                  # 35.2 5 → 4。没被叫到时：她最近 5 分钟已经发了这么多条就先不说（接她的话也一样）
     "burst_soft": 3,                 # 到这么多条以后，“接她的话 / 等的人开口了”不再免冷却和门槛
     "burst_soft_hard": True,         # 31.2 软刹车改硬：到 burst_soft 条、没被叫到就不说
     "burst_send_check": True,        # 31.2 发之前再数一遍最近 3 分钟她发了几条，合起来别超过 burst_3min_cap
@@ -318,6 +318,21 @@ DEFAULTS = {
     "stop_minutes": 60,              # /stop 不写分钟时停多久
     "stop_ack": True,                # 收到 /stop、/go、/状态 时回一句确认（这句不受叫停影响）
     "admins": [],                    # 除了把她拉进群的人（owner_id），还有谁能发 /stop（填群友的 id）
+    # ---- 35.2 11-03 日报 P1～P8 ----
+    "hush_all_paths": True,          # P1 安静期里所有主动开口（提醒、跟进、想念、分享、等等再说）都不说，发出前再查一次；小屋手动点的除外
+    "blocked_topic_minutes": 15,     # P1 发前检查判过“不说”的话：这么多分钟里同一个意思（换个说法、加个称呼）也不说
+    "fav_name_public": False,        # P2 群里别人也在聊时，把“偏心的那个称呼”换成群里大家的叫法（False = 换）；想念 @、半夜被叫醒照旧
+    "sticker_in_bubbles": True,      # P2 表情包也算一条：文字已经 max_bubbles 条就不再配表情包；3 分钟数条数也算上
+    "late_news_check": True,         # P3 写稿那几十秒里她在回的人又说了话：发出前重新看（被叫到重想一次，没被叫到就不说）
+    "at_other_skip": True,           # P4 这一批全是 @ 别人 / 回复别人的（没叫她）：不接；紧跟别人 @ 的短回应（“好”）算回那个人
+    "check_price_src": "on",         # P5 报了价格，查到的资料、图上的字、群聊里都没有：改成“价格以页面为准”
+    "check_ask_told": "on",          # P3 他已经把事说了，她还问“说来听听 / 然后呢”（没看到刚进来的话）
+    "check_filler": "on",            # P7 只有“等我一下 / 我找找看 / 查查手机”这种不带内容的占位话
+    "check_ask_humans": "on",        # P2 问的是群里的人（“你们……一般干啥”），没叫她，她拿自己当人答
+    "chat_retry_503": True,          # P6 聊天接口 5xx：等 2 秒再试一次再换备用
+    "chat_fail_reply": True,         # P6 所有聊天接口都失败、被叫到的：回一句短的，别像没听见
+    "unprompted_window_hours": 4,    # P8 主动开口额度按时段摊：这么多小时里最多用掉一天额度的 unprompted_window_share
+    "unprompted_window_share": 0.34,
 }
 
 # 渠道不一样、默认值不一样的几个（QQ 能点表情、能戳一戳，补消息少补一点；微信做不到点表情和戳）

@@ -123,7 +123,7 @@ class V33Mixin:
                 "\n".join(f"{who}：{txt.replace('|||', ' / ')}" for who, txt in e.turns) for e in p.examples[:6])
         rules = f"""# 怎么看消息、怎么回
 - [图片：…] 是机器看图的大概印象，可能认错；只写着 [视频] [语音] [文件] 的你打不开。
-- 叫人用“群里的人”里的称呼；把你拉进群的那个人你叫他“{self.fav_name(gid)}”。想 @ 谁写 [@名字]，不 @全体成员。
+- 叫人用“群里的人”里的称呼；把你拉进群的那个人{'你叫他“' + self.fav_name(gid) + '”' if self.gk(gid).get('fav_name_public') else '，只有你俩在聊、或者你想他的时候叫他“' + self.fav_name(gid) + '”，当着别人用大家的叫法'}。想 @ 谁写 [@名字]，不 @全体成员。
 - 被叫到（@你、叫你名字、回复你）一定要 say，哪怕很短。
 - 没人叫你的时候，大多数时候 skip：只有真有话要接（能逗笑、能帮上忙、刚好聊到你、有人在接你的话）才说；拿不准就 skip。
   别人聊得正热、问的是别人、你只会复述的时候也 skip。别去追问几个小时前的事（谁吃上了没、排到没）。
@@ -193,7 +193,7 @@ class V33Mixin:
             tier = t.get(uid, "member")
             label, p_soft, how = TIERS[tier]
             nm = names.get(str(uid)) or str(uid)
-            call = f"（你叫他{self.fav_name(gid)}）" if uid == fav else ""
+            call = f"（私下你叫他{self.fav_name(gid)}）" if uid == fav else ""
             out.append(f"- {nm}{call}：{label}——{how}")
             if i == 0 and p_soft and random.random() < p_soft:
                 soft = f"- 这次对{nm}可以露一点真心，说句软话（一句就好）"

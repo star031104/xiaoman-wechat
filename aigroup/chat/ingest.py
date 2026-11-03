@@ -183,8 +183,12 @@ class IngestMixin:
         if hasattr(getattr(self, "links", None), "take_videos") and hasattr(self, "watch_video"):
             for v in self.links.take_videos():                       # 4.4 B 站视频：点开看（字幕、弹幕、热评）
                 self._spawn(self.watch_video(gid, v, mentioned, name))
-        meta = {"at_other": bool([q for q in f.ats if q != "all"]) and not f.mentioned,
-                "reply_other": bool(f.reply_id) and not reply_to_her,
+        at_ids = [q for q in f.ats if q != "all"]
+        if at_ids and hasattr(self, "note_at"):
+            self.note_at(gid, uid, at_ids)                   # 35.2 P4 记下谁 @ 了谁：被 @ 的人接着回“好”是在回他
+        meta = {"at_other": bool(at_ids) and not f.mentioned,
+                "reply_other": (bool(f.reply_id) and not reply_to_her)
+                or bool(not mentioned and hasattr(self, "answers_at") and self.answers_at(gid, uid, clean_member_text(f.text))),
                 "sticker": bool(f.stickers) and len(re.sub(r"\[[^\]]*\]", "", text).strip()) == 0}
         bid = ""
         if not mentioned and hasattr(self, "bid_from"):

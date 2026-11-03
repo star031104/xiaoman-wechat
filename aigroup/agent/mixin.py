@@ -808,12 +808,16 @@ class AgentMixin:
             return
         if hasattr(self, "open_promises") and self.open_promises(gid):
             return                                   # 25.0 刚答应过还没给：别再来一句“我去看看”
+        h3 = int(self.db.conn.execute("SELECT COUNT(*) n FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts>?",
+                                      (gid, time.time() - 180)).fetchone()["n"])
+        if h3 >= 2:
+            return                                   # 35.2 P7 3 分钟里已经说了 2 条：占位这句不发（11-03 两次刷屏里都有它）
         self.db.set(k, time.time())
         text = ""
         if self.gk(gid).get("agent_filler_gen", True) and goal:
             used = list(self.db.get("agent_fillers_used") or [])[-6:]
             p = self.brain.persona
-            prompt = (f"你是群聊里的{p.name}（{(p.identity or '')[:40]}）。有人问你一件事，你要去手机上查一下：{goal[:60]}。\n"
+            prompt = (f"你是群聊里的{p.name}（{(p.identity or '')[:40]}）。有人问你一件事，你要去查一下：{goal[:60]}。\n"
                       f"最近的聊天：\n{self.transcript(gid, 4)}\n\n"
                       "先在群里回他一句很短的话（4~12 个字），用你平时的口气，表示你去查 / 去看看；不要说结论、不要问问题、不要引号。"
                       + (f"别和这些一样：{'、'.join(used)}。" if used else "") + "只输出这一句。")
@@ -821,7 +825,7 @@ class AgentMixin:
                 out = await asyncio.wait_for(self.brain.llm.chat([{"role": "user", "content": prompt}], role="gate",
                                                                  temperature=0.9, max_tokens=30), 6)
                 out = re.sub(r"^[“\"']|[”\"']$", "", (out or "").strip().splitlines()[0] if (out or "").strip() else "")
-                if 2 <= len(out) <= 20 and not re.search(r"[？?]|作为|AI|助手", out):
+                if 2 <= len(out) <= 20 and not re.search(r"[？?]|作为|AI|助手|手机|相册", out):     # 35.2 P7 别编“查查手机”
                     text = out
             except Exception as e:  # noqa: BLE001
                 log.info("先回一句没写出来：%s", e)

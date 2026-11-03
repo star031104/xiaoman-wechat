@@ -26,7 +26,7 @@ def test_layers_no_name_clash():
             for k in vars(b):
                 if not k.startswith("__"):
                     own[k].append(b.__name__)
-    assert len([b for b in GroupChat.__mro__ if b.__name__.endswith("Mixin")]) == 25
+    assert len([b for b in GroupChat.__mro__ if b.__name__.endswith("Mixin")]) == 26
     assert {k: v for k, v in own.items() if len(v) > 1} == {}
 
 
