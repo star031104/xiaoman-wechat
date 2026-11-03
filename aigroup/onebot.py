@@ -91,6 +91,7 @@ class Flat:
     mentioned: bool = False              # 有没有 @ 我
     reply_id: int | None = None          # 引用了哪条消息
     images: list[str] = field(default_factory=list)      # 图片 URL
+    videos: list[str] = field(default_factory=list)      # 35.0 视频（微信：wxvid:…）
     record: str | None = None            # 语音（NapCat 给的 file 名）
     record_url: str | None = None        # 13.0 语音的下载地址（有的话）
     ats: list[str] = field(default_factory=list)         # @ 了谁（QQ 号字符串）
@@ -154,7 +155,10 @@ def flatten(message, self_id: int | None, names: dict[str, str] | None = None) -
             f.record_url = d.get("url") if str(d.get("url") or "").startswith("http") else None
             parts.append("[语音]")
         elif t == "video":
-            parts.append("[视频]")
+            if d.get("url"):
+                f.videos.append(str(d["url"]))
+            if not (parts and parts[-1] == "[视频]"):
+                parts.append("[视频]")
         elif t == "file":
             parts.append(f"[文件:{d.get('name') or d.get('file') or ''}]")
         elif t == "forward":

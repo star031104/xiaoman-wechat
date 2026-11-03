@@ -23,6 +23,7 @@ class GroupState:
     batch_guess: str = ""
     about_ts: float = 0.0          # 5.0 上次因为“有人在背后说她”而开口的时间（10 分钟最多一次）          # 5.0 这一批里有没 @ 她、但多半是冲她说的（说话人的名字）
     batch_start_prev_ts: float = 0.0
+    batch_first_ts: float = 0.0          # 35.0 这一批第一条消息的时间（攒一批最多等 merge_wait_max 秒）
     batch_texts: list = field(default_factory=list)   # [(消息 id, QQ 号, 文字, {at_other, reply_other, sticker})]
     name: str = ""
     last_repeat: str = ""          # 她上次跟着复读的那句（同一轮复读只跟一次）

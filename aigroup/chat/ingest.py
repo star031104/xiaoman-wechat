@@ -126,12 +126,24 @@ class IngestMixin:
         if ("/" in text or "／" in text) and hasattr(self, "control_cmd") \
                 and await self.control_cmd(gid, uid, name, text, ev.get("message_id")):
             return                                  # 32.0 管理员的 /stop、/go、/状态：照做，不拿去接话
+        if ("记录" in text and hasattr(self, "records_cmd")
+                and await self.records_cmd(gid, uid, name, text, ev.get("message_id"))):
+            return                                  # 35.0 /我的记录、/删除我的记录 确认（谁发的管谁的）
         called = self._called(text)             # 只看他自己打的字（不看引用的内容、图片描述）
         st = self._st(gid)
         if f.images and self.gk(gid).get("see_images") and self.brain.llm.vision:
             desc = await self._look(f.images[0], name, gid)
             if desc:
                 text = text.replace("[图片]", f"[图片：{clean_member_text(desc, 100)}]", 1)
+        if (getattr(f, "videos", None) and self.gk(gid).get("see_videos", True) and self.brain.llm.vision
+                and hasattr(self, "_look_video") and "[视频]" in text):
+            try:
+                vdesc = await asyncio.wait_for(self._look_video(f.videos[0], name, gid), 45)
+            except Exception as e:  # noqa: BLE001
+                log.info("群视频没看成：%s", e)
+                vdesc = ""
+            if vdesc:
+                text = text.replace("[视频]", f"[视频：{clean_member_text(vdesc, 90)}]", 1)     # 35.0 群友直接发的视频
         if (f.stickers and self.gk(gid).get("see_stickers", True) and self.brain.llm.vision
                 and re.search(r"\[(表情包|动画表情)\]", text) and self._allow(f"stk_look_{gid}", 30)):
             desc = await self._look_sticker(f.stickers[0], (f.sticker_files or [""])[0])   # 13.1 表情包是什么意思
@@ -206,6 +218,7 @@ class IngestMixin:
         if not st.pending or st.pending.done():
             st.batch_start_prev_ts = st.last_msg_ts
             st.batch_texts = []
+            st.batch_first_ts = now
         mid_row = self._record(gid, uid, name, text, ev.get("message_id"), to_her=mentioned, reply_to=f.reply_id)
         st.batch_texts.append((ev.get("message_id"), uid, text, meta))
         st.last_msg_ts = now

@@ -66,6 +66,8 @@ class IdleMixin:
                         continue
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s 补答应的事出错：%s", gid, e)
+            if hasattr(self, "episodes_tick") and hasattr(self, "_spawn") and self.episodes_due(gid, now):
+                self._spawn(self.episodes_tick(gid))             # 35.0 攒够一段：后台写带出处的摘要
             if not in_active:
                 continue
             if hasattr(self, "celebrate_tick") and await self.celebrate_tick(gid, st):   # 生日、节日：说一声

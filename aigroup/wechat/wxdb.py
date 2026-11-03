@@ -238,6 +238,7 @@ class WxMsg:
     link: str = ""
     shard: str = ""
     img: str = ""                    # 13.1 图片消息：本地 .dat 的文件名（packed_info_data 里的 32 位十六进制）
+    video: str = ""                  # 35.0 视频消息：msg/video/年-月/<这个>.mp4 / <这个>_thumb.jpg
 
     @property
     def mid(self) -> int:
@@ -261,9 +262,12 @@ def parse_row(chat: str, r, self_wxid: str, name2id: dict[int, str], shard: str 
     m = WxMsg(chat=chat, local_id=int(r["local_id"] or 0), server_id=int(r["server_id"] or 0),
               seq=int(r["sort_seq"] or 0), ts=int(r["create_time"] or 0), type=base, sub=sub,
               sender=sender, raw=body, shard=shard)
-    if base == 3 and "packed_info_data" in r.keys():
+    if base in (3, 43) and "packed_info_data" in r.keys():
         from aigroup.wechat.wximg import packed_image_name
-        m.img = packed_image_name(r["packed_info_data"])
+        if base == 3:
+            m.img = packed_image_name(r["packed_info_data"])
+        else:
+            m.video = packed_image_name(r["packed_info_data"])
     src = unpack_text(r["source"]) if "source" in r.keys() else ""
     at = xml_tag(src, "atuserlist")
     if at:

@@ -204,6 +204,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .relstat{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-3)}
 
 /* 弹层 */
+.dpriv{margin-top:var(--sp-2);flex-wrap:wrap;align-items:center;gap:var(--sp-2)}
 .drawer-bg{position:fixed;inset:0;background:rgba(30,20,14,.32);z-index:60;opacity:0;pointer-events:none;transition:opacity .2s}
 .drawer-bg.on{opacity:1;pointer-events:auto}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);background:var(--bg);z-index:61;transform:translateX(102%);transition:transform .22s ease;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
@@ -799,6 +800,8 @@ body:not(.admin) .side .adm-gt{display:none}
     <button class="iconbtn" id="dClose" aria-label="关闭"><span data-i="x"></span></button></div>
   <div class="db" id="dBody"></div>
   <div class="df"><button class="btn pri" id="dSave">保存画像</button><button class="btn" id="dRefresh">让她重新整理</button><span class="sp"></span><button class="btn ghost danger" id="dForget">清空画像</button></div>
+  <div class="df dpriv"><span class="meta">他的记录：</span><a class="btn sm" id="dExport" href="#" download>导出 JSON</a><button class="btn sm ghost danger" id="dErase">全部删掉</button>
+    <span class="meta">群友自己也能在群里发 /我的记录、/删除我的记录 确认</span></div>
 </aside>
 <div class="tip" id="tip"></div>
 <div class="toast" id="toast"></div>
@@ -1279,6 +1282,9 @@ $("dSave").onclick=async()=>{if(!DP)return;const prof={};P.fields.forEach(f=>{co
 $("dRefresh").onclick=async()=>{if(!DP)return;const b=$("dRefresh");b.disabled=true;b.textContent="她在回想…";
   try{const r=await api("/api/person/refresh",{uid:DP.user_id,gid:DG});toast(r.ok?r.message:r.error);if(r.ok){await loadPeople();openPerson(DP.user_id)}}catch(e){toast("出错了："+e.message)}
   b.disabled=false;b.textContent="让她重新整理"};
+$("dExport").onclick=e=>{if(!DP){e.preventDefault();return}$("dExport").href=`api/person/export?uid=${DP.user_id}`};
+$("dErase").onclick=async()=>{if(!DP||!confirm(`彻底删掉「${DP.name}」的所有记录？聊天记录、画像、她记的关于他的事、约定都会删，删了找不回来。`))return;
+  try{const r=await api("/api/person/erase",{uid:DP.user_id,confirm:true});toast(r.ok?r.message:r.error);if(r.ok){closeDrawer();await loadPeople()}}catch(e){toast("出错了："+e.message)}};
 $("dForget").onclick=async()=>{const one=!!DP&&(DP.per||[]).length>1;if(!DP||!confirm(`清空她${one?`在「${gname(DG)}」里`:""}对「${DP.name}」的画像？（聊天记录不会删）`))return;
   try{const r=await api("/api/person/forget",{uid:DP.user_id,gid:one?DG:null});toast(r.message);await loadPeople();openPerson(DP.user_id)}catch(e){toast("出错了："+e.message)}};
 

@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 from difflib import SequenceMatcher
+from datetime import datetime
 from pathlib import Path
 
 from aigroup.wechat.wxdb import WeChatData, WxMsg, find_data_root, list_accounts
@@ -663,6 +664,9 @@ class WeChatBot:
                                                    "summary": "[动画表情]"}})
         elif m.type == 3 and m.img:                             # 13.1 图片：本地 .dat 解开再看（ingest 里按需取）
             segs.append({"type": "image", "data": {"url": f"wximg:{g}:{m.img}:{m.ts}", "file": m.img}})
+        elif m.type == 43 and m.video:                          # 35.0 视频：Linux 微信一般只下了封面，有 mp4 就多截几帧
+            segs.append({"type": "text", "data": {"text": "[视频]"}})
+            segs.append({"type": "video", "data": {"url": f"wxvid:{g}:{m.video}:{m.ts}", "file": m.video}})
         elif m.type == 1 or (m.type == 49 and m.quote_id):
             segs += self.split_ats(m.text, g, m.ats)
         else:
@@ -673,6 +677,28 @@ class WeChatBot:
                 "sender": {"user_id": uid, "card": name,
                            "nickname": (d.contacts.get(m.sender) or {}).get("nick") or name},
                 "message": segs}
+
+    async def fetch_video(self, url: str, wait: float = 6.0) -> tuple[bytes | None, str]:
+        """35.0 wxvid:<群>:<名字>:<时间> → (封面 JPEG, 本地 mp4 路径或 "")。封面要等一下才写出来。"""
+        try:
+            _, _chat, name, ts = url.split(":", 3)
+        except ValueError:
+            return None, ""
+        if self.data is None or not re.fullmatch(r"[0-9a-f]{32}", name or ""):
+            return None, ""
+        base = Path(self.data.account_dir) / "msg" / "video"
+        t0 = time.monotonic()
+        while True:
+            months = [f"{datetime.fromtimestamp(float(ts or 0)):%Y-%m}"] + sorted(
+                (p.name for p in base.glob("*") if p.is_dir()), reverse=True)[:2]
+            for mo in dict.fromkeys(months):
+                th, mp = base / mo / f"{name}_thumb.jpg", base / mo / f"{name}.mp4"
+                if th.exists() or mp.exists():
+                    data = await asyncio.to_thread(th.read_bytes) if th.exists() else None
+                    return data, (str(mp) if mp.exists() and mp.stat().st_size > 10_000 else "")
+            if time.monotonic() - t0 > wait:
+                return None, ""
+            await asyncio.sleep(1.5)
 
     async def fetch_image(self, url: str, wait: float = 8.0, wait_full: float = 25.0) -> bytes | None:
         """13.1 wximg:<群>:<文件名>:<时间> → 解开的图片字节。刚收到的图可能还没下载完：等一会儿再找。"""

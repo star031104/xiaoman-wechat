@@ -431,9 +431,18 @@ class PromptMixin:
                 (gid, spk)).fetchall()]
         try:
             found = self.memory.recall(gid, query, skip_after_id=first, own_texts=own)
+            blk = self.memory.prompt_block(found, self.names(gid), focus)
         except Exception:  # noqa: BLE001
-            return ""
-        return self.memory.prompt_block(found, self.names(gid), focus)
+            blk = ""
+        if hasattr(self, "episodes_block"):                  # 35.0 以前聊过的那几段（带原话出处）
+            try:
+                ep = self.episodes_block(gid, query, before_id=first)
+            except Exception as e:  # noqa: BLE001
+                log.debug("翻以前的摘要出错：%s", e)
+                ep = ""
+            if ep:
+                blk = (blk + "\n\n" + ep).strip()
+        return blk
 
     def situation_block(self, gid: int, text: str, *, mentioned: bool, ign: int, why: str, flags: set | None,
                         now, focus: list | None = None, drop: str = "") -> str:
@@ -778,6 +787,11 @@ class PromptMixin:
         if v2:                       # 33.0 关系、按钮梗、想念、情绪、睡觉：拼进“此刻”
             state += self.v33_state(gid, mentioned=mentioned, owner_spoke=owner_spoke, ign=ign, now_dt=now, focus=focus,
                                     sad="sad" in ((self.__dict__.get("_situ_flags") or {}).get(gid) or set()))
+        if hasattr(self, "v35_state"):        # 35.0 这一小时说得太多：提醒多听
+            try:
+                state += self.v35_state(gid, mentioned=mentioned)
+            except Exception as e:  # noqa: BLE001
+                log.debug("v35_state 出错：%s", e)
         drift = "" if v2 else self.drift_anchor((getattr(self, "_drift", {}) or {}).get(gid, ""))
         skip = '"act": "skip"' if plan else "[跳过]"
         if why:

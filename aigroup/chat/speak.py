@@ -249,8 +249,9 @@ class SpeakMixin:
         return self.secs(key, gid)
 
     async def _after_wait(self, gid: int):
-        try:
-            await asyncio.sleep(float(self.gk(gid)["merge_wait_seconds"]))
+        try:                                             # 35.0 被叫到 1 秒、平时 2 秒、热闹 5 秒，一批最多 8 秒
+            await asyncio.sleep(self.merge_wait(gid) if hasattr(self, "merge_wait")
+                                else float(self.gk(gid)["merge_wait_seconds"]))
         except asyncio.CancelledError:
             return
         st = self._st(gid)

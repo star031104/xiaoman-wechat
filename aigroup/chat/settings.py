@@ -100,6 +100,16 @@ DEFAULTS = {
     "longing_hours": 6,            # 醒着的几个小时不见算想念满
     "buttons": True,               # 按钮梗：人机 → 炸毛、话痨 → 委屈、记小本本 → 真记
     "v33_emotions": True,          # 情绪写成动作
+    # ---- 35.0（见 aigroup/chat/v35.py、aigroup/memory/episodes.py）----
+    "merge_adaptive": True,        # 攒一批再回：被叫到 merge_wait_mention 秒、平时 merge_wait_seconds 秒、热闹 merge_wait_busy 秒
+    "merge_wait_mention": 1,
+    "merge_wait_busy": 5,          # 30 秒里有 4 条以上算热闹
+    "merge_wait_max": 8,           # 一批从第一条算起最多等这么久（一直有人说也得看一眼）
+    "share_hint_ratio": 0.25,      # 这一小时她的发言占比超过这个：提示词里提醒多听（0 = 关）
+    "episodes": True,              # 每段聊天写带原话编号的要点，聊到相关的事时想起来
+    "episode_size": 40,            # 攒多少条写一段
+    "see_videos": True,            # 群友直接发的视频：有 mp4 截 4 帧看，只有封面就看封面
+    "member_records_cmd": True,    # 群友发 /我的记录、/删除我的记录 确认
     "sleep_hours": "01:30-07:30",  # 这段时间被叫只回半句梦话（老大叫她能醒半小时）
     "plans_no_fun": True,          # 看比赛、开黑这种娱乐不记成要追问的约定
     "plans_expire_12h": True,      # 该问的时候过了 12 小时还没问：作废
@@ -331,6 +341,11 @@ KNOBS = {
     "longing": ("想念老大", "bool", None, None, None, "他隔很久冒头她先阴阳一句；一整天不见白天 @ 他一次（连续 3 次没理就歇 7 天）"),
     "buttons": ("按钮梗", "bool", None, None, None, "被叫人机炸毛、被嫌话痨委屈、“记小本本”真记"),
     "sleep_hours": ("睡觉时段", "str", None, None, None, "这段时间被叫只回半句梦话；老大叫她能醒半小时；留空 = 不睡"),
+    "merge_adaptive": ("攒一批再回", "bool", None, None, None, "被叫到等 1 秒、平时 2 秒、群里热闹等 5 秒再一起看，一批最多 8 秒；关掉 = 固定等 2 秒"),
+    "share_hint_ratio": ("说多了提醒多听", "float", 0, 0.6, 0.05, "这一小时她的发言占比超过这个就在提示词里提醒多听；0 = 关"),
+    "episodes": ("带出处的聊天摘要", "bool", None, None, None, "每 40 条写几条要点（挂着原话编号），聊到相关的事 / 说“上周”时想起来，能引原话"),
+    "see_videos": ("看群友发的视频", "bool", None, None, None, "微信里直接发的视频：下好了截 4 帧看，没下就看封面"),
+    "member_records_cmd": ("群友查 / 删自己的记录", "bool", None, None, None, "群里发 /我的记录 看她记了多少；/删除我的记录 确认 全删"),
     "talkativeness": ("话痨度", "float", 0, 1, 0.05, "最近 1 小时里留给她的发言份额；她说多了会自动收紧"),
     "max_per_10min": ("10 分钟最多说几轮", "int", 1, 30, 1, "被叫到时放宽到两倍"),
     "max_bubbles": ("一次最多几条", "int", 1, 5, 1, "一轮回复最多拆成几条消息"),

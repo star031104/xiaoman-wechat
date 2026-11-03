@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -76,6 +77,8 @@ class GroupHome:
         r.add_post("/api/person/update", self.person_update)
         r.add_post("/api/person/forget", self.person_forget)
         r.add_post("/api/person/refresh", self.person_refresh)
+        r.add_get("/api/person/export", self.person_export)      # 35.0 导出一个人的记录（JSON 下载）
+        r.add_post("/api/person/erase", self.person_erase)       # 35.0 彻底删掉一个人的记录
         r.add_get("/api/her", self.her)
         r.add_post("/api/her/interests", self.her_interests)
         r.add_post("/api/her/self_notes", self.her_self_notes)
@@ -156,6 +159,16 @@ class GroupHome:
         except Exception:  # noqa: BLE001
             return {}
         return d if isinstance(d, dict) else {}
+
+    def _persona_now(self):
+        """35.1 小屋显示她现在真在用的人设：哪个群开着 v2 就给 v2 的（口头禅、全文、文件名都跟着换）。"""
+        gc = self.gc
+        try:
+            if gc and any(gc.v2(g) for g in (gc.groups or [])):
+                return gc.v2_persona(), str(gc.g.get("persona_v2_file") or self.cfg.persona_file)
+        except Exception:  # noqa: BLE001
+            pass
+        return self.brain.persona, self.cfg.persona_file
 
     def _q(self, sql: str, args=()) -> list:
         return self.db.conn.execute(sql, args).fetchall()
@@ -482,10 +495,11 @@ class GroupHome:
             "SELECT group_id, content, ts FROM qq_group_messages WHERE role='assistant' ORDER BY id DESC LIMIT 6")]
         llm_today = b.llm.stats() if hasattr(b.llm, "stats") else {}
         eff = gc.effect_stats(self._day_start(6))
+        p, pfile = self._persona_now()
         return web.json_response({
             "persona": {"name": p.name, "formal_name": p.formal_name, "age": p.age, "identity": p.identity,
                         "home": p.home, "look": p.look, "catchphrases": p.catchphrases, "birthday": p.birthday,
-                        "file": self.cfg.persona_file},
+                        "file": pfile},
             "now": now, "mood": b.mood, "activity": activity, "busy": gc.busy(activity) if activity else False,
             "quiet": in_quiet(b.now(), self.cfg.get("quiet_hours")), "quiet_hours": self.cfg.get("quiet_hours") or "",
             "active_hours": gc.g.get("active_hours"),
@@ -807,6 +821,30 @@ class GroupHome:
         self.db.conn.commit()
         return web.json_response({"ok": True, "message": "画像清空了：他再说几句话，她会重新认识他"})
 
+    async def person_export(self, req):
+        uid = int(req.query.get("uid") or 0)
+        if not uid:
+            return web.json_response({"ok": False, "error": "没给编号"})
+        from aigroup.memory.forget import export_person
+        import json as _json
+        d = export_person(self.db, uid)
+        body = _json.dumps(d, ensure_ascii=False, indent=1, default=str)
+        return web.Response(body=body.encode(), content_type="application/json", charset="utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="records-{uid}.json"'})
+
+    async def person_erase(self, req):
+        d = await self._json(req)
+        uid = int(d.get("uid") or 0)
+        if not uid or not d.get("confirm"):
+            return web.json_response({"ok": False, "error": "要带上 confirm 才删"})
+        from aigroup.memory.forget import forget_person
+        got = await asyncio.to_thread(forget_person, self.db, uid)
+        for attr in ("_tmap", "_hx_cache", "_ep_cache"):
+            if isinstance(getattr(self.gc, attr, None), dict):
+                getattr(self.gc, attr).clear()
+        return web.json_response({"ok": True, "message": f"删好了：{got.get('qq_group_messages', 0)} 条聊天、"
+                                                          f"{got.get('qq_facts', 0)} 件事、画像和约定都删了", "n": got})
+
     async def person_refresh(self, req):
         d = await self._json(req)
         uid = int(d.get("uid") or 0)
@@ -827,7 +865,8 @@ class GroupHome:
 
     # ---------------- 她自己 ----------------
     async def her(self, req):
-        b, p = self.brain, self.brain.persona
+        b = self.brain
+        p, pfile = self._persona_now()
         plans = []
         for i in range(0, 7):
             day = b.now() - timedelta(days=i)
@@ -838,7 +877,7 @@ class GroupHome:
             "persona": {"name": p.name, "formal_name": p.formal_name, "age": p.age, "identity": p.identity,
                         "home": p.home, "look": p.look, "catchphrases": p.catchphrases, "birthday": p.birthday,
                         "body": p.body, "examples": len(p.examples), "warnings": p.warnings,
-                        "file": self.cfg.persona_file, "aliases": sorted(self.gc.aliases)},
+                        "file": pfile, "aliases": sorted(self.gc.aliases)},
             "interests": self.gc.interests(), "self_notes": self.gc.self_notes(min(self.gc.groups)) if self.gc.groups else "",
             "self_notes_by": [{"gid": g, "name": self.gc._st(g).name or str(g), "text": self.gc.self_notes(g)}
                               for g in sorted(self.gc.groups)],

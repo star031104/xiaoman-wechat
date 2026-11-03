@@ -33,6 +33,10 @@ def forget_person(db, uid: int) -> dict:
         run(tab, f"DELETE FROM {tab} WHERE user_id=?", (uid,))
     run("qq_facts", "DELETE FROM qq_facts WHERE subject_id=? OR speaker_id=?", (uid, uid))
     run("qq_plans", "DELETE FROM qq_plans WHERE user_id=?", (uid,))
+    run("qq_asks", "DELETE FROM qq_asks WHERE target_uid=?", (uid,))                       # 35.0 问过他的事、答应他的事
+    run("qq_promises", "DELETE FROM qq_promises WHERE target_uid=?", (uid,))
+    if "qq_episodes" in t:                                                                   # 35.0 摘要里带了他名字的段：整段删
+        run("qq_episodes", "DELETE FROM qq_episodes WHERE ',' || speakers || ',' LIKE ?", (f"%,{uid},%",))
     run("qq_reply_effect", "UPDATE qq_reply_effect SET target_uid=NULL WHERE target_uid=?", (uid,))
     k = 0
     for (key,) in db.conn.execute("SELECT k FROM kv").fetchall():
@@ -43,6 +47,27 @@ def forget_person(db, uid: int) -> dict:
     db.conn.commit()
     db.conn.execute("VACUUM")
     return n
+
+
+def export_person(db, uid: int) -> dict:
+    """35.0 把关于一个人的记录导出来（给本人看 / 留底）：聊天记录、画像、记的事、约定、所在城市、熟悉度。"""
+    uid = int(uid)
+    t = _tables(db)
+
+    def rows(name, sql, args=(uid,)):
+        return [dict(r) for r in db.conn.execute(sql, args).fetchall()] if name in t else []
+    return {
+        "user_id": uid,
+        "people": rows("qq_people", "SELECT user_id, name, note, profile, msgs, mentions, last_seen, aliases FROM qq_people WHERE user_id=?"),
+        "profiles": rows("qq_profiles", "SELECT group_id, profile, note, msgs, last_seen FROM qq_profiles WHERE user_id=?"),
+        "messages": rows("qq_group_messages", "SELECT id, ts, group_id, name, content FROM qq_group_messages "
+                                              "WHERE user_id=? AND role='user' ORDER BY id"),
+        "facts": rows("qq_facts", "SELECT id, group_id, text, kind, source, created, t_valid, t_invalid FROM qq_facts "
+                                  "WHERE subject_id=? OR speaker_id=?", (uid, uid)),
+        "plans": rows("qq_plans", "SELECT id, group_id, what, due, status, created FROM qq_plans WHERE user_id=?"),
+        "where": rows("qq_where", "SELECT kind, city, since, until FROM qq_where WHERE user_id=?"),
+        "closeness": rows("qq_closeness", "SELECT score, updated FROM qq_closeness WHERE user_id=?"),
+    }
 
 
 def forget_group(db, gid: int) -> dict:

@@ -16,6 +16,7 @@ GroupChat 由这些 Mixin 组成（每个文件管一件事，彼此通过 self 
     SocialMixin    chat/social.py     21.0 九问自评记录、等等队列、擦边再问、人卡、四条硬底线
     MemeMixin      chat/meme.py       26.0 先读懂（实际意思、语气、梗）+ 不懂的梗去查
 
+35.0 起这些 Mixin 按 7 层分组（看到 / 时机 / 说话 / 身份 / 关系 / 记忆 / 工具），见 chat/layers.py。
 设置都在 chat/settings.py；每个群的运行时状态在 chat/state.py。
 """
 from __future__ import annotations
@@ -27,43 +28,22 @@ import re
 import time
 from collections import ChainMap
 
-from aigroup.agent.mixin import AgentMixin
-from aigroup.chat.checks import ChecksMixin
-from aigroup.chat.promise import PromiseMixin
-from aigroup.chat.meme import MemeMixin
-from aigroup.memory.autobio import AutobioMixin
 from aigroup.chat.feedback import SCHEMA as EFFECT_SCHEMA
-from aigroup.chat.feed import FeedMixin
-from aigroup.chat.feedback import FeedbackMixin
 from aigroup.chat.gate import GateLog, active_weights
-from aigroup.chat.grow import GrowMixin
-from aigroup.chat.humane import HumaneMixin
-from aigroup.chat.idle import IdleMixin
-from aigroup.chat.ingest import IngestMixin
-from aigroup.chat.insight import InsightMixin
 from aigroup.chat.mood import Mood
-from aigroup.chat.outbox import OutboxMixin
 from aigroup.chat.plan import NAME_TAIL
-from aigroup.chat.prompt import PromptMixin
 from aigroup.chat.settings import DEAD_KNOBS, DEFAULTS, GLOBAL_ONLY, KNOBS, group_key
-from aigroup.chat.listener import ListenerMixin
-from aigroup.chat.social import SocialMixin
-from aigroup.chat.speak import SpeakMixin
-from aigroup.chat.v33 import V33Mixin
+from aigroup.chat.layers import Identity, Recall, Senses, Social, Timing, Tools, Voice
 from aigroup.chat.state import GroupState
 from aigroup.chat.trace import Tracer
 from aigroup.core.store import ensure_columns
-from aigroup.eval.weekly import EvalMixin
-from aigroup.memory.digest import DigestMixin
 from aigroup.memory.style import SCHEMA as STYLE_SCHEMA
-from aigroup.memory.style import StyleMixin
 from aigroup.memory.facts import Memory
 from aigroup.memory.learn import Learner
 from aigroup.memory.lore import Lore
-from aigroup.memory.people import PEOPLE_COLUMNS, PeopleMixin
+from aigroup.memory.people import PEOPLE_COLUMNS
 from aigroup.memory.people import SCHEMA as PEOPLE_SCHEMA
 from aigroup.memory.stickers import Stickers
-from aigroup.net.knowledge import NetMixin
 
 log = logging.getLogger("aigroup.group")
 
@@ -89,9 +69,7 @@ MSG_COLUMNS = {"to_her": "INTEGER NOT NULL DEFAULT 0",   # 这条是在叫她（
                "reply_to": "INTEGER"}                    # 引用了哪条消息（QQ 消息 id）
 
 
-class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, PromptMixin, PeopleMixin, DigestMixin,
-                NetMixin, GrowMixin, EvalMixin, StyleMixin, InsightMixin, AgentMixin, HumaneMixin, SocialMixin,
-                ListenerMixin, ChecksMixin, AutobioMixin, OutboxMixin, PromiseMixin, MemeMixin, V33Mixin):
+class GroupChat(Senses, Timing, Voice, Identity, Social, Recall, Tools):    # 35.0 分层见 aigroup/chat/layers.py
     """她在群里的一切：收消息 → 判断要不要说 → 说 → 看效果；空闲时冒泡、整理记忆。
 
     这个类只负责把各部分装起来、放共用的小工具；具体的活在各个 Mixin 里（见文件开头的说明）。
@@ -161,6 +139,7 @@ class GroupChat(FeedMixin, IngestMixin, SpeakMixin, IdleMixin, FeedbackMixin, Pr
         self._grow_init()
         self._checks_init()
         self._promise_init()
+        self._episodes_init()
         self._meme_init()
         self._outbox_init()                                 # 24.0 统一的发送口：演练、静音、每天上限、发送账本
         from aigroup.net.where import Where
