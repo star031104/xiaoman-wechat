@@ -202,7 +202,7 @@ def labeled_rows(db, since: float = 0.0) -> list[tuple[dict, float, float]]:
         except ValueError:
             continue
         if r["human"] in (0, 1):
-            out.append((f, float(r["human"]), 1.0 if r["hs"] == "claude" else 2.0))      # 36.0 补标的权重 1
+            out.append((f, float(r["human"]), 2.0))      # 36.1 Claude 判的和你判的同权重
         else:
             out.append((f, 0.0, 0.3))
     return out

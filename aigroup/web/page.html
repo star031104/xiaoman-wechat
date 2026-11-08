@@ -1448,11 +1448,11 @@ const pct=v=>v==null?"—":Math.round(v*100)+"%";
 const LHOWS=["接住","回答","追问","接梗","纠错","补充","关心"];
 /* 20.0：三档（该接 / 可接可不接 / 不该插）+ 看不出来；一条条判或一屏 10 条；每条写清她当时是怎么决定的 */
 function labProg(s){const n0=s.n0??0,n1=s.n1??0,need=30,w0=s.w0||0,w1=s.w1||0;
-  $("labStat").textContent=s.n||s.n2?`判了 ${s.n+(s.n2||0)} 条（该接 ${n1} · 可接可不接 ${s.n2||0} · 不该插 ${n0}${s.n0_content?` + 说的不对 ${s.n0_content}`:""}） · 她做的和你判的一致 ${pct(s.agree)} · 她说了的里该接的 ${pct(s.precision)} · 该接的她接了 ${pct(s.recall)}`:"还没判过：先展开上面的“怎么判”看一眼";
+  $("labStat").textContent=s.n||s.n2?`判了 ${s.n+(s.n2||0)} 条${s.claude?`（其中 Claude 判的 ${s.claude}）`:""}（该接 ${n1} · 可接可不接 ${s.n2||0} · 不该插 ${n0}${s.n0_content?` + 说的不对 ${s.n0_content}`:""}） · 她做的和你判的一致 ${pct(s.agree)} · 她说了的里该接的 ${pct(s.precision)} · 该接的她接了 ${pct(s.recall)}`:"还没判过：先展开上面的“怎么判”看一眼";
   // 20.4.1：显示真实条数（以前封顶在 30，判了也看不出变化）；够 30 条后标“够了”
   const bar=(v,lab,mine)=>`<div><div class="k"><span>${lab}</span><b class="num">${v}${v>=need?" ✓":" / "+need}</b></div><div class="bar" role="progressbar" aria-label="${lab}" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(v,need)}"><span style="width:${Math.min(100,v/need*100)}%"></span></div><div class="small muted">${mine}</div></div>`;
   return apLine()+`<div class="lab-prog"><div><div class="k"><span>这次判了</span><b class="num">${LABN} 条</b></div><div class="small muted">键盘 <span class="kbd">Y</span> 该接 <span class="kbd">M</span> 可接可不接 <span class="kbd">N</span> 不该插 <span class="kbd">S</span> 看不出来 · <span class="kbd">1</span>~<span class="kbd">7</span> 选怎么接</div></div>
-    ${bar(n1+Math.floor(w1/2),"“该接”（小判断器要 30）",`你判的 ${n1}${w1?` + 弱标签 ${w1}（两条算一条）`:""}`)}${bar(n0+Math.floor(w0/2),"“不该插”（小判断器要 30）",`你判的 ${n0}${w0?` + 弱标签 ${w0}`:""}`)}</div>
+    ${bar(n1+Math.floor(w1/2),"“该接”（小判断器要 30）",`判了 ${n1}${w1?` + 弱标签 ${w1}（两条算一条）`:""}`)}${bar(n0+Math.floor(w0/2),"“不该插”（小判断器要 30）",`判了 ${n0}${w0?` + 弱标签 ${w0}`:""}`)}</div>
     <div class="small muted" style="margin:-6px 0 12px">${NBS&&NBS.trained?`小判断器已经在用（留出准确率 ${Math.round((NBS.acc||0)*100)}%），每晚用新标注重新训练`:(n1+Math.floor(w1/2)>=need&&n0+Math.floor(w0/2)>=need?"两类都够了：今晚整理时训练，明天开始用":"两类各够 30 条后当晚训练、第二天开始用")}。弱标签是程序自己推的（她说了没人接 → 不该插、接得很好 → 该接）</div>`}
 function labCtx(m){return `${m.context.length?`<div class="lab-q">${m.context.map(esc).join("<br>")}</div>`:""}
     <div class="lab-did">最后一句之后：<b>${esc(m.did)}</b></div>

@@ -25,7 +25,7 @@ HOW = ["接住", "回答", "追问", "接梗", "纠错", "补充", "关心"]
 # 说的不对的不进门控、小判断器、拿不准时的例子和“不该说却说率”——那是“怎么说”的问题，不是“该不该开口”
 WHY0 = ["时机不对", "说的不对"]
 TIMING_ONLY = "NOT (human=0 AND IFNULL(human_why,'')='说的不对')"
-# 36.0 补标：Claude 照你的标注补的记 src='claude'（门控拟合权重 1，你的 2；“和你一致”只算你自己标的）
+# 36.0 补标：Claude 自己判的记 src='claude'；36.1 起和你标的一样算（进度、一致率、门控权重都一样），你在小屋改判就变成你的
 SRC_COLS = (("qq_gate_log", "human_src"), ("qq_human_score", "src"), ("qq_pairs", "src"), ("qq_spot", "src"))
 MINE = "IFNULL(human_src,'')=''"
 
@@ -269,21 +269,21 @@ ANNOYED = __import__("re").compile(r"^\s*[？?]{2,}\s*$|没(人)?问你|谁问�
 def stats(db) -> dict:
     """标了多少；她做的和你判的一致的比例；分开看“该说的她说了”（召回）和“她说的是该说的”（精确）。“可接可不接”不算进去。"""
     ensure_src(db)
-    rows = db.conn.execute(f"SELECT spoke, human FROM qq_gate_log WHERE human IN (0, 1) AND {TIMING_ONLY} AND {MINE}").fetchall()
+    rows = db.conn.execute(f"SELECT spoke, human FROM qq_gate_log WHERE human IN (0, 1) AND {TIMING_ONLY}").fetchall()
     n = len(rows)
     tp = sum(1 for r in rows if r["spoke"] and r["human"] == 1)
     fp = sum(1 for r in rows if r["spoke"] and r["human"] == 0)
     fn = sum(1 for r in rows if not r["spoke"] and r["human"] == 1)
     agree = sum(1 for r in rows if bool(r["spoke"]) == bool(r["human"]))
     try:
-        n2 = int(db.conn.execute(f"SELECT COUNT(*) c FROM qq_gate_log WHERE human=2 AND {MINE}").fetchone()["c"])
+        n2 = int(db.conn.execute(f"SELECT COUNT(*) c FROM qq_gate_log WHERE human=2").fetchone()["c"])
         nc = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human=0 AND human_why='说的不对'").fetchone()["c"])
         w = db.conn.execute("SELECT SUM(weak=0) w0, SUM(weak=1) w1 FROM qq_gate_log WHERE human IS NULL").fetchone()
         w0, w1 = int(w["w0"] or 0), int(w["w1"] or 0)
     except Exception:  # noqa: BLE001
         n2 = w0 = w1 = nc = 0
     try:
-        nc_ = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human IS NOT NULL AND human_src='claude'").fetchone()["c"])
+        nc_ = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human IN (0, 1, 2) AND human_src='claude'").fetchone()["c"])
     except Exception:  # noqa: BLE001
         nc_ = 0
     return {"n": n, "n1": sum(1 for r in rows if r["human"] == 1), "n0": sum(1 for r in rows if r["human"] == 0), "claude": nc_,
