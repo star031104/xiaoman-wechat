@@ -35,6 +35,23 @@ NEG = re.compile(r"闭嘴|闭麦|小嘴巴|别说了|话(好|太|真)多|何意�
 URL = "https://api.deepseek.com/v1/chat/completions"
 
 
+class _NoWrite:
+    """--collect：只读，写库的语句跳过。"""
+    def __init__(self, conn):
+        self.c = conn
+
+    def execute(self, sql, *a):
+        if sql.lstrip().upper().startswith(("UPDATE", "INSERT", "ALTER")):
+            return None
+        return self.c.execute(sql, *a)
+
+    def commit(self):
+        pass
+
+    def __getattr__(self, n):
+        return getattr(self.c, n)
+
+
 class DB:
     def __init__(self, path):
         self.conn = sqlite3.connect(path, timeout=180)
@@ -48,17 +65,46 @@ def key(home: Path) -> str:
     raise SystemExit("没找到 DeepSeek key")
 
 
-async def ask(cli, k, prompt, sem, tries=3) -> dict:
+CACHE: dict = {}
+CACHE_ONLY = False
+CACHE_FILE: Path | None = None
+
+
+def _save_cache():
+    if CACHE_FILE:
+        CACHE_FILE.write_text(json.dumps(CACHE, ensure_ascii=False), encoding="utf-8")
+
+
+async def ask(cli, k, prompt, sem, tries=5) -> dict:
+    import hashlib
+    h = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
+    if h in CACHE:
+        return CACHE[h]
+    if CACHE_ONLY:
+        return {}
+    d = await _ask(cli, k, prompt, sem, tries)
+    if d:
+        CACHE[h] = d
+        if len(CACHE) % 50 == 0:
+            _save_cache()
+    return d
+
+
+ERRS: dict = {}
+
+
+async def _ask(cli, k, prompt, sem, tries=5) -> dict:
     async with sem:
         for i in range(tries):
             try:
-                r = await cli.post(URL, headers={"Authorization": f"Bearer {k}"}, timeout=120, json={
+                r = await cli.post(URL, headers={"Authorization": f"Bearer {k}"}, timeout=240, json={
                     "model": MODEL, "temperature": 0, "max_tokens": 6000, "reasoning_effort": EFFORT,
                     "messages": [{"role": "user", "content": prompt}]})
                 txt = r.json()["choices"][0]["message"]["content"]
                 return json.loads(re.search(r"\{.*\}", txt, re.S).group(0))
-            except Exception:  # noqa: BLE001
-                await asyncio.sleep(2 + 3 * i)
+            except Exception as e:  # noqa: BLE001
+                ERRS[type(e).__name__] = ERRS.get(type(e).__name__, 0) + 1
+                await asyncio.sleep(3 + 5 * i)
     return {}
 
 
@@ -155,8 +201,17 @@ def shots(items, k_per, keyf, fmt):
 async def run(args):
     random.seed(7)
     home = Path(args.home)
+    global CACHE_FILE, CACHE, CACHE_ONLY
+    CACHE_ONLY = bool(args.cache_only)
+    CACHE_FILE = home / "data" / "auto_label_cache.json"
+    if CACHE_FILE.is_file():
+        CACHE = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
     db = DB(home / "data" / "group.db")
-    ensure_cols(db.conn)
+    if args.collect:                       # 先只问模型、存缓存（不写库）；再停服务跑 --write，几秒写完
+        args.write = True
+        db.conn = _NoWrite(db.conn)  # type: ignore[assignment]
+    else:
+        ensure_cols(db.conn)
     k = key(home)
     sem = asyncio.Semaphore(args.conc)
     report = {}
@@ -389,6 +444,8 @@ async def run(args):
             db.conn.commit()
             report["rules"] = {"written": wr}
             print("rules", report["rules"], flush=True)
+    _save_cache()
+    print("errors", ERRS)
     print(json.dumps(report, ensure_ascii=False))
     (home / "data" / "auto_label_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -401,4 +458,6 @@ if __name__ == "__main__":
     ap.add_argument("--hold-small", type=int, default=30)
     ap.add_argument("--conc", type=int, default=8)
     ap.add_argument("--skip-eval", action="store_true")
+    ap.add_argument("--collect", action="store_true")
+    ap.add_argument("--cache-only", action="store_true")   # 只用已经问过的结果写库（模型接口没钱 / 停服务写库时）
     asyncio.run(run(ap.parse_args()))
