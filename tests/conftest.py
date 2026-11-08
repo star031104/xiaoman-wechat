@@ -70,7 +70,9 @@ def cfg(tmp_path, monkeypatch):
     c["wechat"] = {**c["wechat"], "groups": [GROUP], "owner_id": OWNER,
                "group": {**c["wechat"]["group"], "pace": 0, "merge_wait_seconds": 0, "merge_bubbles": False, "active_hours": "00:00-23:59",
                                      "talk_curve": {}, "typo_rate": 0, "explore_rate": 0, "ablate_rate": 0, "feed": False, "listener_mode": "off", "share_target": 0, "length_match": False, "appraise_enforce": True,
-                                     "poke_back_chance": 0}}
+                                     "poke_back_chance": 0, "social_read": "off", "media_first_comment": False,
+                                     "cold_streak_n": 0, "avoid_weekly": False, "long_chat_hours": 0,
+                                     "plans_infer_remind": True, "plans_need_present": False}}
     return c
 
 

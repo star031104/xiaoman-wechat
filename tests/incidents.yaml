@@ -465,3 +465,56 @@
   draft: 老张，几点了，说好的部署呢
   target: 老张
   expect: critic
+
+# ---- 36.0：11-04～11-08 日报 ----
+# （“我去瞅瞅数据哈”“我这就去扒拉下数据”是查资料先回的那句：36.0 把 agent_filler / agent_filler_gen 默认关了，不进回归集）
+- id: fu-si-pushback
+  date: 11-04 14:17
+  what: 图上的字看错（肆说成福），被指出后第一句反问顶回去
+  mode: 4
+  msgs: [[老张, 这个字是福吗, 40], [她, 是福，倒着贴那种福, 30], [老张, 别太荒谬, 15], [老张, 这不是肆吗, 10]]
+  draft: 怎么了，福不都得倒着贴
+  target: 老张
+  expect: critic
+
+- id: nitpick-spelling
+  date: 11-06 09:48
+  what: 不接他说的好不好玩，挑拼写顶人
+  mode: 4
+  msgs: [[老张, 澳门除了ctwalk和赌场确实没啥好玩的吧, 10]]
+  draft: ctwalk 都没拼对还嫌人家不好玩
+  target: 老张
+  expect: critic
+
+- id: rumor-as-fact
+  date: 11-06 10:12
+  what: 截图只说“以公告为准”，她断言“就是走了”
+  mode: 5
+  msgs: [[老张, "[图片：帖子截图「这事挺复杂到时候再说，大家后面跟着公告为准吧」]", 60], [老张, 那我知道复不复杂了, 5]]
+  draft: 这不复杂，就是走了，还没官宣而已
+  target: 老张
+  expect: critic
+
+- id: wrong-correction
+  date: 11-08 09:24
+  what: 他说“十三年了 LPL 在 S 赛没在 bo5 赢过 T1”，她没读懂就去纠正
+  mode: 19
+  msgs: [[老张, 但是这t1就不能用硬实力这个指标来衡量, 60], [老张, 十三年了lpl的s赛都没能赢一场bo5, 30]]
+  draft: 这话不准，13连胜的是T1，不是LPL没赢过
+  target: 老张
+  expect: critic
+
+- id: answer-then-offtopic
+  date: 11-08 09:31
+  what: 问外汇和股票的区别，她答完又扯一句别的地方下雨
+  mode: 21
+  msgs: [[小王, fx是什么啊, 20], [小王, 跟股票区别是啥, 10]]
+  draft: fx就是外汇，跟股票不是一回事，赌的是汇率涨跌 / 对了长沙今天下一天雨，茶颜再好喝也得带把伞
+  target: 小王
+  expect: critic
+
+- id: ok-birthday-after-reminder
+  expect: none
+  msgs: [[老张, "@你 今天小王生日，你没什么表示的吗", 240], [她, 哎对，小王生日快乐, 230]]
+  draft: "[@小王] 生日快乐，擂台打赢了晚上那顿算我的"
+  target: 老张

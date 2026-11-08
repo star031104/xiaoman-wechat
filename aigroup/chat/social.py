@@ -297,7 +297,8 @@ class SocialMixin:
     HUH = re.compile(r"^[？?]{1,4}$|^[？?]?何意味|^啥意思|^什么鬼|你为什么|你在说啥|你在干嘛|答非所问|我求你了|求求你|"
                      r"我问你|一天问|天天问|每天都要问|又问|话题跳过|跳过了|换个话题|"
                      r"催命鬼|听君一席话.{0,2}如听一席话|说了等于没说|废话文学|"
-                     r"^神了[.。…]+|^(你)?还发表情包?|^[^\s，,。]{1,3}(啥|什么)[？?]*$")   # 35.2 11-03“神了……”“还发表情包”“部署啥”（只在她说完 60 秒内算）                # 31.2 10-27 确认不满里 hush 认不出的       # 23.2 “这是场地吗我问你”“一天问两三次这你受得了吗”
+                     r"^神了[.。…]+|^(你)?还发表情包?|^[^\s，,。]{1,3}(啥|什么)[？?]*$|"
+                     r"别太荒谬|^这不是.{1,6}[吗嘛][？?]*$|你说我知不知道|太皮了|管管你|控制你|学了(些|点)啥|高情商|^[^\s，,。]{1,6}是什么[？?]*$")   # 35.2 11-03“神了……”“还发表情包”“部署啥”（只在她说完 60 秒内算）                # 31.2 10-27 确认不满里 hush 认不出的       # 23.2 “这是场地吗我问你”“一天问两三次这你受得了吗”
     SELF_HUSH = re.compile(r"闭嘴|闭麦|不说了|少说两句|我先不说|潜水了|安静了")
 
     def hush(self, gid: int, why: str, minutes: float | None = None, now: float | None = None):
@@ -320,13 +321,20 @@ class SocialMixin:
         now = now or time.time()
         st = self._st(gid)
         echo = bool(t) and self.echoes_her(gid, t, now)
-        if not t or not (self.HUH.search(t) or echo):
+        j = ""
+        if t and len(t) <= 4 and hasattr(self, "_rows"):         # 36.0 拆成几条发的“小嘴巴”“闭起来”拼起来认
+            from aigroup.chat.v36 import joined_short
+            j = joined_short(self._rows(gid, 8), uid, now)
+            if not j.endswith(t):
+                j += t
+        quiet = bool(t and (self.QUIET.search(t) or (j and self.QUIET.search(j))))
+        if not t or not (self.HUH.search(t) or echo or quiet):
             return False
-        if not st.last_reply_ts or now - st.last_reply_ts > 60:
+        if not st.last_reply_ts or now - st.last_reply_ts > (180 if quiet else 60):
             return False
         sig = [x for x in st.__dict__.setdefault("huh", []) if now - x < 600] + [now]
         st.huh = sig
-        if len(sig) >= 2 or self.QUIET.search(t) or echo:
+        if len(sig) >= 2 or quiet or echo:
             self.hush(gid, f"{t[:12]}", now=now)
             return True
         return False

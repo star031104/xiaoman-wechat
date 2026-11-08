@@ -479,8 +479,11 @@ class PromptMixin:
             if sp:
                 out.append(sp)
         lb = self.length_block(gid) if hasattr(self, "length_block") else ""
+        av = self.avoid_line(gid) if hasattr(self, "avoid_line") else ""          # 36.0 B5 每周“别再说”
+        oo = [self.names(gid).get(str(u), "") for u in (self.db.get(f"qq_optout_{gid}") or [])]
+        oo_line = ("- " + "、".join(x for x in oo if x) + " 说过别理他：别 @ 他、别主动找他说话，他叫你时照常回") if any(oo) else ""
         for extra in ((self.moves_block(gid) if hasattr(self, "moves_block") and drop != "moves" else ""),
-                      ("# 长度\n" + lb if lb else "")):
+                      ("# 长度\n" + lb if lb else ""), ("# 少用的说法\n" + av if av else ""), ("# 别理他\n" + oo_line if oo_line else "")):
             if extra:
                 out.append(extra)                            # 21.1 接法冷却
         t = getattr(p, "traits", None)

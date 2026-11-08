@@ -107,6 +107,8 @@ class V33Mixin:
         return getattr(self, "_v2p", None)
 
     def fav_uid(self, gid) -> int:
+        if self.gk(gid).get("has_minor", False):          # 36.0 B7 有未成年人：不偏心
+            return 0
         return int(getattr(self, "owner_id", 0) or 0)
 
     def fav_name(self, gid) -> str:

@@ -407,6 +407,46 @@ class SpeakMixin:
                 bl = self.budget_left(gid, now)
                 if bl:
                     ok, why = False, bl                           # 35.2 P8 门控日志里看得到“额度用完”
+        # ---- 36.0 局面判断（A1）/ 被嫌那句不回嘴 / 冷场和图（A4）/ 别理我、聊久了（B7） ----
+        rnote = ""
+        if texts and not quiet and hasattr(self, "read_room"):
+            if ok and not mentioned and all(self.opted_out(gid, t[1]) for t in texts):
+                ok, why = False, "他说过别理他（36.0）"
+            if ok and (mentioned or guess):
+                hr = self.hush_reply_guard(gid, texts, now)
+                realq = any(re.search(r"[？?]", str(t[2])) and len(re.sub(r"\[[^\]]*\]|@\S+", "", str(t[2])).strip()) > 6
+                            and not self.HUH.search(str(t[2])) for t in texts[-2:])
+                if hr and not mentioned and not realq:
+                    ok, why = False, hr                       # 没 @ 她、多半冲她说的“闭嘴 / 催命鬼”：不接（11-07、11-08）
+                    if hasattr(self, "hush") and not self.hushed(gid, now):
+                        self.hush(gid, hr[:30], now=now)
+                elif hr:
+                    rnote += ("（36.0）他刚嫌你 / 叫你少说：只回一句认了（“行我闭麦”“好，不催了”），不回嘴、不解释、不逗他；"
+                              "他还问了正经问题就认一句再答")
+            her_recent = now - float(st.last_reply_ts or 0) < 300
+            if (ok and not mentioned) or her_recent or (not ok and why.startswith("不太想插话")):
+                try:
+                    room = await self.read_room(gid, now)
+                except asyncio.CancelledError:
+                    st.batch_texts = texts + st.batch_texts
+                    st.batch_owner = st.batch_owner or owner
+                    st.batch_callers = callers + st.batch_callers
+                    st.batch_guess = st.batch_guess or guess
+                    return
+                rs, rn = self.room_verdict(gid, room, mentioned=mentioned, guess=guess, now=now)
+                if ok and rs and not corrected:
+                    ok, why = False, rs
+                rnote += rn
+                if not ok and not mentioned and why.startswith("不太想插话") and self.room_speak_ok(gid, room):
+                    ok, why = True, "局面：被纠正 / 有你没答的追问，放行（36.0）"
+            if ok and not mentioned and not guess and not corrected and not asked:
+                mg = self.media_gate(gid, texts, now) or self.cold_gate(gid, p, thr, now)
+                if mg:
+                    ok, why = False, mg
+            if ok and (mentioned or guess):
+                rnote += self.long_chat_note(gid, texts[-1][1], now)
+        if ok and rnote:
+            st.talk_note = (st.talk_note or "") + rnote
         gate_id = None
         if texts and not quiet:
             gate_id = self.gate.add(gid, mentioned, p, thr, ok, feats, explore=explore, judge=judged,
@@ -502,6 +542,8 @@ class SpeakMixin:
                                      note=note, interest=interest, gate_id=gate_id, focus=list(dict.fromkeys([t[1] for t in texts] + self.alias_hits(joined))),
                                      query=joined, last_is_sticker=bool(texts and texts[-1][3].get("sticker")),
                                      may_ignore=may_ignore, bid=guess.startswith("bid:"))
+                    if said and not mentioned and hasattr(self, "note_media_comment"):
+                        self.note_media_comment(gid, texts)          # 36.0 A4 图 / 位置一小时主动点评一次
                     if guess.startswith("bid:") and hasattr(self, "note_bid"):
                         self.note_bid(gid, "", "", answered=bool(said))
                 except Exception as e:  # noqa: BLE001

@@ -183,7 +183,7 @@ class ListenerMixin:
 
     def listener_stats(self, gid: int | None = None) -> dict:
         q = ("SELECT listener, human, IFNULL(human_why,'') human_why, spoke FROM qq_gate_log WHERE human IN (0,1) "
-             "AND IFNULL(listener,'')!=''" + (" AND group_id=?" if gid is not None else ""))
+             "AND IFNULL(listener,'')!='' AND IFNULL(human_src,'')=''" + (" AND group_id=?" if gid is not None else ""))
         try:
             rows = self.db.conn.execute(q, ([gid] if gid is not None else [])).fetchall()
         except Exception:  # noqa: BLE001

@@ -76,7 +76,7 @@ DEFAULTS = {
     "agent_quick_seconds": 15,     # 快查最多多少秒（到了就交卷）
     "agent_deep_seconds": 40,      # 深查最多多少秒
     "agent_deep_thinking": True,   # 深查打开思考模式（更准、慢一倍）
-    "agent_filler": True,          # 被问到、要深查时先说一句“等我看看”（每个群 10 分钟最多一次）
+    "agent_filler": False,         # 被问到、要深查时先说一句“等我看看”（每个群 10 分钟最多一次）
     "sports_data": True,
     "sticker_auto_prob": 0.2,      # 34.0 没写表情包时，短的、不是问句的话按意思配一张的概率
     "sticker_describe_n": 8,       # 34.0 每次整理时给几张表情包看图补“意思”
@@ -197,7 +197,7 @@ DEFAULTS = {
     "agent_source_hints": True,    # 25.1 给研究员“常去的数据站”（按问题里的领域挑几行；net.source_hints 可以加）
     "agent_stop_on_covered": True, # 21.1 研究员写的“要证实”的都有资料了就交卷（HALT），不等到时间到
     "agent_verify_cites": True,    # 21.1 简报里的来源必须在这次搜到的结果里出现过，对不上的删掉
-    "agent_filler_gen": True,      # 21.1 要查一会儿时先用她自己的口气现写一句短回（不是固定那几句）
+    "agent_filler_gen": False,      # 21.1 要查一会儿时先用她自己的口气现写一句短回（不是固定那几句）
     "favors": True,                # 21.1 每晚记人情账（谁帮过她、她答应过谁），人卡里提一句
     "anchor_volume": 20,           # 21.1 她今天在这个群说了这么多句以后，每次在提示词最后提一遍人格核心（0 = 不管）
     "rules_off": [],               # 21.1 小屋“规则”里关掉的质检规则（按名字）
@@ -333,6 +333,22 @@ DEFAULTS = {
     "chat_fail_reply": True,         # P6 所有聊天接口都失败、被叫到的：回一句短的，别像没听见
     "unprompted_window_hours": 4,    # P8 主动开口额度按时段摊：这么多小时里最多用掉一天额度的 unprompted_window_share
     "unprompted_window_share": 0.34,
+    # ---- 36.0 11-04～11-08 日报 + 复盘（局面判断 / 先站队 / 冷场 / 合规） ----
+    "social_read": "on",             # A1 每批先用便宜模型看局面：嫌她 → 安静；两人一问一答没提她 → 不插；吐槽 / 追问 → 提示做法（off 关）
+    "social_read_speak": "shadow",   # A1 被纠正 / 有她没答的追问时没过门槛也放行：shadow 只记录，on 放行
+    "social_read_per_hour": 60,      # A1 局面判断每小时最多问几次
+    "hush_no_retort": True,          # 冲她的那句就是“闭嘴 / 嫌她”：不回嘴（问了正经问题才认一句再答）
+    "critic_enforce": [4, 5, 21],    # A2 自检整体是影子时，这几条毛病照样拦（4 被纠正还顶嘴、5 没依据的数字当事实、21 答非所问）
+    "media_first_comment": True,     # A4 群友发图 / 位置 / 视频 / 链接没问她：看不清的不点评，一小时最多主动点评一次
+    "media_comment_minutes": 60,
+    "cold_streak_n": 2,              # A4 主动说的连着这么多次没人接：门槛 + cold_streak_bump，有人接住就清零（0 关）
+    "cold_streak_bump": 0.15,
+    "avoid_weekly": True,            # B5 一周里开头最常用的字、高频词列进提示词“少用”
+    "long_chat_hours": 2,            # B7 同一个人和她连着聊满这么多小时提醒一句（0 关）
+    "has_minor": False,              # B7 群里有未成年人：关掉偏心
+    "celebrate_from": "09:30",
+    "plans_infer_remind": False,     # 36.0 整理时看出来的“约定”到点替人催（False 不催；当面让她提醒的照常提醒）
+    "plans_need_present": True,      # 36.0 事后问结果：被问的人 30 分钟里说过话才问       # 生日 / 节日祝福从几点起（以前固定 10 点）
 }
 
 # 渠道不一样、默认值不一样的几个（QQ 能点表情、能戳一戳，补消息少补一点；微信做不到点表情和戳）

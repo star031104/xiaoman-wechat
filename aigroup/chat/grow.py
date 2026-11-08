@@ -650,6 +650,20 @@ class GrowMixin:
                 ready = now >= due + (0 if p["all_day"] else 2 * 3600)
             if not ready:
                 continue
+            if p["kind"] == "remind" and not g.get("plans_infer_remind", False):
+                # 36.0 整理时看出来的“约定”不替人催（11-03“说好的部署呢”、11-08“十点擂台赛，别都还在被窝里”→“催命鬼又来了”）；
+                # 当面让她提醒的（source=tool）照常到点提醒
+                self.db.conn.execute("UPDATE qq_plans SET status='skipped' WHERE id=?", (p["id"],))
+                self.db.conn.commit()
+                log.info("群 %s：约定「%s」是整理时看出来的，不替人催", gid, p["what"])
+                continue
+            if p["user_id"] and g.get("plans_need_present", True):
+                seen = self.db.conn.execute("SELECT MAX(ts) t FROM qq_group_messages WHERE group_id=? AND user_id=?",
+                                            (gid, int(p["user_id"]))).fetchone()["t"] or 0
+                if now - float(seen) > 1800:             # 36.0 被问的人 30 分钟里没说过话：等他冒头再问（11-05 对着不在的人“捋好了”）
+                    self.db.conn.execute("UPDATE qq_plans SET next_try=? WHERE id=?", (now + 1200, p["id"]))
+                    self.db.conn.commit()
+                    continue
             at = f"（想 @ 他就写 [@{p['who']}]）" if p["user_id"] else ""
             if p["kind"] == "remind":
                 when = datetime.fromtimestamp(due, self.cfg.tz)
@@ -1118,7 +1132,11 @@ class GrowMixin:
             return False
         now = self.brain.now()
         key = f"qq_celebrate_{gid}_{now:%Y-%m-%d}"
-        if self.db.get(key) or not 10 <= now.hour < 22:
+        try:                                             # 36.0 生日当天第一句就是祝福：从 celebrate_from（默认 09:30）起（以前 10 点，11-08 她先去催了人）
+            h0, m0 = (int(x) for x in str(self._gk(gid).get("celebrate_from", "09:30")).split(":"))
+        except ValueError:
+            h0, m0 = 9, 30
+        if self.db.get(key) or not (h0, m0) <= (now.hour, now.minute) < (22, 0):
             return False
         self.db.set(key, True)
         md = f"{now:%m-%d}"

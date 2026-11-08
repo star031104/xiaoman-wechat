@@ -189,7 +189,9 @@ def labeled_rows(db, since: float = 0.0) -> list[tuple[dict, float, float]]:
             out.append((f, 0.0, 0.5))
     # 13.0：没过门槛的也能有标签——你在小屋里标的（最准，权重 2）；拿不准时问出来的“不 / 等”（弱标签，权重 0.3）
     try:
-        extra = db.conn.execute("SELECT id, feats, human, judge FROM qq_gate_log WHERE mentioned=0 AND ts>? AND "
+        from aigroup.eval.label import ensure_src
+        ensure_src(db)
+        extra = db.conn.execute("SELECT id, feats, human, judge, IFNULL(human_src,'') hs FROM qq_gate_log WHERE mentioned=0 AND ts>? AND "
                                 "((human IN (0, 1) AND NOT (human=0 AND IFNULL(human_why,'')='说的不对')) "
                                 "OR (passed=0 AND judge IN ('skip', 'wait')))", (since,)).fetchall()
     except Exception:  # noqa: BLE001
@@ -200,7 +202,7 @@ def labeled_rows(db, since: float = 0.0) -> list[tuple[dict, float, float]]:
         except ValueError:
             continue
         if r["human"] in (0, 1):
-            out.append((f, float(r["human"]), 2.0))
+            out.append((f, float(r["human"]), 1.0 if r["hs"] == "claude" else 2.0))      # 36.0 补标的权重 1
         else:
             out.append((f, 0.0, 0.3))
     return out
@@ -356,8 +358,14 @@ class GateLog:
             "appraise": "TEXT NOT NULL DEFAULT ''",      # 21.0 她开口前的九问自评（JSON）：拿你的标注对每一问
             "human_why": "TEXT NOT NULL DEFAULT ''",     # 21.0 你判“不该插”时选的：时机不对 / 说的不对
             "listener": "TEXT NOT NULL DEFAULT ''",      # 21.1 听者的判断（JSON：window / issues / enforced）
+            "human_src": "TEXT NOT NULL DEFAULT ''",     # 36.0 标注来源：'' 你标的 / claude 照你的标注补的
         })
         db.conn.commit()
+        try:                                             # 36.0 打分 / 二选一 / 抽查也带来源
+            from aigroup.eval.label import ensure_src
+            ensure_src(db)
+        except Exception:  # noqa: BLE001
+            pass
 
     def prune(self, days: float = 90):
         self.db.conn.execute("DELETE FROM qq_gate_log WHERE ts<?", (time.time() - days * 86400,))

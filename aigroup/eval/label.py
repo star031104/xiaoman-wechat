@@ -25,11 +25,26 @@ HOW = ["接住", "回答", "追问", "接梗", "纠错", "补充", "关心"]
 # 说的不对的不进门控、小判断器、拿不准时的例子和“不该说却说率”——那是“怎么说”的问题，不是“该不该开口”
 WHY0 = ["时机不对", "说的不对"]
 TIMING_ONLY = "NOT (human=0 AND IFNULL(human_why,'')='说的不对')"
+# 36.0 补标：Claude 照你的标注补的记 src='claude'（门控拟合权重 1，你的 2；“和你一致”只算你自己标的）
+SRC_COLS = (("qq_gate_log", "human_src"), ("qq_human_score", "src"), ("qq_pairs", "src"), ("qq_spot", "src"))
+MINE = "IFNULL(human_src,'')=''"
+
+
+def ensure_src(db):
+    for t, col in SRC_COLS:
+        try:
+            cols = [r[1] for r in db.conn.execute(f"PRAGMA table_info({t})").fetchall()]
+            if cols and col not in cols:
+                db.conn.execute(f"ALTER TABLE {t} ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+        except Exception:  # noqa: BLE001
+            pass
+    db.conn.commit()
 
 
 def _pick_sql(kind: str) -> str:
     base = ("SELECT g.*, e.score, e.text her_text FROM qq_gate_log g LEFT JOIN qq_reply_effect e ON e.gate_id=g.id "
-            "WHERE g.mentioned=0 AND g.human IS NULL AND g.ts>? {gid} AND {cond} ORDER BY RANDOM() LIMIT ?")
+            "WHERE g.mentioned=0 AND (g.human IS NULL OR IFNULL(g.human_src,'')='claude') AND g.ts>? {gid} AND {cond} "
+            "ORDER BY (g.human IS NULL) DESC, RANDOM() LIMIT ?")
     cond = {"spoke": "g.spoke=1",
             "near": "g.spoke=0 AND (g.judge!='' OR g.passed=1 OR ABS(g.p-g.threshold)<0.12)",
             "any": "1=1"}[kind]
@@ -218,7 +233,8 @@ def answer(db, gate_id: int, label: int | None, how: str = "", why0: str = ""):
         v = v if v in (0, 1, 2) else (1 if v else 0)
     how = how if how in HOW and v == 1 else ""
     why0 = why0 if why0 in WHY0 and v == 0 else ""
-    db.conn.execute("UPDATE qq_gate_log SET human=?, human_act=?, human_why=? WHERE id=?", (v, how, why0, int(gate_id)))
+    ensure_src(db)
+    db.conn.execute("UPDATE qq_gate_log SET human=?, human_act=?, human_why=?, human_src='' WHERE id=?", (v, how, why0, int(gate_id)))
     db.conn.commit()
 
 
@@ -252,20 +268,25 @@ ANNOYED = __import__("re").compile(r"^\s*[？?]{2,}\s*$|没(人)?问你|谁问�
 
 def stats(db) -> dict:
     """标了多少；她做的和你判的一致的比例；分开看“该说的她说了”（召回）和“她说的是该说的”（精确）。“可接可不接”不算进去。"""
-    rows = db.conn.execute(f"SELECT spoke, human FROM qq_gate_log WHERE human IN (0, 1) AND {TIMING_ONLY}").fetchall()
+    ensure_src(db)
+    rows = db.conn.execute(f"SELECT spoke, human FROM qq_gate_log WHERE human IN (0, 1) AND {TIMING_ONLY} AND {MINE}").fetchall()
     n = len(rows)
     tp = sum(1 for r in rows if r["spoke"] and r["human"] == 1)
     fp = sum(1 for r in rows if r["spoke"] and r["human"] == 0)
     fn = sum(1 for r in rows if not r["spoke"] and r["human"] == 1)
     agree = sum(1 for r in rows if bool(r["spoke"]) == bool(r["human"]))
     try:
-        n2 = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human=2").fetchone()["c"])
+        n2 = int(db.conn.execute(f"SELECT COUNT(*) c FROM qq_gate_log WHERE human=2 AND {MINE}").fetchone()["c"])
         nc = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human=0 AND human_why='说的不对'").fetchone()["c"])
         w = db.conn.execute("SELECT SUM(weak=0) w0, SUM(weak=1) w1 FROM qq_gate_log WHERE human IS NULL").fetchone()
         w0, w1 = int(w["w0"] or 0), int(w["w1"] or 0)
     except Exception:  # noqa: BLE001
         n2 = w0 = w1 = nc = 0
-    return {"n": n, "n1": sum(1 for r in rows if r["human"] == 1), "n0": sum(1 for r in rows if r["human"] == 0),
+    try:
+        nc_ = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human IS NOT NULL AND human_src='claude'").fetchone()["c"])
+    except Exception:  # noqa: BLE001
+        nc_ = 0
+    return {"n": n, "n1": sum(1 for r in rows if r["human"] == 1), "n0": sum(1 for r in rows if r["human"] == 0), "claude": nc_,
             "n2": n2, "w0": w0, "w1": w1, "n0_content": nc,
             "agree": round(agree / n, 3) if n else None,
             "precision": round(tp / (tp + fp), 3) if tp + fp else None,

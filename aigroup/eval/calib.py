@@ -31,6 +31,8 @@ MIN_N = 10
 def ensure(db):
     db.conn.executescript(SCHEMA)
     db.conn.commit()
+    from aigroup.eval.label import ensure_src            # 36.0 补打的分记 src='claude'
+    ensure_src(db)
 
 
 def _context(db, r, n: int = 6) -> list[str]:

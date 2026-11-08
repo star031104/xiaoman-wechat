@@ -76,6 +76,7 @@ DONE_RX = re.compile(r"(了|过|完)(?![吗没么])|已经|刚(从|去|吃|买|�
 INTENT_LINE_RX = re.compile(r"想|打算|准备|计划|要去|约了?|排号|看看能不能|惦记|等着|下次|改天|回头|看情况|也许|可能")
 # 23.2 这些检查命中、又没被叫到：不重写，直接不说（重写以后还是同一个毛病，比如替别人答）
 DROP = "〔不说〕"
+GREET_RX = re.compile(r"生日快乐|节日快乐|新年快乐|元旦快乐|中秋快乐|圣诞快乐|恭喜|祝你")
 # 25.1 被要求下判断时往回缩的说法
 DODGE_RX = re.compile(r"不敢(点|说|下|判断|乱说)|没法(判断|说谁|点名)|不好(说|判断|评价)|说不(准|好)(谁|是)?|没人(评|复盘|打分)|"
                       r"(评分|复盘)(都)?没(有|找到)|表达(得)?含糊|我只知道|谁(最差|更好)(我)?(也)?(不知道|说不上)")
@@ -641,8 +642,11 @@ class ChecksMixin:
     def _addressee(self, gid: int, text: str, target_uid, target_row: dict | None) -> str:
         if not target_uid or not hasattr(self, "names_of"):
             return ""
+        if GREET_RX.search(text or ""):
+            return ""                                       # 36.0 祝福点名寿星不算叫错人
         names = self.names(gid)
         mine = set(self.names_of(gid, int(target_uid)))
+        tc0 = str((target_row or {}).get("content") or "")
         recent = [r for r in self._rows(gid, 10) if r["role"] == "user"]
         recent_txt = " ".join(str(r["content"] or "") for r in recent)
         for uid in names:
@@ -652,6 +656,8 @@ class ChecksMixin:
                 continue
             if u == int(target_uid):
                 continue
+            if tc0 and any(a and len(a) >= 2 and a in tc0 for a in self.names_of(gid, u)):
+                continue                                    # 36.0 他那句里就说到了这个人（“今天小王生日”）：叫他不算叫错
             for n in self.names_of(gid, u):
                 if n and len(n) >= 2 and n not in mine and n in text[:12] and n not in recent_txt:
                     tn = names.get(str(target_uid), "他")
@@ -699,9 +705,11 @@ class ChecksMixin:
         for k in [k for k, t in d.items() if now - t > 3600]:
             d.pop(k, None)
 
-    def _answered(self, gid: int, target_row: dict | None, now: float) -> str:
+    def _answered(self, gid: int, target_row: dict | None, now: float, text: str = "") -> str:
         if not target_row or target_row.get("role") != "user" or not target_row.get("id"):
             return ""
+        if text and GREET_RX.search(text):
+            return ""                                       # 36.0 祝福不算“回过了”（11-04、11-08 两次生日祝福被拦）
         d = self._st(gid).__dict__.get("answered") or {}
         t = d.get(int(target_row["id"]))
         if t and now - t < 1800:
@@ -971,7 +979,7 @@ class ChecksMixin:
         rules = [
             ("ask_repeat", lambda: self._ask_repeat(gid, text, target_uid, now)),
             ("addressee", lambda: self._addressee(gid, text, target_uid, target_row if not mentioned else None)),
-            ("answered", lambda: "" if mentioned else self._answered(gid, target_row, now)),
+            ("answered", lambda: "" if mentioned else self._answered(gid, target_row, now, text)),
             ("catchphrase", lambda: self._catchphrase(gid, text)),
             ("video_pending", lambda: self._video_pending(gid, text, now)),
             ("seen_missing", lambda: self._seen_missing(gid, text, now)),
@@ -1003,9 +1011,13 @@ class ChecksMixin:
         out = []
         if recheck or quiet:                           # quiet（29.0）：备选说法的检查，不记日志（没选上的说法不算命中）
             return [why for name, why in found if mode[name] == "on"]
+        enf = {int(x) for x in (self.gk(gid).get("critic_enforce") or []) if str(x).isdigit()}
         for name, why in found:
-            self.check_log(gid, name, mode[name], text, why, gate_id)
-            if mode[name] == "on":
+            m = mode[name]
+            if name == "critic" and m == "shadow" and (self.__dict__.get("_critic_k") or {}).get(gid) in enf:
+                m = "on"                                   # 36.0 A2 自检整体是影子时，这几条毛病照样拦（按毛病逐条晋级）
+            self.check_log(gid, name, m, text, why, gate_id)
+            if m == "on":
                 out.append(why)
             else:
                 log.info("群 %s 检查（只记录）%s：%s", gid, name, why)
@@ -1047,6 +1059,8 @@ class ChecksMixin:
             d = json.loads(re.search(r"\{.*\}", out or "", re.S).group(0))
         except Exception:  # noqa: BLE001
             return ""
+        self.__dict__.setdefault("_critic_k", {})[gid] = (critic_index(d.get("which"))       # 36.0 A2 逐条晋级用
+                                                         if isinstance(d, dict) and d.get("bad") is True else 0)
         if (hasattr(self, "v2") and self.v2(gid) and isinstance(d, dict) and d.get("bad") is True
                 and critic_index(d.get("which")) in STYLE_IDX):
             self.check_log(gid, "critic_style", "shadow", text, f"{critic_index(d.get('which'))}：{str(d.get('why') or '')[:150]}")
