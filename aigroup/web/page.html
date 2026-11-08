@@ -91,9 +91,12 @@ details.more.nums .minis{margin-top:var(--sp-3)}
 .bd span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-meta)}
 .bd input{width:76px;min-height:30px;padding:0 8px;font-size:var(--fs-meta)}
 .kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--sp-3)}
-.kcard{border-radius:var(--r);padding:12px 14px;background:var(--surface-2)}
-.kcard .h{display:flex;gap:8px;align-items:center;margin-bottom:4px} .kcard .h b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kcard p{margin:0;color:var(--ink-2);font-size:var(--fs-meta)}
+.kcard{border-radius:var(--r);padding:12px 14px;background:var(--surface-2);display:flex;flex-direction:column;gap:6px;min-width:0}
+.kcard .kt{line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kcard p{margin:0;color:var(--ink-2);font-size:var(--fs-meta);line-height:1.6;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+.kcard .kf{display:flex;gap:6px;align-items:center;margin-top:auto} .kcard .kf .sp{flex:1}
+.kcard .kf .small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .kcard .kf .tag,.kcard .kf .btn{flex:none}
+.kcard .kf .btn{height:24px;padding:0 8px}
 .kgrid .empty{grid-column:1/-1}
 .scrollbox{max-height:460px;overflow:auto;scrollbar-width:thin}
 
@@ -179,8 +182,10 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .pcard .h{display:flex;gap:10px;align-items:flex-start}
 .pcard .pa{width:40px;height:40px;font-size:var(--fs-sm)}
 .pcard .nmw{flex:1;min-width:0}
-.pcard .nm{font-weight:700;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-all}
-.pcard .uid{font-size:var(--fs-micro);color:var(--ink-3);font-family:var(--mono)}
+.pcard .nm{font-weight:700;line-height:1.4;display:flex;align-items:center;gap:6px;min-width:0}
+.pcard .nm .nmt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pcard .nm .tag{flex:none}
+.pcard .uid{font-size:var(--fs-micro);color:var(--ink-3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
 .pcard .imp{font-size:var(--fs-sm);color:var(--ink);line-height:1.6;min-height:22px}
 .pcard .imp.none{color:var(--ink-3)}
 .pcard .kv2{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:var(--fs-meta);margin:0}
@@ -212,13 +217,18 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .drawer .dh{display:flex;gap:12px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--surface)}
 .drawer .dh .pa{width:48px;height:48px;font-size:var(--fs-t3)}
 .drawer .dh .nm{font-weight:700;font-size:var(--fs-t3)}
-.drawer .db{flex:1;overflow:auto;padding:16px 18px 30px}
+.drawer .dbody{flex:1;overflow:auto;padding:16px 18px 30px}
 .drawer .df{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line);background:var(--surface);flex-wrap:wrap}
 .drawer .df .sp{flex:1}
+.drawer .df:not(.dpriv){padding-bottom:6px}
+.drawer .df.dpriv{border-top:0;padding-top:4px;align-items:center;gap:6px 8px}
+.drawer .df.dpriv>.meta:last-child{flex-basis:100%}
+@media (max-width:560px){.drawer .df.dpriv>.meta:last-child{display:none}}
 .pf{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .pf .full{grid-column:span 2}
 @media (max-width:520px){.pf{grid-template-columns:1fr}.pf .full{grid-column:span 1}}
-.drawer .minis{margin-bottom:16px}
+.drawer .minis{margin-bottom:16px;grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:560px){.drawer .minis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .said-list{list-style:none;margin:0;padding:0}
 .said-list li{padding:7px 0;border-top:1px dashed var(--line-2);font-size:var(--fs-meta);display:flex;gap:10px}
 .said-list li:first-child{border-top:0}
@@ -258,6 +268,12 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .gate3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-3)}
 @media (max-width:560px){.gate3{grid-template-columns:1fr}}
 .rows li .tri{margin-left:auto}
+.rname{font-weight:600}
+#agentList li{align-items:flex-start}
+#agentList li>.tag{margin-top:2px;flex:none}
+#lfPlans .adm-only{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+#lfPlans .adm-only .btn{height:24px;padding:0 8px}
+#exList,#jgList,#loreList,#knowList,#dailyList,#stkList,#lfKnow{max-height:560px;overflow:auto;overscroll-behavior:contain;padding-right:6px}
 .lrow-acts{display:flex;gap:6px;align-items:center;flex:none}
 .stks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp-3)}
 .stk{padding:10px;text-align:center;border-radius:var(--r);background:var(--surface-2);display:flex;flex-direction:column;gap:6px;align-items:center}
@@ -315,6 +331,7 @@ body:not(.admin) .side .adm-gt{display:none}
   .card-h .hint{flex-basis:100%}
   input.input,textarea{max-width:100%}
   .tools{flex-wrap:wrap;gap:6px}
+  #p-llm table td,#p-llm table th{white-space:nowrap}
 }
 </style>
 </head>
@@ -798,7 +815,7 @@ body:not(.admin) .side .adm-gt{display:none}
 <aside class="drawer" id="drawer" aria-hidden="true">
   <div class="dh"><div class="pa" id="dAva"></div><div class="grow-x"><div class="nm" id="dName"></div><div class="meta" id="dSub"></div></div>
     <button class="iconbtn" id="dClose" aria-label="关闭"><span data-i="x"></span></button></div>
-  <div class="db" id="dBody"></div>
+  <div class="dbody" id="dBody"></div>
   <div class="df"><button class="btn pri" id="dSave">保存画像</button><button class="btn" id="dRefresh">让她重新整理</button><span class="sp"></span><button class="btn ghost danger" id="dForget">清空画像</button></div>
   <div class="df dpriv"><span class="meta">他的记录：</span><a class="btn sm" id="dExport" href="#" download>导出 JSON</a><button class="btn sm ghost danger" id="dErase">全部删掉</button>
     <span class="meta">群友自己也能在群里发 /我的记录、/删除我的记录 确认</span></div>
@@ -857,6 +874,7 @@ $("theme").onclick=()=>{const dark=document.documentElement.dataset.theme?docume
 /* ============ 标签页 ============ */
 let cur="home",KALL=false;
 /* 18.0 顶栏：首页 / 她的日子 / 她 是“角色视图”；群聊、群友、学到的、管理三页在“工作台”里，左边有侧栏 */
+let LFPREF_ALL=false;
 const WB=["chat","ppl","learn","knobs","llm","log"];let WBLAST="chat";
 function go(p,to){if(!$("p-"+p))p="home";cur=p;if(!S&&p!=="home")loadState();const wb=WB.includes(p);if(wb)WBLAST=p;
   document.querySelectorAll("#tabs button[data-p],#tabbar button[data-p],#wbSide button[data-p]").forEach(b=>{const on=b.dataset.wb?wb:b.dataset.p===p;
@@ -1218,7 +1236,7 @@ function renderPeople(){
   $("ppl").innerHTML=L.map(x=>{const v=view(x),pr=v?(v.brief||{}):(x.profile||{}),imp=v?v.note:(pr["印象"]||x.note),mx=Math.max(1,...x.hours);
     const rows=[["称呼",pr["称呼"]],["性格",pr["性格"]],["兴趣",pr["兴趣"]],["近况",pr["近况"]]].filter(r=>r[1]);
     return `<button class="pcard" data-u="${x.user_id}"><div class="h"><div class="pa" style="background:${hue(x.user_id)}">${esc(initial(nameText(x.name)))}</div>
-      <div class="nmw"><div class="nm" title="${esc(x.name)}">${esc(nameText(x.name))}${(x.aliases||[]).length?` <span class="muted small">· ${esc(x.aliases.map(nameText).join("、"))}</span>`:""}${gdots(x.groups)} ${x.owner?'<span class="tag ok">你</span>':""}</div><div class="uid">${x.user_id}</div></div>${famTag(x.familiarity)}</div>
+      <div class="nmw"><div class="nm" title="${esc(x.name)}"><span class="nmt">${esc(nameText(x.name))}</span>${gdots(x.groups)}${x.owner?'<span class="tag ok">你</span>':""}</div><div class="uid" title="${esc((x.aliases||[]).map(nameText).join("、"))}">${x.user_id}${(x.aliases||[]).length?` · ${esc(x.aliases.map(nameText).join("、"))}`:""}</div></div>${famTag(x.familiarity)}</div>
       <div class="imp ${imp?"":"none"}">${esc(imp||"她还不太了解这个人")}</div>
       ${rows.length?`<dl class="kv2">${rows.slice(0,3).map(([a,b])=>`<dt>${a}</dt><dd title="${esc(b)}">${esc(b)}</dd>`).join("")}</dl>`:""}
       <div class="ft"><div><b class="num">${v?v.msgs||0:x.msgs}</b> 句 · 找她 <b class="num">${x.mentions}</b> 次<br>${ago(x.last_seen)}${x.when?" · "+esc(x.when):""}</div>
@@ -1419,7 +1437,7 @@ async function loadLearn(){
     :'<li class="empty">还没有词条（整理群聊时会把群梗、黑话自动加进来，也可以自己写）</li>';
   document.querySelectorAll("[data-lore]").forEach(b=>b.onclick=async()=>{const body={id:+b.dataset.lore};if(b.dataset.del){if(!confirm("删掉这条？"))return;body.delete=true}else body.status=b.dataset.st;
     try{const x=await api("/api/lore",body);toast(x.message||x.error);loadLearn()}catch(e){toast("出错了："+e.message)}});
-  loadPair();loadLabel();loadHumane();loadAgent();loadCalib();loadChecks();loadRules();loadLedger();loadFeed();markEmpty();
+  Promise.allSettled([loadPair(),loadLabel(),loadHumane(),loadAgent(),loadCalib(),loadChecks(),loadRules(),loadLedger(),loadFeed()]).then(markEmpty);
 
   document.querySelectorAll("[data-stk]").forEach(b=>b.onclick=async()=>{try{const x=await api("/api/learned/sticker",{id:+b.dataset.stk,status:b.dataset.st});toast(x.message);loadLearn()}catch(e){toast("出错了："+e.message)}});
   document.querySelectorAll("[data-lk]").forEach(b=>b.onclick=async()=>{
@@ -1633,15 +1651,15 @@ async function loadRules(){let r;try{r=await api("/api/rules")}catch(e){return}
   const off=new Set(r.off||[]);
   $("rulesSamples").innerHTML=(r.samples||[]).length?`<div class="small muted" style="margin-bottom:6px">被拦下 / 改写的原句：拦得对吗？</div>`+r.samples.map(x=>`<div class="lab-item"><div class="lab-q">${esc(x.text)}</div><div class="small muted">${esc((x.rules||[]).join("、"))} · ${esc(x.action)}</div>
     <div class="lab-acts"><button class="btn sm" data-rj="${x.id}" data-ok="1">拦得对</button><button class="btn ghost sm" data-rj="${x.id}" data-ok="0">拦错了</button></div></div>`).join(""):'<div class="small muted">没有要判的</div>';
-  $("rulesList").innerHTML=(r.rules||[]).map(x=>`<li><span>${esc(x.rule)}${off.has(x.rule)?" <span class=\"tag\">已关</span>":""}</span>
-    <span class="small muted">命中 ${x.n}（罚分 ${x.penalty} · 重写 ${x.rewrite} · 拦下 ${x.block}）${x.judged?` · 你判过 ${x.judged} 次，拦对 ${Math.round(x.right*100)}%`:""}${x.advice?" · "+esc(x.advice):""}</span>
+  $("rulesList").innerHTML=(r.rules||[]).map(x=>`<li><div class="grow"><div class="rname">${esc(x.rule)}${off.has(x.rule)?" <span class=\"tag\">已关</span>":""}</div>
+    <div class="small muted">命中 ${x.n}（罚分 ${x.penalty} · 重写 ${x.rewrite} · 拦下 ${x.block}）${x.judged?` · 你判过 ${x.judged} 次，拦对 ${Math.round(x.right*100)}%`:""}${x.advice?" · "+esc(x.advice):""}</div></div>
     <button class="btn ghost sm tri" data-rt="${esc(x.rule)}" data-off="${off.has(x.rule)?0:1}">${off.has(x.rule)?"打开":"关掉"}</button></li>`).join("")||'<li class="empty">还没有</li>';
   document.querySelectorAll("[data-rj]").forEach(b=>b.onclick=async()=>{try{await api("/api/rules/judge",{id:+b.dataset.rj,ok:b.dataset.ok==="1"});loadRules()}catch(e){toast("出错了："+e.message)}});
   document.querySelectorAll("[data-rt]").forEach(b=>b.onclick=async()=>{try{await api("/api/rules/toggle",{rule:b.dataset.rt,off:b.dataset.off==="1"});toast(b.dataset.off==="1"?"关掉了":"打开了");loadRules()}catch(e){toast("出错了："+e.message)}})}
 /* 20.2 账本、兴趣表 */
 async function loadLedger(){let r;try{r=await api(`/api/ledger?gid=${LSEL}`)}catch(e){return}
-  const it=r.items||[];$("ledgerList").innerHTML=it.length?it.map(x=>`<li><span>${esc(x.entity)} · ${esc(x.attr)}：<b>${esc(x.value)}</b></span>
-    <span class="small muted">${esc(x.kind)} · ${esc(x.as_of||"")}${x.source_site?" · "+esc(x.source_site):""}${x.valid?"":x.superseded_by?" · 已被新的取代":" · 过期了"}</span>
+  const it=r.items||[];$("ledgerList").innerHTML=it.length?it.map(x=>`<li><div class="grow"><div>${esc(x.entity)} · ${esc(x.attr)}：<b>${esc(x.value)}</b></div>
+    <div class="small muted">${esc(x.kind)} · ${esc(x.as_of||"")}${x.source_site?" · "+esc(x.source_site):""}${x.valid?"":x.superseded_by?" · 已被新的取代":" · 过期了"}</div></div>
     <button class="btn ghost tri" data-ld="${x.id}" aria-label="删掉">×</button></li>`).join(""):'<li class="empty">还没有（查资料时记下的）</li>';
   document.querySelectorAll("[data-ld]").forEach(b=>b.onclick=async()=>{try{await api("/api/ledger/delete",{id:+b.dataset.ld});loadLedger()}catch(e){toast("出错了："+e.message)}})}
 async function loadFeed(){let r;try{r=await api(`/api/feed?gid=${LSEL}`)}catch(e){return}
@@ -1739,7 +1757,10 @@ async function loadLife(){
   $("lfCore").innerHTML=L.selfcore?esc(L.selfcore):'<div class="empty">攒够两周的回想后，月初会整理一次</div>';$("lfCoreText").value=L.selfcore||"";
   $("lfProps").innerHTML=(L.proposals||[]).map(x=>`<li><span class="tag wait">她想改</span><div class="grow"><div>${x.kind==="signature"?`${esc(x.name)}：${esc(x.why)}`:`${esc(x.name)}：${esc(String(x.from||"?"))} → ${esc(String(x.to))}　${esc(x.why)}`}</div><div class="meta">${esc(x.evidence)}</div></div><span class="adm-only"><button class="btn sm" data-pacc="${esc(x.id)}">采纳</button> <button class="btn ghost sm" data-prej="${esc(x.id)}">不改</button></span></li>`).join("");
   $("lfProps").querySelectorAll("[data-pacc],[data-prej]").forEach(b=>b.onclick=async()=>{try{const r=await api("/api/life/proposal",{id:b.dataset.pacc||b.dataset.prej,accept:!!b.dataset.pacc});toast(r.message||r.error);loadLife()}catch(e){toast("出错了："+e.message)}});
-  $("lfPrefs").innerHTML=(L.prefs||[]).map(p=>`<span class="pref"><b>${esc(p.topic)}</b>${esc(p.v)}<button data-pdel="${esc(p.topic)}" title="删掉">×</button></span>`).join("")||'<div class="empty" style="padding:6px 0">我还没在群里说过自己喜欢什么、讨厌什么</div>';
+  const PF=L.prefs||[],pclean=v=>String(v||"").replace(/(\s*\|[\s|\-]*)+$/,"").replace(/\s*\|-[|\-]*\s*/g," ").trim(),PN=24;
+  $("lfPrefs").innerHTML=PF.map((p,i)=>`<span class="pref" ${i>=PN&&!LFPREF_ALL?"hidden":""}><b>${esc(p.topic)}</b>${esc(pclean(p.v))}<button data-pdel="${esc(p.topic)}" title="删掉">×</button></span>`).join("")
+    +(PF.length>PN?`<button type="button" class="btn sm ghost" id="lfPrefMore">${LFPREF_ALL?"收起":`展开全部 ${PF.length} 条`}</button>`:"")||'<div class="empty" style="padding:6px 0">我还没在群里说过自己喜欢什么、讨厌什么</div>';
+  if($("lfPrefMore"))$("lfPrefMore").onclick=()=>{LFPREF_ALL=!LFPREF_ALL;loadLife()};
   $("lfPrefs").querySelectorAll("[data-pdel]").forEach(b=>b.onclick=async()=>{try{const r=await api("/api/life/pref",{topic:b.dataset.pdel,delete:true});toast(r.message||r.error);loadLife()}catch(e){toast("出错了："+e.message)}});
   $("lfPeople").innerHTML=(L.people||[]).map(p=>`<li><div class="ava" style="width:30px;height:30px;font-size:13px;background:${hue(p.uid)}">${esc(initial(p.name))}</div>
     <div class="grow"><div style="display:flex;gap:8px;align-items:center"><b>${esc(p.name)}</b>${famTag(p.tier)}${p.owner?'<span class="tag ok">你</span>':""}<span class="sp" style="flex:1"></span><span class="small muted num">${p.score}</span></div>
@@ -1764,9 +1785,9 @@ async function loadLife(){
   $("lfUp").innerHTML=(L.upcoming||[]).map(x=>`<li><span class="tag ${x.kind==="birthday"?"hot":"ok"}">${x.kind==="birthday"?"生日":"节日"}</span><div class="grow">${esc(x.name)}<div class="meta">${esc(x.day)} · ${x.in===0?"今天":x.in===1?"明天":x.in+" 天后"}</div></div></li>`).join("")||'<li class="empty">一个月内没有</li>';
   $("lfBd").innerHTML=(L.birthdays||[]).map(p=>`<label class="bd"><span title="${esc(p.name)}">${esc(p.name)}</span><input class="input" data-bd="${p.uid}" value="${esc(p.day)}" placeholder="月-日" maxlength="5"></label>`).join("")||'<div class="empty">还没认识谁</div>';
   $("lfBd").querySelectorAll("[data-bd]").forEach(i=>i.onchange=async()=>{try{const r=await api("/api/life/birthday",{uid:+i.dataset.bd,day:i.value});toast(r.message||r.error);if(r.ok)loadLife()}catch(e){toast("出错了："+e.message)}});
-  $("lfKnow").innerHTML=(L.knowledge||[]).map(k=>`<div class="kcard"><div class="h"><b title="${esc(k.topic)}">${esc(k.topic)}</b><span class="tag ${k.source==="fixed"?"warm":"no"}">${KSRC[k.source]||esc(k.source)}</span>
-    <button class="btn sm ghost" data-kedit="${k.id}">改</button><button class="btn sm ghost danger" data-kdel="${k.id}">删</button></div><p>${esc(k.summary)}</p>
-    <div class="meta small muted" style="margin-top:4px">${fmtDay(k.ts)}${k.hits?` · 想起过 ${k.hits} 次`:""}</div></div>`).join("")||'<div class="empty">还没记下什么</div>';
+  $("lfKnow").innerHTML=(L.knowledge||[]).map(k=>`<div class="kcard"><b class="kt" title="${esc(k.topic)}">${esc(k.topic)}</b><p title="${esc(k.summary)}">${esc(k.summary)}</p>
+    <div class="kf"><span class="tag ${k.source==="fixed"?"warm":"no"}">${KSRC[k.source]||esc(k.source)}</span><span class="small muted">${fmtDay(k.ts)}${k.hits?` · 想起过 ${k.hits} 次`:""}</span><span class="sp"></span>
+    <button class="btn sm ghost" data-kedit="${k.id}">改</button><button class="btn sm ghost danger" data-kdel="${k.id}">删</button></div></div>`).join("")||'<div class="empty">还没记下什么</div>';
   document.querySelectorAll("[data-kdel]").forEach(b=>b.onclick=async()=>{try{const r=await api("/api/knowledge",{id:+b.dataset.kdel});toast(r.message||r.error);loadLife()}catch(e){toast("出错了："+e.message)}});
   document.querySelectorAll("[data-kedit]").forEach(b=>b.onclick=async()=>{const k=L.knowledge.find(x=>x.id==b.dataset.kedit);const t=prompt("改成：",k.summary);if(t===null)return;
     try{const r=await api("/api/knowledge",{id:k.id,summary:t});toast(r.message||r.error);loadLife()}catch(e){toast("出错了："+e.message)}});
