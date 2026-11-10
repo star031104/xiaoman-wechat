@@ -276,7 +276,7 @@ def stats(db) -> dict:
     fn = sum(1 for r in rows if not r["spoke"] and r["human"] == 1)
     agree = sum(1 for r in rows if bool(r["spoke"]) == bool(r["human"]))
     try:
-        n2 = int(db.conn.execute(f"SELECT COUNT(*) c FROM qq_gate_log WHERE human=2").fetchone()["c"])
+        n2 = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human=2").fetchone()["c"])
         nc = int(db.conn.execute("SELECT COUNT(*) c FROM qq_gate_log WHERE human=0 AND human_why='说的不对'").fetchone()["c"])
         w = db.conn.execute("SELECT SUM(weak=0) w0, SUM(weak=1) w1 FROM qq_gate_log WHERE human IS NULL").fetchone()
         w0, w1 = int(w["w0"] or 0), int(w["w1"] or 0)

@@ -19,7 +19,7 @@ def _rec(gc, uid, name, text, ts, role="user"):
 
 def test_defaults():
     assert DEFAULTS["social_read"] == "on" and DEFAULTS["social_read_speak"] == "shadow"
-    assert DEFAULTS["critic_enforce"] == [4, 5, 21]
+    assert DEFAULTS["critic_enforce"] == [4, 5, 19, 21, 24]        # 36.2 加 19（吐槽时说风凉话）
     assert DEFAULTS["agent_filler"] is False and DEFAULTS["agent_filler_gen"] is False
 
 

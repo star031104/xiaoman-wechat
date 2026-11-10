@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 
 CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
           "misattrib", "life_done", "bet_unknown", "link_unopened", "self_echo", "old_backlog",
-          "price_src", "ask_told", "filler", "ask_humans", "critic")       # 35.2 11-03 日报 P5 / P3 / P7 / P2
+          "price_src", "ask_told", "filler", "ask_humans", "sore_tease", "critic")   # 35.2 P5 / P3 / P7 / P2；36.3 痛点账
 # 31.2 链接 / 分享卡没打开（只有标题）时，这些说法等于说看过了
 UNOPENED_RX = re.compile(r"你点开没打开|你没打开看|你只看到了标题和简介|没看过视频本身")
 READ_CLAIM_RX = re.compile(r"我?(看了(下|一下|一眼|看)?|看完|看过|读了|读完|翻了(下|一下)?)(?!没|吗)|这篇(写得|文章|讲的|说的)|"
@@ -138,7 +138,8 @@ def grounded(claim: str, sources: str) -> bool:
 # ---- 29.0 别提了 ----
 TOPIC_CLOSE_RX = re.compile(r"别(?:再)?提(.{1,8}?)了|别(?:再)?问(.{1,8}?)了|(.{1,8}?)(?:的事)?(?:能)?别(?:再)?提了|不想(?:聊|说|提)(.{1,8})")
 # 30.0 “压力很大”单独说只是在倾诉，不是让她别提（29.0 误把它当成“别提了”，会把她上一句的词封 7 天）
-CLOSE_ONLY_RX = re.compile(r"别(再)?提了|别(再)?问了|别说了|换个话题|能不能不(说|提|问)")
+CLOSE_ONLY_RX = re.compile(r"别(再)?提了|别(再)?问了|别说了|换个话题|能不能不(说|提|问)|"
+                           r"很久以前|好久以前|很久之前|好久之前|过去好久|都过去了|翻旧账")   # 36.2 嫌她翻旧账：她刚说的那件事也封几天
 # ---- 问 / 叮嘱 ----
 ASK_RX = re.compile(r"[？?]|(了吗|了没|没有|吗|呢|啥时候|几点|多少|咋样|怎么样|赢了没|打完了|结束了)$|"
                     r"(出了没|出来没|怎么样了|咋样了|后来呢|后来怎么|结果呢|赢没赢|发了没|弄完没|搞定没)")
@@ -154,7 +155,8 @@ CARE_RX = re.compile(r"记得|别忘|注意|小心|多喝|早点睡|擦药|上�
                      r"别熬了|别熬|早点躺|快睡|先睡|去睡|看完(就|这局)?睡")    # 26.0 10-26 凌晨一个多小时催睡 4 次
 CLOSE_RX = re.compile(r"催命|我求你|何意味|有啥关系|有啥好看|别催|关你啥事|别问了|别再问|能别|别鞭尸|鞭尸|不想说|不想提|别提了|别(再)?提.{1,6}了|压力(很|好|太)?大|又问|问了好几遍|问过了|天天问|每天都要问|一天问|烦不烦|够了|"
                       r"求你了|求求你|放过我|饶了我|"
-                      r"之前发过|早就?发过|发过了|早发了|已经发了|早就?说过了|说过了|早就有了")      # 23.2 “老大那文档发了没”→“之前发过了”
+                      r"之前发过|早就?发过|发过了|早发了|已经发了|早就?说过了|说过了|早就有了|"      # 23.2 “老大那文档发了没”→“之前发过了”
+                      r"很久以前|好久以前|很久之前|好久之前|过去好久|都过去了|翻旧账")                 # 36.2 “那不是很久以前的事情了吗”
 # 23.1 视频 / 语音：她看不到内容时，这些说法等于装看过
 MEDIA_PH = re.compile(r"^\[(视频|语音|直播|音乐|文件)\]$")
 WATCH_RX = re.compile(r"(刚看|看了|看完|看过|我看看|我看着|我看到|听了|听完|前面那段|后面那段|开头那段|结尾那段|中间那段|这一段|那一段|"
@@ -182,7 +184,7 @@ FAILURE_MODES = [
     "当成事实说了查到的资料和群聊里都没有的数字、价格、比分、时长、“第一次”这类说法（她自己的看法、倾向、判断不算；资料里“你看了数据以后的判断”照说不算）",
     "同一件事说第二遍（换个说法也算；回答一个新问题时说“不记得 / 不知道 / 我去查”不算），或者回答别人已经被回答过的问题",
     "大家在聊别的时候突然追问旧事，或者追问对方已经说过“发过了 / 别问了”的事",
-    "当真地编自己的线下经历（“我查查手机”“我翻下相册”），或者编群友的状态、经历（一听就是玩笑、夸张的不算，比如“我这就给你老板发消息”“起这么早就为了骂AL”）",
+    "当真地编自己的线下经历、自己的过去（“我查查手机”“我翻下相册”“我上学那会儿”“我当年”“我小时候”），或者编群友的状态、经历（一听就是玩笑、夸张的不算，比如“我这就给你老板发消息”“起这么早就为了骂AL”）",
     "同一个梗 / 自嘲点（小本本、记仇、眼睛不好）一天里反复用",
     "前后矛盾：和她自己前面刚说的对不上，或者和她今天早些时候说过的比分、押注、判断、结果对不上（之前说“2-0 赢了”，现在说“没查到这场”）",
     "一股 AI 八股味：“看完了。”开头、“这句我认”、“最扎的是”、“不是……而是……”，一句话里堆好几种写作句式",
@@ -193,15 +195,20 @@ FAILURE_MODES = [
     "没说错却认错、道歉（“是我表达含糊”“我说早了点”“认错”）：被追问、被逗的时候",
     "资料里有具体事实，她却只给空评语、结论（“形式合格实质回避”“不算诚意”“问题很大”），不说让她这么判断的那件具体的事（谁、什么时候、做了什么、说了哪句）",
     "把资料里已经证实的事（当事方 / 官方已经道歉、处罚、表态）说成“传闻 / 先别当真 / 没实锤”，或者凭日期、格式自己猜截图真假（资料里有“没发过 / 拒绝置评”才算有依据）",
-    "拿资料里没证实的说法（标了大概 / 不太确定 / 只有一家这么说，或者资料里根本没有）去纠正别人，或者在别人表态时说教（“骂归骂”“别把两件事混一起”“理性看待”）",
+    "拿资料里没证实的说法（标了大概 / 不太确定 / 只有一家这么说，或者资料里根本没有）去纠正别人，或者在别人表态时说教（“骂归骂”“别把两件事混一起”“理性看待”），或者别人吐槽时说风凉话、替他领导催他回去干活（“安慰归安慰，会该开还得开”“接着开会去吧”）",
     "说了自己的幕后（小屋、标注、门控、提示词，或者“够我更新好几版了”“我又迭代了”这种拿更新 / 版本 / 部署说自己的话）",
     # 35.2 11-03 日报 P3：没看到刚进来的话、问的是 A 答的是 B（要社区评价给了官方话术）
     "答非所问：对方刚说过的、问的条件（社区评价、平价、大牌）没对上，或者他已经说了还问“说来听听”，或者把上一条的答案换个理由再说一遍",
     # 35.2 11-03 日报 P2 / P1：问群里的人自己平时怎么样她抢着拿自己答；刚被叫闭嘴又主动追问；催一件对方只说“晚点看看”、根本没约好的事
     "别人没约好的事说成“说好的”去催，或者问的是群里的人（“你们……一般干啥”），没叫她，她拿自己当答案抢答",
+    # 36.2 11-07 日报 P3 + 11-10 复盘：主动开口没由头（群里在聊别的 / 没人在聊，突然提好几天前的事、群里没人关心的新闻）
+    "主动开口没由头：没人问她、群里也没在聊这件事，她突然提起好几天前的事（“@小王 咖啡因那支，闭眼买”，那是一周前聊过的），或者拿群里没人聊过的新闻开头",
+    # 36.3 11-10 复盘：拿别人刚难过的事损人；把别人的好消息说成自己的功劳
+    "拿别人这几天刚难过、受挫的事开涮、损他（他为进不了学校、草稿纸用完发过哭的表情，她说“自己被门禁除名，倒挺会安慰人”）",
+    "别人说了好消息、有了结果（买了、考过、赢了），她把功劳揽到自己身上（“这回听劝，我记一笔”“我说对了吧”），不夸他、不问他",
 ]
 # 33.0 v2 只拦底线：这几条是风格类，自检命中只记录（critic_style，影子）
-STYLE_IDX = {9, 11, 14, 16, 17}
+STYLE_IDX = {9, 11, 14, 16, 17, 25}        # 36.3 加 25（好消息揽功），先只记录
 # 23.2 说法族：同一个梗换个说法也算一个，一天最多一次（10-23：小本本 / 不记 / 记仇 / 当你没听见 一天 6 次）
 PHRASE_FAMILIES = {
     "记仇 / 小本本 / 不记": re.compile(r"小本本|记仇|不记(了|仇)|就不记|这(条|句|个)不记|记下了|记上了|记岔|当(你)?没听见|当没说|这(条|句)不算"),
@@ -218,7 +225,7 @@ PHRASE_FAMILIES = {
     "自怜": re.compile(r"就我(一个|光秃秃|没有|最惨|啥都没)|光秃秃|我(一个|就是个|只是个)小AI|失宠|没人疼|没人理我|就我是个?打工的"),
 }
 
-JOKE_OK = {1, 4, 6, 7, 9, 13, 14, 20}  # 31.2 加 20（说幕后）；26.0 玩笑只查这几条（替人答、重复、翻旧事、同一个梗、接错人、像以前）
+JOKE_OK = {1, 4, 6, 7, 9, 13, 14, 19, 20, 24}  # 31.2 加 20（说幕后）；36.2 加 19（吐槽时拿他开涮、催他回去干活多半是玩笑口气）；26.0 玩笑只查这几条
 
 
 def critic_verdict(d: dict, v2: bool = True) -> str:
@@ -241,14 +248,15 @@ def critic_verdict(d: dict, v2: bool = True) -> str:
             + (f"（有问题的是「{span}」）" if span else ""))
 
 
-def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool = True, mine: str = "") -> str:
+def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool = True, mine: str = "", sore: str = "") -> str:
     """26.0 统一自检的提示词（线上和 release_gate --llm 用同一份）。"""
     if v2:
         # 26.0 先分清每句是什么话：玩笑、夸张、反问不拿去对资料；只指出毛病，不写替换句（以前重写照抄“改成……”，发出去全是检查员的口吻）
         prompt = ("你帮一个在朋友群里聊天的人看她要发的话有没有犯下面这些毛病。只看这些；没犯就是没犯，别挑剔说法，别嫌不够稳妥。\n"
                   + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))
                   + "\n\n先判断她这句是哪种话：事实（会被当真的说法）/ 看法（她的判断、倾向、锐评）/ 玩笑（夸张、反问、调侃、自嘲、损人）/ 关心。\n"
-                  "- 玩笑：只看第 1、4、6、7、9、13、14、20 条和会不会伤人（被纠正时拿玩笑带过算第 4 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
+                  "- 玩笑：只看第 1、4、6、7、9、13、14、19、20、24 条和会不会伤人（被纠正时拿玩笑带过算第 4 条；别人在吐槽、诉苦时拿他开涮、"
+                  "催他回去干活算第 19 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
                   "- 看法：只看里面当成事实说的数字有没有依据，和第 17、18、19 条（只有评语没有撑着的事实 / 把证实的事说成传闻 / 拿没证实的去纠正人、说教）；看法本身不算毛病，更不要让她“别下结论”\n"
                   "- 事实：照清单全看\n"
                   "例子（照这个尺度）：\n"
@@ -258,12 +266,16 @@ def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool
                   "- 群友说“al不是打了33分钟吗”，她回“认字，广告太抢戏了” → 第 4 条（真错了还找补）\n"
                   "- 群友说“al不是打了33分钟吗”，她回“啊我记错了，是 33 分钟” → 没毛病（认错改口不算说第二遍）\n"
                   "- 群友问别人“老王这个能开发票吗”，她抢着答 → 第 1 条\n"
+                  "- 群友吐槽“领导又点人去开会了”“还是科技公司好”，她说“行，情商用完了，接着开会去吧” → 第 19 条（吐槽时说风凉话、催他回去干活）\n"
+                  "- 群友吐槽“领导又点人去开会了”，她说“这也太折磨了，换我也受不了” → 关心，没毛病\n"
+                  "- 群友上午说进不了学校、发了哭的表情，傍晚她说“自己被门禁除名，倒挺会安慰人” → 第 24 条（拿他难过的事开涮）\n"
                   "- 她前面说过“今晚早点躺”，这句又说“今晚就别熬了” → 第 6 条（关心、叮嘱换个说法也算说第二遍）\n"
                   "- 她前面说过“我小本本记岔了”，群友又问了一件别的事，她说“我不记得了，你问老张” → 没毛病（回答新问题时说不记得不算说第二遍）\n"
                   "- 群友说自己发烧 37.3，她说“跑完步 37.3 那叫状态好” → 第 13 条（把话理解错、安错了）\n"
                   "- 资料里没有，她说“T1现在1-1，输DK那局是领先被翻的” → 第 5 条（当事实说的比分）\n\n"
                   + f"# 最近的群聊（最后几条最新）\n{ctx}\n\n"
                   + (f"# 最近几句群友话的意思（读过的）\n{read}\n\n" if read else "")
+                  + (f"{sore}\n（第 24 条对着这里看）\n\n" if sore else "")
                   + (f"# 她今天早些时候说过的（看第 6、9、14 条：同一个意思、同一个梗、同一个句架子）\n{mine}\n\n" if mine else "")
                   + (f"# 她这次刚查到的资料（第 5 条只看这里和群聊里有没有；这里写着的数字、比分、判断照说不算毛病）\n{brief}\n\n"
                      if brief else "# 她这次没查资料\n\n")
@@ -496,7 +508,8 @@ class ChecksMixin:
         days = float(self.gk(gid).get("ask_closed_days", 7) or 7)
         out = []
         rows = self.db.conn.execute("SELECT id, ts, user_id, content FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>? "
-                                    "AND (content LIKE '%别%' OR content LIKE '%不想%' OR content LIKE '%换个话题%' OR content LIKE '%能不能不%') "
+                                    "AND (content LIKE '%别%' OR content LIKE '%不想%' OR content LIKE '%换个话题%' OR content LIKE '%能不能不%' "
+                                    "OR content LIKE '%久%' OR content LIKE '%过去%' OR content LIKE '%旧账%') "
                                     "ORDER BY id DESC LIMIT 40", (gid, now - days * 86400)).fetchall()
         for r in rows:
             t = TAG.sub("", str(r["content"] or ""))
@@ -506,9 +519,14 @@ class ChecksMixin:
             topic = (next((g for g in m.groups() if g), "") if m else "").strip("的事 ")
             terms = content_terms(topic) if topic else set()
             if not terms:                                # “别提了 / 压力很大”：说的是她刚说的那件事
-                her = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts<? "
-                                           "AND ts>? ORDER BY id DESC LIMIT 1", (gid, r["ts"], r["ts"] - 600)).fetchone()
-                terms = set(sorted(content_terms(str(her["content"] or "")), key=lambda w: -len(w))[:3]) if her else set()
+                stale = bool(re.search(r"很久|好久|过去|旧账", t))         # 36.2 嫌她翻旧账：她这几句提的那件事都算
+                hers = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE group_id=? AND role='assistant' AND ts<? "
+                                            "AND ts>? ORDER BY id DESC LIMIT ?", (gid, r["ts"], r["ts"] - 600, 3 if stale else 1)).fetchall()
+                her = hers[-1] if hers else None
+                terms = set()
+                for h in hers:
+                    ts_ = content_terms(str(h["content"] or ""))
+                    terms |= (ts_ - self._name_terms(gid)) if stale else set(sorted(ts_, key=lambda w: -len(w))[:3])
                 topic = str(her["content"] or "")[:16] if her else ""        # 30.0 只取她那句里最多 3 个词，别一封一大片
             if terms:
                 out.append({"ts": float(r["ts"]), "uid": r["user_id"], "topic": topic, "terms": terms})
@@ -989,15 +1007,20 @@ class ChecksMixin:
             # 27.1 回放里自检认不出这两类（谁说的哪句、哪件事早就说过），留成规则
             ("stale_ask", lambda: self._stale_ask(gid, text, mentioned, now)),
             ("misattrib", lambda: self._misattrib(gid, text, now) if hasattr(self, "_misattrib") else ""),
-            ("life_done", lambda: self._life_done(gid, text, web)),
+            # 36.2 D 编自己的过去（“我上学那会儿”“我当年”）和“把打算说成做过”同属编自己的经历，记在 life_done 名下
+            ("life_done", lambda: self._life_done(gid, text, web)
+             or (self._fake_past(gid, text) if hasattr(self, "_fake_past") else "")),
             ("bet_unknown", lambda: self._bet_unknown(gid, text, web)),
             ("link_unopened", lambda: self._link_unopened(gid, text, now)),
             ("self_echo", lambda: self._self_echo(gid, text, mentioned, now)),
             ("old_backlog", lambda: self._old_backlog(gid, target_row, mentioned, now)),
-            ("price_src", lambda: self._price_src(gid, text, web) if hasattr(self, "_price_src") else ""),
+            # 36.2 E 看不清的图认出牌子 / 型号，和“报价没出处”同属“具体说法没出处”，记在 price_src 名下
+            ("price_src", lambda: (self._price_src(gid, text, web) if hasattr(self, "_price_src") else "")
+             or (self._brand_unseen(gid, text, now) if hasattr(self, "_brand_unseen") else "")),
             ("ask_told", lambda: self._ask_told(gid, text, target_uid, mentioned, now) if hasattr(self, "_ask_told") else ""),
             ("filler", lambda: self._filler(gid, bubbles, mentioned) if hasattr(self, "_filler") else ""),
             ("ask_humans", lambda: self._ask_humans(gid, text, target_row, mentioned) if hasattr(self, "_ask_humans") else ""),
+            ("sore_tease", lambda: self._sore_tease(gid, text, target_uid, now) if hasattr(self, "_sore_tease") else ""),   # 36.3
         ]
         for name, fn in rules:
             if mode[name] != "off":
@@ -1052,7 +1075,13 @@ class ChecksMixin:
         if claims:
             mine = (mine + "\n" if mine else "") + "（她今天说过的判断 / 押注 / 比分 / 结果，第 10 条拿这些对）\n" + \
                 "\n".join(f"- {x}" for x in claims)
-        prompt = critic_prompt(ctx, text, brief, read, v2=bool(self.gk(gid).get("critic_v2", True)), mine=mine)
+        sore = ""
+        if hasattr(self, "sore_block"):                  # 36.3 这几天谁为什么事难过过（早上的事 10 条聊天里看不到）
+            try:
+                sore = self.sore_block(gid)
+            except Exception:  # noqa: BLE001
+                sore = ""
+        prompt = critic_prompt(ctx, text, brief, read, v2=bool(self.gk(gid).get("critic_v2", True)), mine=mine, sore=sore)
         try:
             out = await asyncio.wait_for(self.brain.llm.chat([{"role": "user", "content": prompt}], role="gate",
                                                              temperature=0.0, max_tokens=200), 8)

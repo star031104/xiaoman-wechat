@@ -33,8 +33,11 @@ def test_closeness_grows_and_tiers(cfg, brain):
 
 def test_prefs_and_plans_from_digest(cfg, brain):
     gc, ob = _gc(cfg, brain)
-    tomorrow = time.strftime("%Y-%m-%d", time.localtime(time.time() + 86400))
-    lines = ["好|香菜|讨厌，一口都不吃", f"约|群|周四开黑七日世界|{tomorrow} 20:00|提醒",
+    from datetime import timedelta
+    tomorrow = (brain.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+    gc._record(GROUP, OWNER, "老板", "明天晚上八点开黑七日世界，都来", 90)        # 36.2 约定的日期要在原话里找得到
+    gc._record(GROUP, FRIEND, "小王", "我明天二面，紧张", 91)
+    lines = ["好|香菜|讨厌，一口都不吃", f"约|群|周四开黑七日世界|{tomorrow} 20:00|提醒|明天晚上八点开黑七日世界",
              f"约|{FRIEND}|二面|{tomorrow}|问", "约|群|乱写的|不是时间|提醒"]
     assert gc.digest_extra_apply(GROUP, lines, [FRIEND]) == (1, 2)
     assert not gc.add_pref("香菜", "其实还行")                   # 说出口的不改口

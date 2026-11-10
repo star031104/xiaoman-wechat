@@ -34,6 +34,8 @@ from aigroup.chat.v33 import V33Mixin
 from aigroup.chat.v35 import V35Mixin
 from aigroup.chat.v352 import V352Mixin
 from aigroup.chat.v36 import V36Mixin
+from aigroup.chat.v362 import V362Mixin
+from aigroup.chat.v363 import V363Mixin
 from aigroup.eval.weekly import EvalMixin
 from aigroup.memory.autobio import AutobioMixin
 from aigroup.memory.digest import DigestMixin
@@ -47,7 +49,7 @@ class Senses(FeedMixin, IngestMixin):
     """看到：收消息（ingest）、刷到的候选（feed）。"""
 
 
-class Timing(IdleMixin, ListenerMixin, V35Mixin, V352Mixin, V36Mixin):
+class Timing(IdleMixin, ListenerMixin, V35Mixin, V352Mixin, V36Mixin, V362Mixin, V363Mixin):
     """时机：冷场冒泡 / 等等再说（idle）、旁听判断（listener）、攒一批再回和说多了收着（v35）、
     安静期 / 拦过的意思 / 在跟别人说 / 额度按时段摊（v352）。"""
 

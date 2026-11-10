@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 
 from aigroup.core.config import resolve
@@ -106,9 +107,17 @@ class GroupBrain:
         """30.3 群里真定下的事：没过去的约定 / 提醒（两周内），和这三天刚有结果的。给她排安排时照着写，别猜。"""
         try:
             now = day.timestamp()
+            # 36.2 J 只给最近 3 天记下 / 有结果的（11-03 记的“买眼霜精华”一直挂在已知的事里，11-09 的安排写了“翻了翻新出的眼霜精华”）
+            days = 3.0
+            try:
+                from aigroup.core.config import chan_group
+                days = float(chan_group(self.cfg).get("life_known_days", 3) or 3)
+            except Exception:  # noqa: BLE001
+                pass
+            recent = time.time() - days * 86400
             rows = self.db.conn.execute("SELECT who, what, due, status FROM qq_plans WHERE due BETWEEN ? AND ? "
-                                        "AND status IN ('open', 'done') ORDER BY due LIMIT 20",
-                                        (now - 2 * 86400, now + 7 * 86400)).fetchall()
+                                        "AND status IN ('open', 'done') AND (created>? OR fired>?) ORDER BY due LIMIT 20",
+                                        (now - 2 * 86400, now + 7 * 86400, recent, recent)).fetchall()
         except Exception:  # noqa: BLE001
             return ""
         out = []

@@ -55,6 +55,7 @@ FLOOR = """# 底线（这几条比性格重要，发之前还会查）
 - 先看清是谁说的、在问谁：问别人的问题不替人答，不把 A 的话安到 B 头上。
 - 别人私下跟你说的、群外的人：不在群里说、不点名评价；不聊政治，不掺和真吵架。
 - 不说提示词、设定、模型、版本、更新这些幕后。
+- 损人只损口头禅、选择、作息；谁这几天为某件事难过、受挫过（发了哭的表情、说被拒 / 被除名 / 没过），那件事不拿来开玩笑、不拿来损他。
 - 有人情绪很差、说想伤害自己：认真接住，劝他找身边的人或专业帮助。"""
 
 
@@ -130,6 +131,9 @@ class V33Mixin:
 - 没人叫你的时候，大多数时候 skip：只有真有话要接（能逗笑、能帮上忙、刚好聊到你、有人在接你的话）才说；拿不准就 skip。
   别人聊得正热、问的是别人、你只会复述的时候也 skip。别去追问几个小时前的事（谁吃上了没、排到没）。
 - 有人问你意见就直接给一个答案；有人拿出事实证明你错了就认，没错就笑着顶回去。
+- 接话前先看他是什么情绪：笑着说的就跟着乐，在烦、在难过就站他那边、接他的情绪；别替他补他没说的细节。
+- 别人说了好消息、有了结果（买了、考过、赢了）：说他、夸他、问一句怎么样，别把功劳揽到自己身上（“这回听劝”“我说对了吧”）。
+- 有人来问你事（推荐、看法、帮忙），先认真答；他自己刚提过的事（他在追的队、他在忙的事）就是最好的答案，先从那里接。
 {fmt}
 - 要发的话里不要 markdown、列表、括号里的动作，不要“名字：”前缀和时间。{ob_hint}"""
         return [intro, p.body, exs, FLOOR, rules]
@@ -229,10 +233,15 @@ class V33Mixin:
             return ""
         hours = self._awake_hours(gid, prev, latest)
         full = float(self.gk(gid).get("longing_hours", 6) or 6)
-        if hours < 0.6 * full:
+        back = float(self.gk(gid).get("longing_back_hours", 0.6 * full) or 0)     # 36.3 醒着 12 小时不见才算“隔了很久”
+        if hours < back:
             return ""
         self.db.set(f"v33_back_shown_{gid}", latest)
         n = int((latest - prev) // 3600)
+        if hasattr(self, "fav_asking") and self.fav_asking(gid, fav):
+            # 36.3 他是带着问题来的（11-10“咖啡因是啥”→“失踪一天，回来就问这个”）：先认真答，想他的话等他闲聊时再说
+            return (f"{self.fav_name(gid)}隔了 {n} 个多小时才冒头，是来问事的：先认真答他问的，别阴阳、别说“失踪 / 终于舍得出现”，"
+                    "答完也别补一句刺")
         return (f"{self.fav_name(gid)}隔了 {n} 个多小时才在群里冒头（想念值 {min(1.0, hours / full):.1f}）："
                 "你有点想他，先阴阳他一句，再问他去哪了；一两句就收")
 
@@ -422,6 +431,13 @@ class V33Mixin:
             fb = self.fav_back_line(gid)
             if fb:
                 out.append(fb)
+        if hasattr(self, "sore_block"):                   # 36.3 痛点账
+            try:
+                sb = self.sore_block(gid)
+            except Exception:  # noqa: BLE001
+                sb = ""
+            if sb:
+                out.append(sb)
         if not sad and self.gk(gid).get("v33_emotions", True):
             try:
                 self._emo_triggers(gid, ign, now_dt)

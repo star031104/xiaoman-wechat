@@ -44,7 +44,8 @@ ROOM_PROMPT = """你在旁边看一个微信朋友群（熟人小群）。群里
 # 聊天记录（现在 {now}）
 {ctx}
 
-只输出 JSON：{{"to_whom": "", "pair": "", "venting": "", "about_her": "none", "open_ask": "", "why": "一句话"}}"""
+6. mood：最后说话的那个群友此刻什么情绪：笑（在乐、在自嘲、说“哈哈”）/ 得意 / 烦 / 难过 / 平常；mood_who 写他的称呼
+只输出 JSON：{{"to_whom": "", "pair": "", "venting": "", "about_her": "none", "open_ask": "", "mood": "平常", "mood_who": "", "why": "一句话"}}"""
 
 
 def is_media_only(text: str) -> bool:
@@ -126,12 +127,13 @@ class V36Mixin:
             return {}
         if not isinstance(d, dict):
             return {}
-        d = {k: str(d.get(k) or "").strip()[:60] for k in ("to_whom", "pair", "venting", "about_her", "open_ask", "why")}
+        d = {k: str(d.get(k) or "").strip()[:60] for k in ("to_whom", "pair", "venting", "about_her", "open_ask", "mood", "mood_who", "why")}
         st.__dict__["room"] = {"last": last, "d": d, "ts": now}
         self.check_log(gid, "social_read", str(g.get("social_read", "on")), "", json.dumps(d, ensure_ascii=False))
         return d
 
-    def room_verdict(self, gid: int, d: dict, *, mentioned: bool, guess: str, now: float | None = None) -> tuple[str, str]:
+    def room_verdict(self, gid: int, d: dict, *, mentioned: bool, guess: str, now: float | None = None,
+                     asked: bool = False) -> tuple[str, str]:
         """局面 → (不说的原因, 给她的一句做法)。原因为空 = 不拦。"""
         if not d:
             return "", ""
@@ -154,8 +156,15 @@ class V36Mixin:
         elif d.get("pair") and not mentioned and not guess and d.get("to_whom") not in ("她", "你", "小满", "大家") and on:
             skip = f"局面：{d['pair']} 在一问一答，没提你"
         if d.get("venting") and on:
-            note += (f"（36.0）{d['venting']} 在吐槽：先站他那边（“这确实烦”“换我也受不了”），"
-                     "别说风凉话（“不归你管”“那也是白搭”），别挑他的字眼")
+            if (not skip and not mentioned and not asked and g.get("venting_one_reply", True)
+                    and now - float(self._st(gid).last_reply_ts or 0) < 180):
+                # 36.2 I 有人在吐槽、她 3 分钟里已经接过一句：先听他说（11-09 13:32 小王吐槽，她 39 秒说了 4 条）
+                skip = f"局面：{d['venting']} 在吐槽，你刚接过一句，先听他说"
+            note += (f"（36.0）{d['venting']} 在吐槽：只接他的情绪，或者不说——站他那边（“这确实烦”“换我也受不了”），"
+                     "不劝、不讲道理、不替他领导催他回去干活（“会该开还得开”“接着开会去吧”），不拿他的事开玩笑、不挑他的字眼；"
+                     "他一连说好几句，回一句就够")
+        if d.get("mood") and on and not d.get("venting") and hasattr(self, "mood_note"):
+            note += self.mood_note(d)                     # 36.3 先读情绪（“哈哈被迫下班了”→ 别说“最气人”）
         if d.get("open_ask") and on:
             note += f"（36.0）群友接着你的话问过你「{d['open_ask'][:40]}」，你还没答：先答这一句，别回嘴、别翻旧账"
         if about == "correct" and on:

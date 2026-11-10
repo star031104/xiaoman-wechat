@@ -55,9 +55,11 @@ CORRECT_RE = re.compile(r"(不对|错了|不是这样|不是的|搞错|记错|�
 
 DIGEST_EXTRA = """7. 好|话题|你的态度：你（“你”）在聊天里亲口说过的喜好和看法（喜欢 / 讨厌什么、支持哪个队、最爱哪首歌、觉得某个东西怎么样），
    一条一个话题，态度写你的原话意思，12 字以内；只写这段聊天里新说的，最多 3 条，没有就不写。
-8. 约|那个人的编号（和第 1 条一样）或“群”|什么事|时间|提醒或问：聊天里约好的、某人要去做的、有确定时间的事（周四晚上开黑、明天考试、下周二面试、周六聚餐），
+8. 约|那个人的编号（和第 1 条一样）或“群”|什么事|时间|提醒或问|原话：聊天里约好的、某人要去做的、有确定时间的事（周四晚上开黑、明天考试、下周二面试、周六聚餐），
    时间写成 YYYY-MM-DD HH:MM（只知道哪天就写 YYYY-MM-DD）；大家一起参加的活动写“提醒”（到点前叫一下大家），
-   某个人自己的事（考试、面试、比赛、看病）写“问”（过后问他结果）。现在是 {now}，“明天”“周四”按这个算。最多 3 条，只写新的、确定的。
+   某个人自己的事（考试、面试、比赛、看病）写“问”（过后问他结果）。现在是 {now}，“明天”“周四”按说这话的那天算。最多 3 条，只写新的、确定的。
+   原话：从群友的话里**一字不改**抄出说到这个时间的那一小段（要带着时间：明天、周四、11.8、8 号、晚上八点……）。
+   **群友没说哪天的事一律不写**，不要自己估一个日期（“买完说说效果”“过阵子再看”“一周见效”都不算约好的时间）；同一件事只写一条，不要给每个相关的人各写一条。
    只记真有结果、值得事后问的事；困了、吃饭、上班、看代码、下班这种日常状态不算，不要写。
    看比赛、熬夜看球、上号开黑、打游戏这种娱乐不算（除非他说了“到时候告诉你 / 记得问我”）；别人回过的话（“被回 别鞭尸”）不算约定。
 9. 在|那个人的编号|城市|到哪天|为什么：聊天里说到某人现在在哪个城市、或者住在哪（出差、旅游、回老家、住、上学、工作），
@@ -325,10 +327,12 @@ class GrowMixin:
         now = self.brain.now()
         return DIGEST_EXTRA.replace("{now}", f"{now:%Y-%m-%d %H:%M} 星期{WEEK[now.weekday()]}")
 
-    def digest_extra_apply(self, gid: int, lines: list[str], ids: list[int]) -> tuple[int, int]:
-        """digest 的输出里 “好|” 和 “约|” 两种行。返回（新喜好数，新约定数）。"""
+    def digest_extra_apply(self, gid: int, lines: list[str], ids: list[int], rows: list | None = None) -> tuple[int, int]:
+        """digest 的输出里 “好|” 和 “约|” 两种行。返回（新喜好数，新约定数）。
+        36.2 rows：这次整理看的那段聊天；约定的日期要在里面找得到依据（plan_supported），找不到不记。"""
         np_, nplan = 0, 0
         names = self.names(gid)
+        seen: set[str] = set()                            # 36.2 同一批里同一件事只记一条（眼霜给两个人各记了一条）
         for ln in lines:
             m = re.match(r"^\s*(?:\d\.\s*)?好\s*[|｜]\s*([^|｜]+)[|｜]\s*(.+)$", ln)
             if m and self.add_pref(m.group(1), m.group(2), gid):
@@ -349,11 +353,30 @@ class GrowMixin:
                 continue
             who, what, when = parts[0], parts[1][:40], parts[2]
             kind = "remind" if len(parts) > 3 and "提醒" in parts[3] else "ask"
+            quote = parts[4] if len(parts) > 4 else ""
             if not what or looks_like_order(what):
                 continue
             uid = int(who) if who.isdigit() and int(who) in ids else 0
             if not uid and who not in ("群", "大家"):
                 continue
+            key = re.sub(r"\W+", "", what)
+            if key in seen:
+                log.info("群 %s：「%s」这一批已经记过一条，不再给别人各记一条（36.2）", gid, what)
+                continue
+            if hasattr(self, "plan_supported"):
+                due, _ = parse_due(when, self.brain.now())
+                if due is None:
+                    continue
+                if rows is None:
+                    try:
+                        rows = [dict(r) for r in self._rows(gid, 80)]
+                    except Exception:  # noqa: BLE001
+                        rows = []
+                ev = self.plan_supported(gid, what, due, quote, rows)
+                if not ev:
+                    log.info("群 %s：约定「%s」（%s）在聊天原话里找不到这个时间，不记（36.2）", gid, what, when)
+                    continue
+            seen.add(key)
             if self.add_plan(gid, uid, names.get(str(uid), "") if uid else "大家", what, when, kind):
                 nplan += 1
         return np_, nplan
@@ -371,11 +394,19 @@ class GrowMixin:
         ts = due.timestamp()
         if ts < time.time() - 3600 or ts > time.time() + 45 * 86400:
             return 0
-        for r in self.db.conn.execute("SELECT what, due, status, fired FROM qq_plans WHERE group_id=? AND user_id=? AND "
-                                      "(status='open' OR fired>?)", (gid, uid, time.time() - 3 * 86400)).fetchall():
+        for r in self.db.conn.execute("SELECT user_id, what, due, status, fired, created FROM qq_plans WHERE group_id=? AND "
+                                      "(status='open' OR fired>?)", (gid, time.time() - 3 * 86400)).fetchall():
             same = (r["what"] in what or what in r["what"] or len(set(r["what"]) & set(what)) >= min(4, len(what)))
-            if same and (abs(float(r["due"]) - ts) < 6 * 3600 or r["status"] != "open"):
-                # 30.3 同一件事三天内已经问过 / 提醒过：不再记一遍（10-27 刚问完“面试过了没”，又记了一个 10-28 的“面试”）
+            if not same:
+                continue
+            if int(r["user_id"] or 0) == int(uid or 0):
+                if abs(float(r["due"]) - ts) < 6 * 3600 or r["status"] != "open":
+                    # 30.3 同一件事三天内已经问过 / 提醒过：不再记一遍（10-27 刚问完“面试过了没”，又记了一个 10-28 的“面试”）
+                    return 0
+            elif (abs(float(r["due"]) - ts) < 6 * 3600 and abs(float(r["created"] or 0) - time.time()) < 6 * 3600
+                  and self._gk(gid).get("plans_dedupe_people", True)):
+                # 36.2 同一件事 6 小时内已经给别人记过一条（11-03 眼霜给小王、老板各记了一条，到点问两遍）
+                log.info("群 %s：「%s」刚给别人记过一条，不再记（36.2）", gid, what)
                 return 0
         if hasattr(self, "_closed_hit") and self._closed_hit(gid, what, time.time()):
             log.info("群 %s：「%s」群友说过别再提，不记成约定", gid, what)        # 30.3
@@ -595,6 +626,8 @@ class GrowMixin:
         if not g.get("plans", True):
             return False
         now = time.time()
+        if hasattr(self, "pending_to_her") and self.pending_to_her(gid):
+            return False                                  # 36.2 H 有人刚问她、她还没回：主动的事先别说（11-08 答 fx 时顺口扯下雨）
         self.db.conn.execute("UPDATE qq_plans SET status='expired' WHERE status='open' AND source!='tool' AND due<?",
                              (now - 48 * 3600,))
         day_key = f"qq_plans_n_{gid}_{self.brain.now():%Y-%m-%d}"
@@ -609,9 +642,26 @@ class GrowMixin:
             if float(p.get("next_try") or 0) > now:       # 19.0 上次没说出来：等一会儿再试
                 continue
             due = float(p["due"])
+            if hasattr(self, "plan_resolved"):
+                gone = self.plan_resolved(gid, p, now)
+                if gone:
+                    # 36.2 记下以后群里已经有了结果 / 有人说这是旧事 / 说过别提：作废，不打气、不事后问
+                    self.db.conn.execute("UPDATE qq_plans SET status='cancelled' WHERE id=?", (p["id"],))
+                    self.db.conn.commit()
+                    log.info("群 %s：约定「%s」%s，作废（36.2）", gid, p["what"], gone)
+                    continue
             # 13.0 事前打个气：某个人自己的事（考试、面试、比赛）开始前 3~18 小时、白天，说一句（每件事一次）
             if (p["kind"] == "ask" and p["user_id"] and g.get("plans_cheer", True) and 8 <= hour < 23
                     and due - 18 * 3600 <= now <= due - 3 * 3600 and not self.db.get(f"qq_plan_cheer_{p['id']}")):
+                no = self.plan_cheer_ok(gid, p, now) if hasattr(self, "plan_cheer_ok") else ""
+                if no:
+                    # 36.2 只给考试、面试、比赛这类事打气；记下超过 3 天的不打气（11-10“今天要「买眼霜精华」”）
+                    self.db.set(f"qq_plan_cheer_{p['id']}", now)
+                    log.info("群 %s：%s（36.2）", gid, no)
+                    continue
+                if (g.get("plans_need_present", True) and hasattr(self, "person_present")
+                        and not self.person_present(gid, int(p["user_id"]), now)):
+                    continue                             # 36.2 人不在不打气（等他冒头，还在窗口里就再说）
                 self.db.set(f"qq_plan_cheer_{p['id']}", now)
                 self.db.set(day_key, int(self.db.get(day_key, 0) or 0) + 1)
                 self.db.set(f"qq_plans_last_{gid}", now)
@@ -876,6 +926,8 @@ class GrowMixin:
     async def share(self, gid: int, st, force_photo: bool | None = None) -> bool:
         """刷到点东西发进群：多数时候是和大家兴趣有关的新消息，有时候是一张自己的日常照片。"""
         g = self._gk(gid)
+        if not force_photo and hasattr(self, "pending_to_her") and self.pending_to_her(gid):
+            return False                                  # 36.2 H
         photo = getattr(self, "photos", None)
         self.share_error = ""
         if force_photo:                                    # 17.1 小屋里点“发张照片”：只发照片，不占每天的名额，发不了说清楚为什么
@@ -1035,6 +1087,8 @@ class GrowMixin:
         g = self._gk(gid)
         if wh is None or not g.get("weather", True) or not g.get("weather_care", True):
             return False
+        if hasattr(self, "pending_to_her") and self.pending_to_her(gid):
+            return False                                  # 36.2 H 有人刚问她、她还没回：主动的事先别说（11-08 答 fx 时顺口扯下雨）
         now = self.brain.now()
         day = f"{now:%Y-%m-%d}"
         last = float(self.db.get(f"qq_wxcheck_{gid}", 0) or 0)

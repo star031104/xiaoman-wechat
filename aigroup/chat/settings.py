@@ -338,7 +338,7 @@ DEFAULTS = {
     "social_read_speak": "shadow",   # A1 被纠正 / 有她没答的追问时没过门槛也放行：shadow 只记录，on 放行
     "social_read_per_hour": 60,      # A1 局面判断每小时最多问几次
     "hush_no_retort": True,          # 冲她的那句就是“闭嘴 / 嫌她”：不回嘴（问了正经问题才认一句再答）
-    "critic_enforce": [4, 5, 21],    # A2 自检整体是影子时，这几条毛病照样拦（4 被纠正还顶嘴、5 没依据的数字当事实、21 答非所问）
+    "critic_enforce": [4, 5, 19, 21, 24],  # A2 自检整体是影子时，这几条毛病照样拦（4 被纠正还顶嘴、5 没依据的数字当事实、19 说教 / 吐槽时说风凉话（36.2）、21 答非所问、24 拿别人难过的事开涮（36.3））
     "media_first_comment": True,     # A4 群友发图 / 位置 / 视频 / 链接没问她：看不清的不点评，一小时最多主动点评一次
     "media_comment_minutes": 60,
     "cold_streak_n": 2,              # A4 主动说的连着这么多次没人接：门槛 + cold_streak_bump，有人接住就清零（0 关）
@@ -348,7 +348,27 @@ DEFAULTS = {
     "has_minor": False,              # B7 群里有未成年人：关掉偏心
     "celebrate_from": "09:30",
     "plans_infer_remind": False,     # 36.0 整理时看出来的“约定”到点替人催（False 不催；当面让她提醒的照常提醒）
-    "plans_need_present": True,      # 36.0 事后问结果：被问的人 30 分钟里说过话才问       # 生日 / 节日祝福从几点起（以前固定 10 点）
+    "plans_need_present": True,      # 36.0 事后问结果 / 36.2 事前打气：被问的人 30 分钟里说过话才说
+    # ---- 36.2 11-10 翻旧账复盘 + 11-09 日报 ----
+    "plans_need_evidence": True,     # A 整理时记的约定：日期要在群友原话里找得到依据（明天 / 周四 / 11.8 / 晚上八点），找不到不记
+    "plans_dedupe_people": True,     # A 同一件事 6 小时内已经给别人记过一条：不再按人各记一条
+    "plans_check_result": True,      # A 打气 / 事后问之前：记下以后群里已经有了结果、有人说这是旧事 / 别提了，作废
+    "plans_cheer_only_events": True,  # A 事前打气只给考试、面试、比赛、出发这类事
+    "plans_cheer_max_days": 3,       # A 记下超过这么多天的约定不打气（0 不管）
+    "waited_once": True,             # B “等的人开口了 / 多半在跟她说”一轮只免一次冷却
+    "waited_gap_seconds": 180,       # B 免过一次以后，这么多秒内再来就照常过冷却和门槛
+    "feed_need_talk": True,          # G 刷到的：只分享群里最近真聊过的项目（feed_talk_days 天里群友提过）
+    "feed_talk_days": 14,
+    "share_max_age_days": 0,         # G 刷到的新闻最多几天前的（0 = 只发当天的；以前“昨天的事”也发）
+    "proactive_wait_reply": True,    # H 有人刚 @ / 回复她、她还没回：提醒、天气、刷到的先不说
+    "venting_one_reply": True,       # I 有人在吐槽：没人叫她时 3 分钟里只接一句，接过了就先听他说
+    "life_known_days": 3,            # J 排每天的安排时，群里的约定只给最近这么多天记下 / 有结果的
+    # ---- 36.3 11-10 聊天复盘：更高情商 ----
+    "sore_spots": True,              # 1 痛点账：群友这几天为某件事难过过，那件事不拿来开玩笑（提示词 + 发前检查）
+    "sore_days": 3,
+    "check_sore_tease": "on",        # 1 拿别人这几天难过的事损他
+    "longing_back_hours": 12,        # 2 星宝隔了醒着这么多小时才冒头才算“想他”（以前 6 × 0.6 ≈ 3.6 小时）；冒头是来问事的不阴阳
+    "own_mentions": True,            # 5 有人问她推荐 / 看法：把他两小时里自己提过的事列给她
 }
 
 # 渠道不一样、默认值不一样的几个（QQ 能点表情、能戳一戳，补消息少补一点；微信做不到点表情和戳）
@@ -516,6 +536,14 @@ KNOBS = {
     "hear_voice": ("听群友的语音", "bool", None, None, None, "转成文字、带上情绪和笑声（免费的 SenseVoice）"),
     "voice_reply": ("让她说话时发语音", "bool", None, None, None, "要配本地语音合成 net.tts；QQ 才能发"),
     "plans_cheer": ("事前打个气", "bool", None, None, None, "考试、面试、比赛开始前几个小时说一句加油"),
+    "sore_spots": ("别拿别人难过的事开玩笑", "bool", None, None, None, "群友这几天发过哭的表情、说过被拒 / 没过：那件事 3 天不拿来损他（36.3）"),
+    "own_mentions": ("被问推荐时先接他自己说过的", "bool", None, None, None, "把他两小时里自己提过的事列给她（36.3）"),
+    "plans_need_evidence": ("约定要有原话里的时间", "bool", None, None, None, "整理时看出来的约定，群友原话里得说了哪天，不然不记（36.2）"),
+    "plans_cheer_max_days": ("几天前记的不打气", "int", 0, 14, 1, "记下超过这么多天的约定，到点不打气；0 = 不管（36.2）"),
+    "waited_once": ("接话一轮只免一次冷却", "bool", None, None, None, "对方接着说话时她可以马上接一句，再来就照常等冷却（36.2）"),
+    "venting_one_reply": ("有人吐槽只接一句", "bool", None, None, None, "没人叫她时 3 分钟里只接一句，先听他说（36.2）"),
+    "proactive_wait_reply": ("先回完再说别的", "bool", None, None, None, "有人刚问她还没回：提醒、天气、刷到的先不说（36.2）"),
+    "feed_need_talk": ("只分享群里聊过的项目", "bool", None, None, None, "刷到的新闻，群里最近两周没人提过这个项目就不分享（36.2）"),
     "birthday_card": ("生日发贺卡", "bool", None, None, None, "祝完生日再发一张画的贺卡（要配画图接口）"),
     "typing_abort": ("打字时话题走了就不发", "bool", None, None, None, "她主动说的那句还在打字、群里又说了 3 条以上：这句不发了"),
     "drift_anchor": ("容易出戏时提醒她是谁", "bool", None, None, None, "问她自己、有人难过、聊人生大问题时，在最后再提一遍人设"),

@@ -332,7 +332,10 @@ class SpeakMixin:
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
                          rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected,
-                         asked=asked)
+                         asked=asked, waited_recent=now - float(st.__dict__.get("waited_free_ts") or 0)
+                         < float(self.gk(gid).get("waited_gap_seconds", 180) or 0))
+        if ok and why == "等的人开口了":
+            st.__dict__["waited_free_ts"] = now           # 36.2 记下这一轮已经免过一次冷却
         if corrected and ok:
             qc = self.quoted_challenge(texts) if hasattr(self, "quoted_challenge") else ""
             if qc:                                     # 31.2 引着她原话质疑：引用就在眼前，别问“哪个”，别许诺“再看看”
@@ -433,7 +436,7 @@ class SpeakMixin:
                     st.batch_callers = callers + st.batch_callers
                     st.batch_guess = st.batch_guess or guess
                     return
-                rs, rn = self.room_verdict(gid, room, mentioned=mentioned, guess=guess, now=now)
+                rs, rn = self.room_verdict(gid, room, mentioned=mentioned, guess=guess, now=now, asked=asked)
                 if ok and rs and not corrected:
                     ok, why = False, rs
                 rnote += rn
@@ -445,6 +448,8 @@ class SpeakMixin:
                     ok, why = False, mg
             if ok and (mentioned or guess):
                 rnote += self.long_chat_note(gid, texts[-1][1], now)
+            if ok and (mentioned or guess or asked) and hasattr(self, "own_mentions_note"):
+                rnote += self.own_mentions_note(gid, texts, now)       # 36.3 问她推荐 / 看法：先接他自己刚提过的
         if ok and rnote:
             st.talk_note = (st.talk_note or "") + rnote
         gate_id = None

@@ -235,7 +235,11 @@ class FeedMixin:
         self._feed_init()
         today = today or self.brain.now().date()
         w = {x["topic"]: float(x["w"]) for x in self.feed_interests(gid)}
-        fresh_days = int(self.gk(gid).get("share_fresh_days", 3) or 3)
+        g = self.gk(gid)
+        fresh_days = int(g.get("share_fresh_days", 3) or 3)
+        max_age = g.get("share_max_age_days", 0)                 # 36.2 G 只发当天的（11-04 / 11-07 都是“昨天的事”）
+        max_age = fresh_days if max_age is None or max_age == "" else min(fresh_days, float(max_age))
+        talked: dict[str, int] = {}
         rows = [dict(r) for r in self.db.conn.execute(
             "SELECT id, topic, title, url, date, snippet, event_id, shared FROM qq_feed WHERE group_id=? AND ts>?",
             (gid, time.time() - 10 * 86400)).fetchall()]
@@ -248,8 +252,14 @@ class FeedMixin:
             if r["shared"]:
                 continue
             age = age_days(r["date"], today)
-            if age is None or age > fresh_days:
+            if age is None or age > max_age:
                 continue
+            if g.get("feed_need_talk", True) and hasattr(self, "topic_talked"):
+                # 36.2 G 群里最近两周没人提过这个项目（画像里写着“KPL”，可群里只聊 LOL 和瓦）：不分享
+                if r["topic"] not in talked:
+                    talked[r["topic"]] = self.topic_talked(gid, r["topic"], float(g.get("feed_talk_days", 14) or 14))
+                if not talked[r["topic"]]:
+                    continue
             ev = int(r["event_id"] or r["id"])
             if ev in shared_ev:
                 novelty = 0.5 if (_nums(r["title"] + r["snippet"]) - shared_ev[ev]) else 0.0

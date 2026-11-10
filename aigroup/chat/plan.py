@@ -51,7 +51,7 @@ TRAIT_WORDS = {"吐槽", "毒舌", "揣测", "反问", "装蒜", "说话碎", "�
 def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: int, quiet: bool, g: dict,
            p: float, thr: float, backoff_wait: float = 0.0, pending: int = 1, tie: float = 1.0,
            rand: float = 0.0, waited: bool = False, burst: int = 0, hush: str = "", corrected: bool = False,
-           asked: bool = False) -> tuple[bool, str]:
+           asked: bool = False, waited_recent: bool = False) -> tuple[bool, str]:
     """这一批消息之后她要不要开口。p：gate 算的概率；thr：按发言配额算的阈值。返回 (要不要, 原因)。
     23.1 burst：她最近 5 分钟发了几条（不算被叫到才回的）；hush：群里刚有人嫌她 / 她自己说了“闭嘴”，到点前只回叫到她的。"""
     cap = int(g["max_per_10min"])
@@ -78,7 +78,10 @@ def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: 
     if soft and burst >= soft and g.get("burst_soft_hard", True):
         # 31.2 软刹车改硬：最近 5 分钟已经说了 soft 条、又没人叫她，就不说（以前重新过门槛就放行，10-28 / 10-29 天天 3 分钟 ≥4 条）
         return False, f"这 5 分钟已经说了 {burst} 条，没人叫就不说"
-    if waited and not (soft and burst >= soft):
+    if (waited and not (soft and burst >= soft)
+            and not (g.get("waited_once", True) and (waited_recent or burst >= max(soft - 1, 1)))):
+        # 36.2 “等的人开口了”一轮只免一次冷却：刚靠它说过一句（waited_recent），或者 5 分钟里已经说了 soft-1 条，
+        # 下一句照常过冷却和门槛（11-09 13:32 小王吐槽、18:14 老张连说三句，她靠这条路 40 秒连说 3～4 条）
         return True, "等的人开口了"
     if waited:
         waited = False                      # 23.1 一来一回说多了：“接她的话”也要过冷却和门槛

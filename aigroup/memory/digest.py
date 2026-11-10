@@ -248,7 +248,7 @@ class DigestMixin:
                 log.info("记自述 / 立场 / 时间线出错：%s", e)
         if hasattr(self, "digest_extra_apply"):
             try:
-                npf, npl = self.digest_extra_apply(gid, lines, ids)
+                npf, npl = self.digest_extra_apply(gid, lines, ids, rows=win)
                 if npf or npl:
                     log.info("群 %s：记了 %d 条她的喜好、%d 件约好的事", gid, npf, npl)
             except Exception as e:  # noqa: BLE001
