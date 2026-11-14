@@ -356,6 +356,7 @@ DEFAULTS = {
     "plans_cheer_only_events": True,  # A 事前打气只给考试、面试、比赛、出发这类事
     "plans_cheer_max_days": 3,       # A 记下超过这么多天的约定不打气（0 不管）
     "waited_once": True,             # B “等的人开口了 / 多半在跟她说”一轮只免一次冷却
+    "room_rules": True,              # 36.4 局面判断的规则兜底：刚说完就被回“？”= 嫌她；“很久以前的事”= 纠正；“哈哈”= 在笑
     "waited_gap_seconds": 180,       # B 免过一次以后，这么多秒内再来就照常过冷却和门槛
     "feed_need_talk": True,          # G 刷到的：只分享群里最近真聊过的项目（feed_talk_days 天里群友提过）
     "feed_talk_days": 14,
@@ -541,6 +542,7 @@ KNOBS = {
     "plans_need_evidence": ("约定要有原话里的时间", "bool", None, None, None, "整理时看出来的约定，群友原话里得说了哪天，不然不记（36.2）"),
     "plans_cheer_max_days": ("几天前记的不打气", "int", 0, 14, 1, "记下超过这么多天的约定，到点不打气；0 = 不管（36.2）"),
     "waited_once": ("接话一轮只免一次冷却", "bool", None, None, None, "对方接着说话时她可以马上接一句，再来就照常等冷却（36.2）"),
+    "room_rules": ("局面判断规则兜底", "bool", None, None, None, "她刚说完就被回“？”算嫌她、说“很久以前的事”算纠正、带“哈哈”算在笑（36.4）"),
     "venting_one_reply": ("有人吐槽只接一句", "bool", None, None, None, "没人叫她时 3 分钟里只接一句，先听他说（36.2）"),
     "proactive_wait_reply": ("先回完再说别的", "bool", None, None, None, "有人刚问她还没回：提醒、天气、刷到的先不说（36.2）"),
     "feed_need_talk": ("只分享群里聊过的项目", "bool", None, None, None, "刷到的新闻，群里最近两周没人提过这个项目就不分享（36.2）"),

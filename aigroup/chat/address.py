@@ -65,6 +65,9 @@ def likely_to_her(text: str, *, now: float, her_last_ts: float, attention: float
             if "你" in t.replace("你们", ""):
                 if attention >= 0.3 or shared:
                     return "to"
+                if (now - her_last_ts <= 60 and len(t) <= 15 and re.search(r"[?？吗呢啥哪谁咋几]|什么(了|呢|啊|呀)", t)
+                        and not re.match(r"^(你们|大家)", t)):
+                    return "to"             # 36.4 她刚说完、一句带“你”的短问句（“你买啥了”）：多半在问她（“你快说点什么”是使唤，不算）
             elif shared and re.search(r"[?？吗呢啥]", t):
                 return "to"
     if (now - her_last_ts <= about_window and "你" in t.replace("你们", "")

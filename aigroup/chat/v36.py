@@ -29,6 +29,12 @@ OPT_OUT = re.compile(r"(小满|你)\s*(别|不要|少)\s*(理|@|艾特|搭理|�
 OPT_IN = re.compile(r"(小满|你)\s*(可以|能)?\s*(理|@|搭理)我了?$|小满理我")
 # 冲着她、不看她刚说没说都算嫌她的（“催命鬼又来了”离她上一句 23 分钟）
 HUH_STRONG = re.compile(r"催命鬼|太皮了|管管你|控制你|学了(些|点)啥|高情商|别太荒谬|你说我知不知道|这ai|这个ai")
+# 36.4 局面判断的规则兜底（模型 11-10 / 11-11 判成 none / 平常的几种，规则一看就知道）
+BARE_HUH = re.compile(r"^\s*([？?]+|[。.…]{2,}|啊[？?]+|嗯[？?]+|\?{1,}\s*\?*)\s*$")
+OLD_NEWS = re.compile(r"很久以前|好久以前|老早(以前|就)|早就(过去|结束|完|不)|翻旧账|老黄历|都过去(了|多久|好久)|那都(是)?(啥时候|多久|哪年)|"
+                      r"多久(以前|之前)的事|上辈子的事")
+LAUGH = re.compile(r"哈哈|h{3,}|笑死|xswl|笑不活|绷不住|没绷住|233|😂|🤣|\[(捂脸|破涕为笑|笑哭|偷笑|奸笑|呲牙)\]|乐死|蚌埠住", re.I)
+SHORT_REACT = re.compile(r"^.{0,8}$")
 STOPWORDS = set("的了是我你他她吗呢吧啊哈嘛呀哦嗯就也都还又在有和这那个一不没很太好")
 
 ROOM_PROMPT = """你在旁边看一个微信朋友群（熟人小群）。群里有个 AI 成员叫“{name}”（下面记作“你”）。只根据聊天记录判断，别猜。
@@ -37,7 +43,8 @@ ROOM_PROMPT = """你在旁边看一个微信朋友群（熟人小群）。群里
 2. pair：最近 3 分钟是不是两个群友在一问一答、一来一回，而且没提{name}？是的话写这两个人的称呼（如 "小王,老张"），不是写 ""
 3. venting：有没有人在吐槽、抱怨、发牢骚（作业、通勤、室友、打呼噜……）？有写那个人，没有写 ""
 4. about_her：有没有人在说{name}本人？hush（叫她闭嘴 / 别说了 / 嫌她话多、嫌她吵、说她“太皮”“催命鬼”，哪怕拆成几条短消息发）/
-   annoyed（嫌她答非所问、看不懂她在说啥、“？？”、“这 ai 学了些啥”）/ correct（指出她说错了）/ praise（夸她）/ none
+   annoyed（嫌她答非所问、看不懂她在说啥、她刚说完就只回一个“？”、“这 ai 学了些啥”）/
+   correct（指出她说错了，包括说她提的是“很久以前的事”、在翻旧账）/ praise（夸她）/ none
 5. open_ask：有没有群友接着{name}的话问了她问题、她还没答？有写那句原话，没有写 ""
 注意：群友之间互损、开玩笑不算嫌她；只有冲着{name}的才算。about_her、open_ask、venting 只看最近 3 分钟里的消息（更早的已经过去了）。
 
@@ -128,8 +135,38 @@ class V36Mixin:
         if not isinstance(d, dict):
             return {}
         d = {k: str(d.get(k) or "").strip()[:60] for k in ("to_whom", "pair", "venting", "about_her", "open_ask", "mood", "mood_who", "why")}
+        d = self.room_rules(gid, d, now)
         st.__dict__["room"] = {"last": last, "d": d, "ts": now}
         self.check_log(gid, "social_read", str(g.get("social_read", "on")), "", json.dumps(d, ensure_ascii=False))
+        return d
+
+    def room_rules(self, gid: int, d: dict, now: float | None = None) -> dict:
+        """36.4 模型判完再用规则补几种它常漏的（只往“更该注意”的方向改，不把模型判出来的改没）：
+        - 她刚说完 30 秒内，有人只回一个“？”/“。。。” → about_her=annoyed（11-11 阿杰 6 秒后一个“？”，模型判 none）
+        - 她刚说完 90 秒内，有人说“那不是很久以前的事了吗 / 翻旧账” → about_her=correct（11-10，模型判 none）
+        - 最后说话的人最近一分钟带“哈哈 / 笑死 / 没绷住” → mood=笑（11-10“哈哈被迫下班了”）"""
+        if not self.gk(gid).get("room_rules", True):
+            return d
+        d = dict(d or {})
+        now = now or time.time()
+        rows = self._rows(gid, 8)
+        her = max([float(r["ts"]) for r in rows if r["role"] == "assistant"] or [0.0])
+        after = [r for r in rows if r["role"] == "user" and float(r["ts"]) >= her]
+        about = str(d.get("about_her") or "none")
+        if her and after and about in ("", "none"):
+            last = after[-1]
+            body = re.sub(r"\[[^\]]*\]", "", str(last["content"] or "")).strip()
+            name = str(last["name"] or "")
+            if BARE_HUH.match(body or "x") and float(last["ts"]) - her <= 30 and now - float(last["ts"]) <= 120:
+                d["about_her"], d["why"] = "annoyed", f"{name}在你刚说完就只回了个「{body[:4]}」"
+            elif any(OLD_NEWS.search(str(r["content"] or "")) and float(r["ts"]) - her <= 90 for r in after):
+                d["about_her"], d["why"] = "correct", f"{name}说你提的是很久以前的事（翻旧账）"
+        us = [r for r in rows if r["role"] == "user"]
+        if us and str(d.get("mood") or "平常") in ("", "平常", "烦"):
+            last_uid = int(us[-1]["user_id"] or 0)
+            recent = [str(r["content"] or "") for r in us if int(r["user_id"] or 0) == last_uid and now - float(r["ts"]) <= 60]
+            if any(LAUGH.search(x) for x in recent) and not d.get("venting"):
+                d["mood"], d["mood_who"] = "笑", str(us[-1]["name"] or d.get("mood_who") or "")
         return d
 
     def room_verdict(self, gid: int, d: dict, *, mentioned: bool, guess: str, now: float | None = None,
@@ -215,7 +252,13 @@ class V36Mixin:
         if not g.get("media_first_comment", True) or not texts:
             return ""
         bodies = [str(t[2] or "") for t in texts]
-        if not all(is_media_only(b) or str(b).startswith("[表情包") for b in bodies) or not any(is_media_only(b) for b in bodies):
+        media = [b for b in bodies if is_media_only(b)]
+        rest = [re.sub(r"\[[^\]]*\]", "", b).strip() for b in bodies if not is_media_only(b) and not str(b).startswith("[表情包")]
+        if (media and any(MEDIA_UNCLEAR.search(b) for b in media) and rest
+                and all(SHORT_REACT.match(x) and not re.search(r"[？?吗呢]|你", x) for x in rest)):
+            # 36.4 看不清的图 + 一句短反应（“没绷住”）：他在乐自己的，没问你，你又看不清，别点评（11-11“图糊成夜市了还笑得出来”）
+            return "图看不清，他配的只是一句反应、没问你：不点评这张图"
+        if not all(is_media_only(b) or str(b).startswith("[表情包") for b in bodies) or not media:
             return ""
         if any(MEDIA_UNCLEAR.search(b) for b in bodies):
             return "图 / 视频看不清，没人问你就不点评"

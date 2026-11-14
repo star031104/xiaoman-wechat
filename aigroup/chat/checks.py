@@ -1028,7 +1028,7 @@ class ChecksMixin:
                 if w:
                     found.append((name, w))
         if mode["critic"] != "off":
-            w = await self._critic(gid, text, mentioned, [n for n, _ in found], web=web)
+            w = await self._critic(gid, text, mentioned, [n for n, _ in found], web=web, target_uid=target_uid)
             if w:
                 found.append(("critic", w))
         out = []
@@ -1046,7 +1046,8 @@ class ChecksMixin:
                 log.info("群 %s 检查（只记录）%s：%s", gid, name, why)
         return out
 
-    async def _critic(self, gid: int, text: str, mentioned: bool, already: list[str], web: str = "") -> str:
+    async def _critic(self, gid: int, text: str, mentioned: bool, already: list[str], web: str = "",
+                      target_uid=None) -> str:
         """23.3 统一的发前自检：一个便宜模型拿着“出过的毛病清单”（FAILURE_MODES，每条都来自日报里确认过的事）
         看这句该不该改。正则检查是初筛：已经命中了就不再问（省钱）；每小时有上限。
         24.0：把她这次查到的资料也给它（以前看不到，把查到的真比分当成编的，让她改成“不写具体比分”）。"""
@@ -1078,7 +1079,7 @@ class ChecksMixin:
         sore = ""
         if hasattr(self, "sore_block"):                  # 36.3 这几天谁为什么事难过过（早上的事 10 条聊天里看不到）
             try:
-                sore = self.sore_block(gid)
+                sore = self.sore_block(gid, about=self.sore_about(gid, text, target_uid))
             except Exception:  # noqa: BLE001
                 sore = ""
         prompt = critic_prompt(ctx, text, brief, read, v2=bool(self.gk(gid).get("critic_v2", True)), mine=mine, sore=sore)

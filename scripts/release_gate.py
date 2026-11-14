@@ -63,7 +63,14 @@ async def critic_recall() -> None:
     hit = miss = fp = 0
     by_rule = 0
     gaps = []                               # 31.1 规则和自检都认不出的（真正漏掉的）
+    room = []
     for c in cases:
+        e = str(c.get("expect") or "")
+        if e.startswith("about_her_") or e.startswith("mood_"):
+            room.append(c)                  # 36.4 局面判断的用例：下面单独问
+            continue
+        if e in ("gate", "speak", "gate_silent", "own_mentions"):
+            continue                        # 36.4 门控 / 提示词的事，test_incidents 已经管了，不是自检的事
         ctx = "\n".join(f"{w}：{t}" for w, t, _ in c.get("msgs") or [])
         mine = "\n".join(f"- {t}" for w, t, _ in c.get("msgs") or [] if w == "她")        # 27.1 线上自检也看她今天说过的
         prompt = critic_prompt(ctx, c["draft"], str(c.get("web") or ""), mine=mine)          # 26.0 和线上同一份提示词
@@ -74,7 +81,7 @@ async def critic_recall() -> None:
             continue
         bad = bool(critic_verdict(parse_json(out, {}) or {}))
         rule = c.get("expect") not in ("critic", "none")      # 有规则检查管（test_incidents 已经保证规则认得出）
-        if c.get("expect") == "none":
+        if c.get("expect") in ("none", "pass"):
             fp += bad
             print(f"  {'✗ 误伤' if bad else '✓'} {c['id']}")
         else:
@@ -87,6 +94,26 @@ async def critic_recall() -> None:
             print(f"  {tag} {c['id']}（{c.get('what', '')}）")
     print(f"统一自检：认出 {hit}/{hit + miss}，误伤 {fp}")
     print(f"合起来（规则 + 自检）：认出 {hit + by_rule}/{hit + miss}，都没认出 {len(gaps)}" + (f"：{'、'.join(gaps)}" if gaps else ""))
+    if room:                                # 36.4 局面判断：模型自己判对几条（判错的还有规则兜底，test_incidents 管）
+        from aigroup.chat.v36 import ROOM_PROMPT
+        ok = 0
+        for c in room:
+            ctx = "\n".join(f"{'你' if w == '她' else w}：{t}" for w, t, _ in c.get("msgs") or [])
+            try:
+                out = await llm.chat([{"role": "user", "content": ROOM_PROMPT.format(ctx=ctx, now="现在", name="小满")}],
+                                     role="gate", temperature=0.0, max_tokens=220)
+            except Exception as e:  # noqa: BLE001
+                print(f"  ? {c['id']} 没问成：{e}")
+                continue
+            d = parse_json(out, {}) or {}
+            e = str(c["expect"])
+            want = e[len("about_her_"):] if e.startswith("about_her_") else \
+                {"amused": "笑", "sad": "难过", "annoyed": "烦"}.get(e[len("mood_"):], e[len("mood_"):])
+            got = str(d.get("about_her") if e.startswith("about_her_") else d.get("mood"))
+            good = want in got
+            ok += good
+            print(f"  {'✓' if good else '· 模型判成 ' + got + '，靠规则兜底'} {c['id']}")
+        print(f"局面判断：模型自己判对 {ok}/{len(room)}（判错的有规则兜底）")
 
 
 def main():

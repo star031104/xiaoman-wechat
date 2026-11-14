@@ -1,5 +1,18 @@
 # 更新记录
 
+## 36.5 — 回归集能管门控 / 局面判断；局面判断加规则兜底；看不清的图配一句短反应不点评；短问句认成在问她；OCR 认得出聊天截图里的名字；删掉旧 OCR
+
+- **回归集**（tests/test_incidents.py）：expect 可以写 gate、speak、gate_silent、about_her_X / mood_X、own_mentions、pass，
+  不是发前检查的事也能进；release_gate --llm 里局面判断的用例单独问模型
+- **局面判断规则兜底**（v36.room_rules，开关 room_rules）：她刚说完 30 秒内有人只回“？”→ 嫌她；90 秒内有人说“很久以前的事 / 翻旧账”→ 纠正她；
+  最后说话的人带“哈哈 / 笑死 / 没绷住”→ 在笑。提示词也补了这两种说法
+- **看不清的图 + 一句短反应**：没问她就不点评（media_gate）
+- **短问句认成在问她**：她刚说完 60 秒内、15 字以内带“你”的问句算冲她说；“在问她”抽成 plan.asks_her，加上带“啥 / 什么 / 哪 / 谁 / 咋 / 几”的短问句；
+  在问她就不受主动额度、冷却、刷屏刹车拦
+- **ask_told** 认“又干啥了 / 出啥事 / 发生了什么”
+- **自检只看这句话牵涉的人的痛点账**（sore_about：她回的人、点了名的、最近 5 分钟在说话的）
+- **OCR**：检测框门槛 0.4（聊天截图里名字认得出了），单个非汉字的行丢掉；不再退回 rapidocr_onnxruntime（要用 OCR 装 rapidocr>=3.9）
+
 ## 36.4 — 截图 OCR 换成 PP-OCRv6
 
 - aigroup/net/ocr.py 改用 rapidocr 3.9+（默认 PP-OCRv6 small，ONNX Runtime，CPU，模型随 pip 包带着）；新包没装就退回旧的 rapidocr_onnxruntime，都没装照旧跳过

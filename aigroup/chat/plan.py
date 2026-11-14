@@ -100,6 +100,19 @@ BARE_ANSWER = re.compile(r"^\s*(@\S+\s*)?(没有?|有|嗯+|对+|是+|不是|好+
                          r"哈+|ok|OK|好的|收到|算了)[。！!~～，,]*\s*$")
 
 
+def asks_her(text: str) -> bool:
+    """这句是在问她（门控“在问她”那条路）：问号 / 句尾“吗呢”/ “你觉得 / 你怎么看”；
+    36.4 加：15 个字以内带“啥 / 什么 / 哪 / 谁 / 咋 / 几”的短问句（11-10“你买啥了”没认出是问句，被主动额度拦了没回）。"""
+    from aigroup.chat.checks import ASK_RX
+    t = re.sub(r"^\[回复[^\]]*\]\s*", "", str(text or "")).strip()
+    if BARE_ANSWER.match(t):
+        return False
+    if ASK_RX.search(t) or "你觉得" in t or "你怎么看" in t:
+        return True
+    body = re.sub(r"\[[^\]]*\]|@\S+", "", t).strip()
+    return bool(body and len(body) <= 15 and re.search(r"啥|什么|哪(个|里|儿|家|款|支)|谁|咋|几(点|个|号|块)", body))
+
+
 def burst_room(her_3min: int, n: int, mentioned: bool, cap: int = 3) -> int:
     """31.2 发之前再数一遍：她最近 3 分钟已经发了 her_3min 条，这次要发 n 条，合起来别超过 cap 条（3 分钟 ≥4 条算刷屏）。
     决定开口时数的是那一刻的，从想到发要几十秒，中间她可能已经发了别的（10-29 15:33 回放必拦、线上却发了）。

@@ -84,8 +84,12 @@ class V363Mixin:
         ck[gid] = (now, out)
         return out
 
-    def sore_block(self, gid: int, now: float | None = None) -> str:
+    def sore_block(self, gid: int, now: float | None = None, about: set | None = None) -> str:
+        """about：只列这些人的（36.4 自检只看这句话冲着的人和眼前在说话的人；11-11 阿杰回“我已飞升”，
+        自检拿老张前一天被门禁除名的事当理由拦了她回阿杰的话）。None = 全列（给她写稿时看）。"""
         spots = self.sore_spots(gid, now)
+        if about is not None:
+            spots = [s for s in spots if s["uid"] in about]
         if not spots:
             return ""
         lines = []
@@ -95,6 +99,18 @@ class V363Mixin:
             lines.append(f"- {who or s['name']}（{when}）：{' / '.join(x[:24] for x in s['lines'][:3])}")
         return ("# 这几天别拿来开玩笑的事（他们为这些难过、受挫过）\n" + "\n".join(lines) +
                 "\n这些事不拿来损他、不拿来调侃；他自己拿来自嘲，你可以跟着笑一句，但别加码")
+
+    def sore_about(self, gid: int, text: str, target_uid=None, now: float | None = None, minutes: float = 5) -> set:
+        """这句话牵涉的人：她回的那个人、话里点了名的人、最近几分钟在说话的人。"""
+        now = now or time.time()
+        out = {int(target_uid)} if target_uid else set()
+        out |= {int(r["user_id"] or 0) for r in self.db.conn.execute(
+            "SELECT user_id FROM qq_group_messages WHERE group_id=? AND role='user' AND ts>?", (gid, now - minutes * 60)).fetchall()}
+        if hasattr(self, "names_of"):
+            for s in self.sore_spots(gid, now):
+                if any(n and n in (text or "") for n in self.names_of(gid, s["uid"])):
+                    out.add(s["uid"])
+        return out
 
     def _sore_tease(self, gid: int, text: str, target_uid=None, now: float | None = None) -> str:
         """她要发的话拿某人这几天难过的事开涮：返回原因。"""

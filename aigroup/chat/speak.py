@@ -17,17 +17,16 @@ from aigroup.chat.gate import likelihood, talk_factor, threshold_ex
 from aigroup.chat.mood import Mood, turn_memory
 from aigroup.chat.plan import (
     AT_RE,
-    BARE_ANSWER,
     EMOJI_ONLY_RE,
     REACT_RE,
     TAG_RE,
+    asks_her,
     batch_features,
     burst_room,
     decide,
     parse_group_reply,
     to_segments,
 )
-from aigroup.chat.checks import ASK_RX
 from aigroup.chat.quality import make_typo, pick
 from aigroup.chat.trace import new_trace
 from aigroup.onebot import face_for, image_seg, reply_seg, text_seg
@@ -327,8 +326,7 @@ class SpeakMixin:
         # 30.1 被 @ 着纠正（“别当真？？官方声明都出来了”）也要先认一句，以前只在没被叫到时看
         corrected = bool(hasattr(self, "corrected_now") and self.corrected_now(gid, texts, now))
         asked = bool(guess and guess.split(":")[0] in ("to", "bid") and self.gk(gid).get("asked_bypass", True)
-                     and any((ASK_RX.search(str(t[2]).strip()) or "你觉得" in str(t[2]) or "你怎么看" in str(t[2]))
-                             and not BARE_ANSWER.match(re.sub(r"^\[回复[^\]]*\]\s*", "", str(t[2]))) for t in texts[-2:]))
+                     and any(asks_her(str(t[2])) for t in texts[-2:]))
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
                          rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected,

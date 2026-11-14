@@ -1,4 +1,4 @@
-"""36.4 OCR 换成 rapidocr 3.9+（PP-OCRv6 small），旧包做备用。"""
+"""36.4 / 36.5 OCR：rapidocr 3.9+（PP-OCRv6 small），检测框门槛 0.4，单个非汉字的行丢掉。"""
 import io
 
 import pytest
@@ -25,16 +25,22 @@ def test_ocr_reads_text():
     assert "2026" in out and "hello" in out.lower()
 
 
-def test_ocr_prefers_new_package():
-    pytest.importorskip("rapidocr")
-    from aigroup.net import ocr
-    ocr._get()
-    assert ocr._kind == "rapidocr"
-
-
 def test_ocr_blank_image_empty():
     from aigroup.net import ocr
     from PIL import Image
     b = io.BytesIO()
     Image.new("RGB", (400, 300), "white").save(b, "PNG")
     assert ocr.ocr_text(b.getvalue()) == ""
+
+
+def test_noise_lines():
+    from aigroup.net.ocr import noise
+    assert noise("#") and noise("Q") and noise("0") and noise(" + ")
+    assert not noise("回") and not noise("12") and not noise("小王")
+
+
+def test_no_old_package_fallback():
+    import inspect
+
+    from aigroup.net import ocr
+    assert "rapidocr_onnxruntime" not in inspect.getsource(ocr._get)
