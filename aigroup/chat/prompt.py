@@ -21,16 +21,6 @@ log = logging.getLogger("aigroup.group")
 PRIVATE_KEYS = ("近况", "记得的事", "家", "学校", "工作", "住")    # 5.0 刚认识的人：这些先不写进提示词
 
 
-def _bool(v):
-    if isinstance(v, bool):
-        return v
-    t = str(v).strip().lower()
-    if t in ("true", "是", "对", "yes", "1"):
-        return True
-    if t in ("false", "否", "不", "no", "0"):
-        return False
-    return None
-
 
 def merge_blocks(title: str, blocks: list[str], budget: int) -> str:
     """28.0 记忆合成一块：几段“# 小标题\n内容”合成“# 大标题”下的几个“## 小标题”，总长不超过 budget 字。

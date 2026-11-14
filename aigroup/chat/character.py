@@ -1,4 +1,6 @@
-"""33.0 重分解（设计见项目文档《方案-33.0-重分解-六层-最终实现方案》）。persona_version = v2 时才生效。
+"""身份：v2 人设、关系四档、想念、按钮梗、情绪动作、出口清理（原 v33.py）。
+
+33.0 重分解（设计见项目文档《方案-33.0-重分解-六层-最终实现方案》）。persona_version = v2 时才生效。
 
 六层：时机 / 底线 / 出口在代码里，身份 / 关系 / 此刻在提示词里。这个文件管提示词里新加的东西和几样小机制：
 - 身份：v2 人设文件（≤1500 字的自我描述 + 示例），代替旧人设 + 人格文件 + 29 条相处规则
@@ -15,7 +17,7 @@ import random
 import re
 import time
 
-log = logging.getLogger("aigroup.v33")
+log = logging.getLogger("aigroup.character")
 
 # (编号, 触发, 情绪, 给她的提示)
 BUTTONS = (
@@ -84,7 +86,7 @@ def exit_clean(text: str) -> str:
     return t
 
 
-class V33Mixin:
+class CharacterMixin:
     # ---------------- 开关 / 人设 ----------------
     def v2(self, gid) -> bool:
         try:

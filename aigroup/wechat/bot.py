@@ -664,6 +664,8 @@ class WeChatBot:
                                                    "summary": "[动画表情]"}})
         elif m.type == 3 and m.img:                             # 13.1 图片：本地 .dat 解开再看（ingest 里按需取）
             segs.append({"type": "image", "data": {"url": f"wximg:{g}:{m.img}:{m.ts}", "file": m.img}})
+        elif m.type == 34:                                      # 36.6 语音：ingest 里按需从 media_0.db 取出来转文字
+            segs.append({"type": "record", "data": {"file": f"wxvoice:{g}:{m.server_id}:{m.local_id}:{m.ts}"}})
         elif m.type == 43 and m.video:                          # 35.0 视频：Linux 微信一般只下了封面，有 mp4 就多截几帧
             segs.append({"type": "text", "data": {"text": "[视频]"}})
             segs.append({"type": "video", "data": {"url": f"wxvid:{g}:{m.video}:{m.ts}", "file": m.video}})
@@ -732,6 +734,81 @@ class WeChatBot:
                     return None
             await asyncio.sleep(2)
 
+    can_voice = True                                            # 36.6 发的是 mp3 文件（电脑版微信发不了语音条）
+    MEDIA_DB = "message/media_0.db"
+
+    def _media_key(self) -> bool:
+        """36.6 语音库的密钥：缓存里没有就在微信进程里找一次（找不到一小时后再试）。"""
+        d = self.data
+        if d is None:
+            return False
+        if self.MEDIA_DB in d.keys:
+            return True
+        if time.monotonic() - float(getattr(self, "_media_key_try", -1e9)) < 3600:
+            return False
+        self._media_key_try = time.monotonic()
+        try:
+            from aigroup.wechat import keys as K
+            files = {r: p for r, p in K.db_files(d.account_dir).items() if r == self.MEDIA_DB}
+            if not files:
+                return False
+            chk, found = K.KeyChecker(files), {}
+            for pid in (K.weixin_pids() or [])[:2]:
+                mem = K.ProcMem(pid)
+                try:
+                    for fn in (K.strategy_cipher_config, K.strategy_plain_hex):
+                        fn(mem, chk, found)
+                        if found:
+                            break
+                finally:
+                    mem.close()
+                if found:
+                    break
+            if found:
+                d.keys.update(found)
+                log.info("微信语音库的密钥找到了")
+                return True
+            log.info("微信语音库的密钥没找到：群里的语音先听不了")
+        except Exception as e:  # noqa: BLE001
+            log.info("找语音库密钥出错：%s", e)
+        return False
+
+    def _voice_blob(self, chat: str, svr: int, local: int) -> bytes | None:
+        d = self.data
+        with self._dlock:
+            c = d.conn(self.MEDIA_DB)
+            if c is None:
+                return None
+            r = None
+            if svr:
+                r = c.execute("SELECT voice_data FROM VoiceInfo WHERE svr_id=? LIMIT 1", (svr,)).fetchone()
+            if r is None and local:
+                r = c.execute("SELECT voice_data FROM VoiceInfo WHERE local_id=? ORDER BY create_time DESC LIMIT 1",
+                              (local,)).fetchone()
+        return bytes(r[0]) if r and r[0] else None
+
+    async def fetch_voice(self, file: str, wait: float = 12.0) -> bytes | None:
+        """36.6 wxvoice:<群>:<svr_id>:<local_id>:<时间> → WAV 字节（SILK 解开）。刚收到的语音可能还没写进库：等一会儿。"""
+        try:
+            _, chat, svr, local, _ts = str(file).split(":", 4)
+        except ValueError:
+            return None
+        if self.data is None or not await asyncio.to_thread(self._media_key):
+            return None
+        from aigroup.net.voice import silk_to_wav
+        t0 = time.monotonic()
+        while True:
+            try:
+                blob = await asyncio.to_thread(self._voice_blob, chat, int(svr or 0), int(local or 0))
+            except Exception as e:  # noqa: BLE001
+                log.debug("读语音失败：%s", e)
+                blob = None
+            if blob:
+                return await asyncio.to_thread(silk_to_wav, blob)
+            if time.monotonic() - t0 > wait:
+                return None
+            await asyncio.sleep(1.5)
+
     def split_ats(self, text: str, chat: str, ats: list[str]) -> list[dict]:
         """“@名字\\u2005”换成 at 段；@ 到自己（不管 atuserlist 有没有）都认出来。"""
         d = self.data
@@ -789,6 +866,18 @@ class WeChatBot:
                     files.append(str(p))
                 elif f and os.path.exists(f):
                     files.append(f)
+            elif t == "record":                                 # 36.6 她的语音：微信电脑版只能按文件发（mp3）
+                f = str(dd.get("file") or "")
+                if f.startswith("base64://"):
+                    from aigroup.net.voice import to_mp3
+                    raw = base64.b64decode(f[9:])
+                    mp3 = to_mp3(raw) if raw[:4] == b"RIFF" else None
+                    out = str(self.opts.get("outbox") or "") or tempfile.gettempdir()
+                    sub = Path(out) / f"aiwx_{int(time.time() * 1000)}"
+                    sub.mkdir(parents=True, exist_ok=True)
+                    p = sub / (f"{datetime.now():%H%M}语音." + ("mp3" if mp3 else "wav"))
+                    p.write_bytes(mp3 or raw)
+                    files.append(str(p))
             elif t == "face":
                 try:
                     parts.append(wx_face(FACES.get(int(dd.get("id")), "")))
@@ -826,10 +915,13 @@ class WeChatBot:
                     mids.append(await self._send_one(chat, name, item))
                 return mids[0] if mids else None
         finally:
-            for f in files:                                      # 临时图片不管发没发出去都删掉
+            for f in files:                                      # 临时图片 / 语音不管发没发出去都删掉
                 try:
                     if Path(f).name.startswith("aiwx_"):
                         os.unlink(f)
+                    elif Path(f).parent.name.startswith("aiwx_"):     # 36.6 语音放在 aiwx_ 子目录里（文件名是给群友看的）
+                        os.unlink(f)
+                        Path(f).parent.rmdir()
                 except OSError:
                     pass
 

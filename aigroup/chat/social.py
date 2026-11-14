@@ -323,7 +323,7 @@ class SocialMixin:
         echo = bool(t) and self.echoes_her(gid, t, now)
         j = ""
         if t and len(t) <= 4 and hasattr(self, "_rows"):         # 36.0 拆成几条发的“小嘴巴”“闭起来”拼起来认
-            from aigroup.chat.v36 import joined_short
+            from aigroup.chat.room import joined_short
             j = joined_short(self._rows(gid, 8), uid, now)
             if not j.endswith(t):
                 j += t

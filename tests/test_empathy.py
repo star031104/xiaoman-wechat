@@ -101,5 +101,5 @@ def test_rules_and_settings():
 
 
 def test_floor_mentions_sore():
-    from aigroup.chat.v33 import FLOOR
+    from aigroup.chat.character import FLOOR
     assert "难过、受挫过" in FLOOR

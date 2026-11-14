@@ -17,3 +17,4 @@ pystray>=0.19; sys_platform == "win32"     # 托盘图标（start.bat 不开黑�
 Pillow>=9.0                                         # 托盘图标；13.0 起图上叠中文字也用它
 rapidocr>=3.9               # 34.0 截图 OCR（36.4 换成 PP-OCRv6 small；可选，没装就不做）
 onnxruntime>=1.17           # rapidocr 的推理引擎
+pilk>=0.2                   # 36.6 微信语音（SILK）解成 WAV（可选，没装就听不了微信语音）

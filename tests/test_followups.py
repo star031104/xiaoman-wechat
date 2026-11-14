@@ -7,7 +7,7 @@ from conftest import FRIEND, FRIEND2, GROUP, SELF, _gc, _msg, _run
 
 from aigroup.chat.plan import decide
 from aigroup.chat.settings import DEFAULTS
-from aigroup.chat.v362 import cue_dates, plan_evidence
+from aigroup.chat.followups import cue_dates, plan_evidence
 
 D = date(2026, 11, 3)          # 星期二
 

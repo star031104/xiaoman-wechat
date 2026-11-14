@@ -416,7 +416,10 @@ class IngestMixin:
     async def _hear(self, file: str | None, url: str | None) -> str:
         from aigroup.net.voice import voice_text, wav_seconds
         try:
-            data = await self.hearing.fetch_qq(self.ob, file, url)
+            if str(file or "").startswith("wxvoice:") and hasattr(self.ob, "fetch_voice"):
+                data = await self.ob.fetch_voice(file)              # 36.6 微信语音：media_0.db 里的 SILK 解成 WAV
+            else:
+                data = await self.hearing.fetch_qq(self.ob, file, url)
             if not data:
                 return ""
             txt, tags = await self.hearing.hear(data)

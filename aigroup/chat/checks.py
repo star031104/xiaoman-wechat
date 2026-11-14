@@ -58,7 +58,8 @@ CREATE INDEX IF NOT EXISTS idx_asks ON qq_asks(group_id, ts);
 
 CHECKS = ("ask_repeat", "addressee", "answered", "catchphrase", "video_pending", "seen_missing", "promise", "dodge", "copy", "stale_ask",
           "misattrib", "life_done", "bet_unknown", "link_unopened", "self_echo", "old_backlog",
-          "price_src", "ask_told", "filler", "ask_humans", "sore_tease", "critic")   # 35.2 P5 / P3 / P7 / P2；36.3 痛点账
+          "price_src", "ask_told", "filler", "ask_humans", "sore_tease", "social_slip", "overtalk",
+          "critic")   # 35.2 P5 / P3 / P7 / P2；36.3 痛点账；36.6 读错局面 / 话多（chat/slips.py）
 # 31.2 链接 / 分享卡没打开（只有标题）时，这些说法等于说看过了
 UNOPENED_RX = re.compile(r"你点开没打开|你没打开看|你只看到了标题和简介|没看过视频本身")
 READ_CLAIM_RX = re.compile(r"我?(看了(下|一下|一眼|看)?|看完|看过|读了|读完|翻了(下|一下)?)(?!没|吗)|这篇(写得|文章|讲的|说的)|"
@@ -328,19 +329,6 @@ def _num(x: str) -> str:
     return x
 
 
-def _values(text: str) -> set[str]:
-    """一句话里的时间 / 日期 / 数字（带单位，统一成阿拉伯数字：“两点”“2点”都是 2点）。"""
-    out = set()
-    for m in VALUE.finditer(TAG.sub("", text or "")):
-        if m.group(1):
-            unit = m.group(2)
-            if unit in ("点半",):
-                unit = "点半"
-            out.add(_num(m.group(1)) + unit)
-        elif m.group(3):
-            out.add(f"{int(m.group(3))}/{int(m.group(4))}")
-    return out
-
 
 _TRAD = str.maketrans("價線場這號與費買賣門開關時間點電話會員個們來說現業營東車長張發樂動機網體學對給還進種錢圖們嗎錯辦見聽讀寫應覺麼樣頭過狀態為無專實際區氣",
                       "价线场这号与费买卖门开关时间点电话会员个们来说现业营东车长张发乐动机网体学对给还进种钱图们吗错办见听读写应觉么样头过状态为无专实际区气")
@@ -376,8 +364,7 @@ class ChecksMixin:
     # ================= 来源 =================
     def own_sources(self, gid: int) -> str:
         """她自己的事能从哪里来：人设、今天的安排、长出来的自我、她以前在群里说过的（自述账本）。"""
-        p = self.brain.persona
-        parts = [str(getattr(p, "body", "") or ""), str(getattr(p, "identity", "") or ""),
+        parts = [self._persona_text(),
                  str(self.db.get(f"life_{self.brain.now():%Y-%m-%d}", "") or ""),
                  str(self.db.get(f"qq_selfcore_{gid}") or "")]
         try:
@@ -433,10 +420,21 @@ class ChecksMixin:
                         "别说“去了 / 吃了 / 练了”，要说就说“想去 / 打算 / 还没去成”")
         return ""
 
+    def _persona_text(self) -> str:
+        """36.6 她说话用的人设（v2 / v3 文件，没配就是 brain.persona）+ 旧人设：查“她自己的事有没有来源”时两份都算。
+        以前只看 brain.persona（cfg.persona_file = 最早的 v1），她照 v3 里写的说，规则会当成编的。"""
+        ps = [self.v2_persona() if hasattr(self, "v2_persona") else None, self.brain.persona]
+        out = []
+        for p in ps:
+            if p is None:
+                continue
+            for x in (getattr(p, "body", ""), getattr(p, "identity", "")):
+                if x and str(x) not in out:
+                    out.append(str(x))
+        return "\n".join(out)
+
     def persona_sources(self) -> str:
-        p = self.brain.persona
-        return "\n".join([str(getattr(p, "body", "") or ""), str(getattr(p, "identity", "") or ""),
-                          str(self.db.get(f"life_{self.brain.now():%Y-%m-%d}", "") or "")])
+        return "\n".join([self._persona_text(), str(self.db.get(f"life_{self.brain.now():%Y-%m-%d}", "") or "")])
 
     # ================= 问过账 =================
     def note_asks(self, gid: int, bubbles: list[str], target_uid, now: float | None = None):
@@ -1021,6 +1019,10 @@ class ChecksMixin:
             ("filler", lambda: self._filler(gid, bubbles, mentioned) if hasattr(self, "_filler") else ""),
             ("ask_humans", lambda: self._ask_humans(gid, text, target_row, mentioned) if hasattr(self, "_ask_humans") else ""),
             ("sore_tease", lambda: self._sore_tease(gid, text, target_uid, now) if hasattr(self, "_sore_tease") else ""),   # 36.3
+            ("social_slip", lambda: self._social_slip(gid, text, target_uid, target_row, mentioned, now)
+             if hasattr(self, "_social_slip") else ""),                                                            # 36.6
+            ("overtalk", lambda: self._overtalk(gid, text, target_uid, target_row, mentioned, now, web=web)
+             if hasattr(self, "_overtalk") else ""),                                                               # 36.6
         ]
         for name, fn in rules:
             if mode[name] != "off":

@@ -51,7 +51,7 @@ TRAIT_WORDS = {"吐槽", "毒舌", "揣测", "反问", "装蒜", "说话碎", "�
 def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: int, quiet: bool, g: dict,
            p: float, thr: float, backoff_wait: float = 0.0, pending: int = 1, tie: float = 1.0,
            rand: float = 0.0, waited: bool = False, burst: int = 0, hush: str = "", corrected: bool = False,
-           asked: bool = False, waited_recent: bool = False) -> tuple[bool, str]:
+           asked: bool = False, waited_recent: bool = False, asked_weak: bool = False) -> tuple[bool, str]:
     """这一批消息之后她要不要开口。p：gate 算的概率；thr：按发言配额算的阈值。返回 (要不要, 原因)。
     23.1 burst：她最近 5 分钟发了几条（不算被叫到才回的）；hush：群里刚有人嫌她 / 她自己说了“闭嘴”，到点前只回叫到她的。"""
     cap = int(g["max_per_10min"])
@@ -64,14 +64,16 @@ def decide(*, mentioned: bool, now: float, last_reply_ts: float, replies_10min: 
     if corrected:
         # 23.3 群友刚指出她说错了：认一句不受刷屏刹车 / 安静 / 冷却限制（10-24 13:24 刹车把她的认错也拦了，像没听见）
         return True, "被纠正，认一句"
-    if asked and not hush and replies_10min < cap * 2:
+    hard = int(g.get("burst_max", 5) or 0)
+    if asked and not hush and replies_10min < cap * 2 and not (asked_weak and hard and burst >= hard):
+        # 36.6 只靠“短问句”认出来的（asked_weak，“你买啥了”）照样过“5 分钟最多 burst_max 条”的硬刹车；
+        # 带问号 / 吗呢 / “你觉得”的照旧不受刹车拦（30.1：10-27 被“5 分钟 5 条”拦了，17 分钟后被 @ 才答）
         # 30.1 没 @ 但明显在问她（接她的话、问她看法）：和被叫到一样，不受刷屏刹车 / 冷却拦（10-27 21:05 被“5 分钟 5 条”拦了，17 分钟后被 @ 才答）
         return True, "在问她"
     if replies_10min >= cap:
         return False, "10 分钟上限"
     if hush:
         return False, f"先安静会儿（{hush}）"
-    hard = int(g.get("burst_max", 5) or 0)
     if hard and burst >= hard:
         return False, f"这 5 分钟已经说了 {burst} 条，先歇会儿"
     soft = int(g.get("burst_soft", 3) or 0)
@@ -100,17 +102,17 @@ BARE_ANSWER = re.compile(r"^\s*(@\S+\s*)?(没有?|有|嗯+|对+|是+|不是|好+
                          r"哈+|ok|OK|好的|收到|算了)[。！!~～，,]*\s*$")
 
 
-def asks_her(text: str) -> bool:
+def asks_her(text: str) -> str:
     """这句是在问她（门控“在问她”那条路）：问号 / 句尾“吗呢”/ “你觉得 / 你怎么看”；
     36.4 加：15 个字以内带“啥 / 什么 / 哪 / 谁 / 咋 / 几”的短问句（11-10“你买啥了”没认出是问句，被主动额度拦了没回）。"""
     from aigroup.chat.checks import ASK_RX
     t = re.sub(r"^\[回复[^\]]*\]\s*", "", str(text or "")).strip()
     if BARE_ANSWER.match(t):
-        return False
+        return ""
     if ASK_RX.search(t) or "你觉得" in t or "你怎么看" in t:
-        return True
+        return "strong"
     body = re.sub(r"\[[^\]]*\]|@\S+", "", t).strip()
-    return bool(body and len(body) <= 15 and re.search(r"啥|什么|哪(个|里|儿|家|款|支)|谁|咋|几(点|个|号|块)", body))
+    return "weak" if body and len(body) <= 15 and re.search(r"啥|什么|哪(个|里|儿|家|款|支)|谁|咋|几(点|个|号|块)", body) else ""
 
 
 def burst_room(her_3min: int, n: int, mentioned: bool, cap: int = 3) -> int:

@@ -484,7 +484,7 @@
   msgs: [[老张, 澳门除了ctwalk和赌场确实没啥好玩的吧, 10]]
   draft: ctwalk 都没拼对还嫌人家不好玩
   target: 老张
-  expect: critic
+  expect: social_slip
 
 - id: rumor-as-fact
   date: 11-06 10:12
@@ -588,7 +588,7 @@
   msgs: [[小王, 哈哈被迫下班了, 14], [小王, token用完了, 12], [小王, 干不了了, 11]]
   draft: 被迫下班哈哈，卡在最后一步最气人
   target: 小王
-  expect: critic
+  expect: social_slip
 
 - id: good-news-credit
   date: 11-10 10:19
@@ -597,7 +597,7 @@
   msgs: [[她, 咖啡因那支，闭眼买, 600], [小王, 买了已经, 12]]
   draft: 买了就好，这回听劝，我记一笔
   target: 小王
-  expect: critic
+  expect: social_slip
 
 # ---- 日报攒的用例（11-13 并入）----
 - id: screenshot-misattributed
@@ -613,7 +613,7 @@
     - 12
   draft: 自己发祝福自己问何意味，无敌了
   target: 老张
-  expect: critic
+  expect: social_slip
 - id: hush-talkback
   date: 11-07 11:36
   what: 看错截图损老张，被叫“你闭嘴”后 12 秒回“哟，这就受不了了”+ 表情包，老张接着“这ai到底学了些啥”
@@ -633,7 +633,7 @@
     - 12
   draft: 哟，这就受不了了
   target: 老张
-  expect: critic
+  expect: social_slip
 - id: burst-after-at
   date: 11-07 18:07
   what: 被 @ 问押谁，1 分 15 秒里已发 3 条，又把“GEN 3:1”说一遍，3 分钟 5 条
@@ -659,7 +659,7 @@
     - 5
   draft: 可GEN状态摆在那，我嘴上还是GEN 3:1，赌不赌
   target: 小王
-  expect: critic
+  expect: overtalk
 - id: unprompted-score
   date: 11-07 14:37
   what: 群里 3 小时没人说话、当天没人提过这场，主动报比分，没人接
@@ -670,7 +670,7 @@
     - 10840
   draft: 昨天JDG 4:2WB，七连胜进年度总决赛了 / 无畏那句我信我能赢，说得挺横
   target: 大家
-  expect: critic
+  expect: overtalk
 - id: unprompted-cheer
   date: 11-07 18:01
   what: 小王和老张在聊立冬群发，她突然 @阿杰 “明天两场都给我顶住”，没人接
@@ -687,7 +687,7 @@
     - 34
   draft: '[@阿杰] 明天两场都给我顶住'
   target: 阿杰
-  expect: critic
+  expect: overtalk
 - id: unprompted-food-photo
   date: 11-07 18:38
   what: 阿杰晒火锅，小王问“一个人吃吗 / 不吃饺子吗”、老张问“冬在哪”，她跳过话题只点评图，没人接
@@ -716,7 +716,7 @@
     - 14
   draft: 阿杰，漏勺里那几片看着确实嫩
   target: 阿杰
-  expect: critic
+  expect: overtalk
 - id: waited-skip-cooldown
   date: 11-09 13:33
   what: 阿杰吐槽写方法论被嫌、领导点人开会，她“等的人开口了”免冷却，28 秒主动连说 3 条，加上回阿杰引用那条，39 秒 4 条
@@ -941,3 +941,80 @@
   draft: 飞升还带冒泡的
   target: 阿杰
   expect: pass
+
+# ---- 36.6 新规则（social_slip / overtalk）不该误伤的 ----
+- id: ok-shot-ask
+  what: 群友转来截图，她问是谁发的（没当成他自己说的）
+  msgs:
+  - - 老张
+    - '[图片：这是一张聊天截图，内容是立冬的祝福语]'
+    - 20
+  draft: 这谁发你的，还挺会挑日子
+  target: 老张
+  expect: none
+- id: ok-hush-admit
+  what: 被叫闭嘴，她只认一句
+  msgs:
+  - - 她
+    - 今天这场我押GEN
+    - 40
+  - - 老张
+    - 你闭嘴
+    - 10
+  draft: 行，我闭麦
+  target: 老张
+  expect: none
+- id: ok-laugh-along
+  what: 群友笑着说被迫下班，她跟着乐
+  msgs:
+  - - 小王
+    - 哈哈被迫下班了
+    - 14
+  draft: 被迫下班也算放假，赚了
+  target: 小王
+  expect: none
+- id: ok-goodnews-praise
+  what: 群友说买了，她夸他、问他
+  msgs:
+  - - 她
+    - 咖啡因那支，闭眼买
+    - 600
+  - - 小王
+    - 买了已经
+    - 12
+  draft: 手速可以，用着怎么样
+  target: 小王
+  expect: none
+- id: ok-score-asked
+  what: 群友刚问比分，她报比分
+  msgs:
+  - - 小王
+    - JDG和WB打完了吗，几比几
+    - 30
+  web: '# 你刚查了一下：JDG 和 WB 的比分
+
+    - 11-14 晚：JDG 4:2 WB（已结束）'
+  draft: 打完了，JDG 4:2 WB
+  target: 小王
+  expect: none
+- id: ok-at-active
+  what: 她 @ 一个正在聊的人接他的话
+  msgs:
+  - - 阿杰
+    - 明天两场比赛我都要上
+    - 30
+  draft: '[@阿杰] 明天两场都给我顶住'
+  target: 阿杰
+  expect: none
+- id: ok-photo-fresh
+  what: 群友刚发火锅照片、问她看着怎么样，她点评图
+  msgs:
+  - - 阿杰
+    - '[图片：漏勺盛着刚涮好的牛肉]'
+    - 20
+  - - 阿杰
+    - 你看这肉怎么样
+    - 15
+  draft: 漏勺里那几片看着确实嫩
+  target: 阿杰
+  expect: none

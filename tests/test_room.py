@@ -5,7 +5,7 @@ import time
 
 from aigroup.chat.settings import DEFAULTS
 from aigroup.chat.social import SocialMixin
-from aigroup.chat.v36 import is_media_only, joined_short, lead_words
+from aigroup.chat.room import is_media_only, joined_short, lead_words
 
 from conftest import FRIEND, FRIEND2, GROUP, _gc
 

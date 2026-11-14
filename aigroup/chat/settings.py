@@ -148,8 +148,9 @@ DEFAULTS = {
     "unprompted_per_day": 40,      # 每个群每天主动开口（插话、冒泡、分享，不算被叫到）最多几次；0 = 不限
     "rethink_max": 0,              # 想好要说的话、还没发出去时群里又来了新消息：重新想（最多几次）
     "rethink_min_new": 2,          # 新来了这么多条（或者有人叫她）才重新想
-    "hear_voice": True,            # 群友发的语音转成文字（带情绪、笑声）再给她看（QQ；默认用硅基流动免费的 SenseVoice）
-    "voice_reply": True,           # 有人让她“发语音 / 说句话听听”时发一条语音（要配 net.tts，QQ 才能发）
+    "hear_voice": True,            # 群友发的语音转成文字再给她看（36.6 微信也能听：DeepSeek 语音识别，退回 SenseVoice）
+    "voice_reply": True,           # 有人让她“发语音 / 说句话听听”时发一条语音（36.6 DeepSeek 语音合成；微信发的是 mp3 文件）
+    "voice_back_chance": 0.3,      # 36.6 他发语音叫她时，她也回语音的概率
     "plans_cheer": True,           # 群友自己的事（考试、面试、比赛）开始前几个小时给他打个气（每件事一次）
     "birthday_card": True,         # 群友生日：祝完再发一张生日卡（要配画图接口；字是程序叠上去的）
     "see_stickers": True,          # 13.1 群友发的表情包让看图模型看一眼是什么意思（同一张只看一次，每群每小时最多 30 张）
@@ -329,7 +330,6 @@ DEFAULTS = {
     "check_ask_told": "on",          # P3 他已经把事说了，她还问“说来听听 / 然后呢”（没看到刚进来的话）
     "check_filler": "on",            # P7 只有“等我一下 / 我找找看 / 查查手机”这种不带内容的占位话
     "check_ask_humans": "on",        # P2 问的是群里的人（“你们……一般干啥”），没叫她，她拿自己当人答
-    "chat_retry_503": True,          # P6 聊天接口 5xx：等 2 秒再试一次再换备用
     "chat_fail_reply": True,         # P6 所有聊天接口都失败、被叫到的：回一句短的，别像没听见
     "unprompted_window_hours": 4,    # P8 主动开口额度按时段摊：这么多小时里最多用掉一天额度的 unprompted_window_share
     "unprompted_window_share": 0.34,
@@ -367,7 +367,10 @@ DEFAULTS = {
     # ---- 36.3 11-10 聊天复盘：更高情商 ----
     "sore_spots": True,              # 1 痛点账：群友这几天为某件事难过过，那件事不拿来开玩笑（提示词 + 发前检查）
     "sore_days": 3,
-    "check_sore_tease": "on",        # 1 拿别人这几天难过的事损他
+    "check_sore_tease": "on",
+    "check_social_slip": "on",       # 36.6 截图当成他说的、被叫闭嘴还回嘴、笑着说的读成气、挑拼写顶人、好消息揽功
+    "check_overtalk": "on",          # 36.6 没人聊主动报比分 / 新闻、突然 @ 没在聊的人、话题过了回头点评图、3 分钟里重复刚说的
+    "slip_hush_talkback": True,      # 36.6 被叫闭嘴后回嘴的规则（hush_reply_guard 只管门控，这里管写出来的话）        # 1 拿别人这几天难过的事损他
     "longing_back_hours": 12,        # 2 星宝隔了醒着这么多小时才冒头才算“想他”（以前 6 × 0.6 ≈ 3.6 小时）；冒头是来问事的不阴阳
     "own_mentions": True,            # 5 有人问她推荐 / 看法：把他两小时里自己提过的事列给她
 }
@@ -534,8 +537,9 @@ KNOBS = {
     "weekly_probe": ("每周定向测试人格", "bool", None, None, None, "每条签名、每个“不懂 / 没兴趣”编一段假聊天让她回、打分"),
     "pester_calls": ("被同一个人连着叫几次就降温", "int", 0, 20, 1, "15 分钟里叫她这么多次：回得更短，可以不回；正经问事照常回；0 = 不管"),
     "rethink_max": ("新消息来了重新想几次", "int", 0, 3, 1, "想好了还没发、群里又说了几句：重新想一遍再发"),
-    "hear_voice": ("听群友的语音", "bool", None, None, None, "转成文字、带上情绪和笑声（免费的 SenseVoice）"),
-    "voice_reply": ("让她说话时发语音", "bool", None, None, None, "要配本地语音合成 net.tts；QQ 才能发"),
+    "hear_voice": ("听群友的语音", "bool", None, None, None, "转成文字给她看（DeepSeek 语音识别，每小时 0.39 元；出错用免费的 SenseVoice）"),
+    "voice_reply": ("让她说话时发语音", "bool", None, None, None, "DeepSeek 语音合成（每万字 1.5 元）；微信里是一个 mp3 文件"),
+    "voice_back_chance": ("别人发语音叫她时回语音的概率", "float", 0, 1, 0.1, "0 = 只在有人让她发语音时才发"),
     "plans_cheer": ("事前打个气", "bool", None, None, None, "考试、面试、比赛开始前几个小时说一句加油"),
     "sore_spots": ("别拿别人难过的事开玩笑", "bool", None, None, None, "群友这几天发过哭的表情、说过被拒 / 没过：那件事 3 天不拿来损他（36.3）"),
     "own_mentions": ("被问推荐时先接他自己说过的", "bool", None, None, None, "把他两小时里自己提过的事列给她（36.3）"),

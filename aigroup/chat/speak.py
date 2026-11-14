@@ -325,12 +325,13 @@ class SpeakMixin:
         hush = self.hushed(gid, now) if hasattr(self, "hushed") else ""
         # 30.1 被 @ 着纠正（“别当真？？官方声明都出来了”）也要先认一句，以前只在没被叫到时看
         corrected = bool(hasattr(self, "corrected_now") and self.corrected_now(gid, texts, now))
-        asked = bool(guess and guess.split(":")[0] in ("to", "bid") and self.gk(gid).get("asked_bypass", True)
-                     and any(asks_her(str(t[2])) for t in texts[-2:]))
+        ask_kinds = {asks_her(str(t[2])) for t in texts[-2:]} - {""}
+        asked = bool(guess and guess.split(":")[0] in ("to", "bid") and self.gk(gid).get("asked_bypass", True) and ask_kinds)
         ok, why = decide(mentioned=mentioned, now=now, last_reply_ts=st.last_reply_ts, replies_10min=n10, quiet=quiet,
                          g=self.gk(gid), p=p, thr=thr, backoff_wait=st.backoff.waiting(now), pending=len(texts), tie=tie,
                          rand=random.random(), waited=waited, burst=burst, hush=hush, corrected=corrected,
-                         asked=asked, waited_recent=now - float(st.__dict__.get("waited_free_ts") or 0)
+                         asked=asked, asked_weak=asked and "strong" not in ask_kinds,
+                         waited_recent=now - float(st.__dict__.get("waited_free_ts") or 0)
                          < float(self.gk(gid).get("waited_gap_seconds", 180) or 0))
         if ok and why == "等的人开口了":
             st.__dict__["waited_free_ts"] = now           # 36.2 记下这一轮已经免过一次冷却
@@ -1028,7 +1029,7 @@ class SpeakMixin:
                 return skip("blocked" if cands else "skip", qtxt)
         bubbles = list(bubbles or [])
         if len(bubbles) >= 2 and hasattr(self, "_filler"):
-            from aigroup.chat.v352 import is_filler
+            from aigroup.chat.restraint import is_filler
             keep_ = [x for x in bubbles if not is_filler(x)]
             if keep_ and len(keep_) < len(bubbles):           # 35.2 P7 有内容的话旁边那句“等我一下 / 我找找看”：去掉
                 log.info("群 %s：去掉占位话：%s", gid, " / ".join(x for x in bubbles if is_filler(x))[:40])
@@ -1078,7 +1079,7 @@ class SpeakMixin:
             bubbles = shape_bubbles(bubbles, self.recent_sizes(gid), random.random(),
                                     long=bool(plan and plan.get("len") == "long"))
         if bubbles and hasattr(self, "v2") and self.v2(gid):     # 33.0 出口层：句末句号、套话
-            from aigroup.chat.v33 import exit_clean
+            from aigroup.chat.character import exit_clean
             bubbles = [x for x in (exit_clean(b_) for b_ in bubbles) if x]
         if bubbles and hasattr(self, "public_names"):
             bubbles = self.public_names(gid, bubbles, must=must)     # 35.2 P2 当着别人别叫昵称
@@ -1144,7 +1145,9 @@ class SpeakMixin:
                 and self.gk(gid).get("voice_reply", True)):
             from aigroup.net.voice import ASK_VOICE
             vkey = f"qq_voice_{self.brain.now():%Y-%m-%d}"
-            if ASK_VOICE.search(query or "") and vo.ready and int(self.db.get(vkey, 0) or 0) < vo.per_day:
+            # 36.6 他自己发的是语音、叫了她：偶尔也回一条语音（voice_back_chance），一天合起来不超过 per_day
+            back = ("[语音" in str(query or "") and random.random() < float(self.gk(gid).get("voice_back_chance", 0.3) or 0))
+            if (ASK_VOICE.search(query or "") or back) and vo.ready and int(self.db.get(vkey, 0) or 0) < vo.per_day:
                 audio = await vo.synth(sent_txt[0])
                 if audio:
                     from aigroup.onebot import record_seg

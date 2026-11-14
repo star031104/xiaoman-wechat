@@ -348,13 +348,6 @@ class LLM:
             return default
         return parse_json(text, default)
 
-    async def label_image(self, image_b64: str, prompt: str, mime: str = "image/png") -> str:
-        image_b64, mime = image_payload(image_b64)
-        msgs = [{"role": "user", "content": [
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
-        ]}]
-        return await self.chat(msgs, role="vision", temperature=0.2, max_tokens=60, background=True)  # 给贴纸打标签：后台的活
 
     async def describe_image(self, image_b64: str, hint: str = "", prompt: str = "") -> str:
         """用看图模型把图片变成文字描述，再交给聊天模型。prompt：换一种问法（群聊里的图用 GROUP_IMAGE_PROMPT）。"""

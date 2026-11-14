@@ -1,4 +1,6 @@
-"""36.3 按《11-10 聊天复盘：怎么让小满更高情商》做的（都能在小屋里单独关）：
+"""读情绪：痛点账（别拿别人难过的事开涮）、想念的阴阳收着、先读情绪、被问推荐先接他说过的（原 v363.py）。
+
+36.3 按《11-10 聊天复盘：怎么让小满更高情商》做的（都能在小屋里单独关）：
 
 1. 痛点账：群友这几天为某件事难过、受挫过（发了哭 / 委屈的表情，或者说“被门禁除名”“没过”“烦死”），
    那件事 3 天里不拿来开玩笑：提示词里列出来；发前规则检查（check_sore_tease）拦“拿这事损他”；自检第 24 条强制拦
@@ -17,7 +19,7 @@ import re
 import time
 from datetime import datetime
 
-log = logging.getLogger("aigroup.v363")
+log = logging.getLogger("aigroup.empathy")
 
 # ---------------- 1 痛点账 ----------------
 DISTRESS_TXT = re.compile(r"难过|伤心|委屈|想哭|哭了|哭死|要哭|崩溃|烦死|好烦|难受|郁闷|心累|好惨|太惨|惨了|完蛋了|裂开|破防|emo了|"
@@ -43,7 +45,7 @@ def _plain(t: str) -> str:
     return re.sub(r"\s+", " ", MEDIA.sub(" ", str(t or ""))).strip()
 
 
-class V363Mixin:
+class EmpathyMixin:
     # ================= 1 痛点账 =================
     def sore_spots(self, gid: int, now: float | None = None) -> list[dict]:
         """这几天谁为什么事难过过：[{uid, name, ts, line, terms}]。每 5 分钟算一次（只读聊天记录，不建表）。"""

@@ -1,4 +1,6 @@
-"""36.0 按 11-04～11-08 日报和《11-04～11-06 日报复盘与下一步》做的（都能在小屋里单独关）：
+"""读局面：局面判断（谁在跟谁说、吐槽、嫌她、纠正她）+ 规则兜底、被嫌不回嘴、冷场和图的门槛、别理我、聊太久（原 v36.py）。
+
+36.0 按 11-04～11-08 日报和《11-04～11-06 日报复盘与下一步》做的（都能在小屋里单独关）：
 
 - A1 局面判断（read_room）：每批消息先用便宜模型看一眼“谁在跟谁说、有没有人在吐槽 / 纠正她 / 嫌她 / 追问她”，
   代码按结果硬管：嫌她 → 安静期；两个群友一问一答、没提她 → 不插；有人吐槽 → 提示先站他那边；有她没答的追问 → 先答。
@@ -21,7 +23,7 @@ import re
 import time
 from collections import Counter
 
-log = logging.getLogger("aigroup.v36")
+log = logging.getLogger("aigroup.room")
 
 MEDIA_ONLY = re.compile(r"^\s*(\[(图片|位置|视频|链接|分享|文件|小程序|卡片|聊天记录)[^\]]*\]\s*)+$")
 MEDIA_UNCLEAR = re.compile(r"看不清|缩略图|模糊|没下完|只看了封面")
@@ -92,7 +94,7 @@ def lead_words(lines: list[str], k: int = 3, min_n: int = 3) -> list[str]:
     return out
 
 
-class V36Mixin:
+class RoomMixin:
     # ================= A1 局面判断 =================
     def _room_ctx(self, gid: int, n: int = 15) -> str:
         rows = self._rows(gid, n)
@@ -157,8 +159,13 @@ class V36Mixin:
             last = after[-1]
             body = re.sub(r"\[[^\]]*\]", "", str(last["content"] or "")).strip()
             name = str(last["name"] or "")
-            if BARE_HUH.match(body or "x") and float(last["ts"]) - her <= 30 and now - float(last["ts"]) <= 120:
-                d["about_her"], d["why"] = "annoyed", f"{name}在你刚说完就只回了个「{body[:4]}」"
+            raw = str(last["content"] or "")
+            to_other = (raw.startswith("[回复") and not raw.startswith("[回复你")) or bool(re.search(r"@\S|\[@", raw))
+            others_between = {int(r["user_id"] or 0) for r in after[:-1]} - {int(last["user_id"] or 0)}
+            if (BARE_HUH.match(body or "x") and float(last["ts"]) - her <= 30 and now - float(last["ts"]) <= 120
+                    and not to_other and not others_between):
+                # 36.6 只算紧跟在她后面、没引用 / @ 别人、中间也没别人插话的“？”（回别人的“？”不算嫌她）
+                d["about_her"], d["why"], d["src"] = "annoyed", f"{name}在你刚说完就只回了个「{body[:4]}」", "rule"
             elif any(OLD_NEWS.search(str(r["content"] or "")) and float(r["ts"]) - her <= 90 for r in after):
                 d["about_her"], d["why"] = "correct", f"{name}说你提的是很久以前的事（翻旧账）"
         us = [r for r in rows if r["role"] == "user"]
@@ -182,7 +189,13 @@ class V36Mixin:
         h = self.db.get(f"qq_hush_{gid}") or {}
         now_h = bool(hasattr(self, "hushed") and self.hushed(gid, now))
         stale = not now_h and now - float(h.get("ts") or 0) < 1800    # 刚安静完：模型看到的多半还是那几句旧的“闭嘴”，别再安静一轮
-        if about in ("hush", "annoyed") and on and not stale:
+        if about == "annoyed" and d.get("src") == "rule" and on:
+            # 36.6 规则认出的“？”只是弱信号：这一轮别接（被叫到就短短问一句他哪里没看懂），不进安静期
+            if not mentioned:
+                skip = "局面：你刚说完被回了个“？”，先别接"
+            else:
+                note = "（36.6）你刚说完他回了个“？”：多半没看懂或觉得你答偏了，短短问一句哪里没说清，或者换个说法一句话说清，别回嘴"
+        elif about in ("hush", "annoyed") and on and not stale:
             if hasattr(self, "hush") and not now_h:
                 self.hush(gid, f"局面：{d.get('why') or about}"[:30], now=now)
             if not mentioned:
@@ -342,5 +355,3 @@ class V36Mixin:
         self.db.set(key, True)
         return "（36.0）你们已经连着聊了两个多小时：这次顺口提醒一句歇会儿、喝口水，一句就够，别说教"
 
-    def fav_allowed(self, gid: int) -> bool:
-        return not self.gk(gid).get("has_minor", False)

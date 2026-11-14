@@ -1,5 +1,37 @@
 # 更新记录
 
+## 37.0 — 整理：按版本号起名的六个文件改成按功能起名、删掉没人用的代码、机制总览重写
+
+只整理，不改行为（全部测试和回归集照旧过）：
+- 文件改名：chat/v33.py → character.py、v35.py → pacing.py、v352.py → restraint.py、v36.py → room.py、v362.py → followups.py、
+  v363.py → empathy.py；Mixin 跟着改名（CharacterMixin / PacingMixin / RestraintMixin / RoomMixin / FollowupsMixin / EmpathyMixin）；
+  每个文件第一行写明它管什么、原来叫什么。对应测试改名：test_character / test_pacing_layers / test_restraint / test_room /
+  test_followups / test_empathy / test_ocr / test_slips_voice
+- 删掉没有任何地方调用的函数：agent.format_page / _agent_exec、checks._values、prompt._bool、schedule.fire_probability / hour_factor、
+  llm.label_image、room.fav_allowed、onebot.face_seg、humane._dump；设置里没人读的 chat_retry_503
+- docs/机制总览.md 从 22.0 版重写成 37.0：七层、每个文件管什么、24 个发前检查按“哪一类毛病”分组、改毛病的流程、花钱的地方
+
+## 36.6 — 读错局面 / 话多的 9 种都有规则拦了；“？”只算紧跟她的；在问她也过刷屏硬刹车；规则看线上人设；发版记录记真提交号；微信能听语音、能回语音
+
+- **新文件 chat/slips.py（按功能命名，SlipsMixin 放进 Voice 层）**，两个检查：
+  - social_slip：截图当成发图的人自己说的（“自己发祝福自己问何意味”）、被叫闭嘴还回嘴（“哟，这就受不了了”）、
+    笑着说的读成气 / 惨（“最气人”）、不接他说的事挑拼写顶人（“都没拼对”）、好消息揽功（“这回听劝，我记一笔”）
+  - overtalk：几个小时没人聊、也没人问她却主动报比分 / 新闻；突然 @ 一个这 15 分钟没说话、也没在聊这件事的人；
+    图之后大家已经接着聊了两句以上，她回头只点评那张图；3 分钟里已经说了 3 条，又把刚说过的判断 / 比分说一遍（被叫到也拦）
+  - 回归集：那 9 条从 expect: critic 改成规则名；加 7 条不该误伤的（问截图谁发的、被叫闭嘴只认一句、跟着乐、夸他买了、
+    刚被问比分就报、@ 正在聊的人、刚发的图被问就点评）。CHECKS 22 → 24
+- **“？”**（room_rules）：只算紧跟她那句、没引用 / @ 别人、中间没别人插话的；规则认出的只当弱信号——这一轮不接，不进安静期（模型判出的“嫌她”照旧）
+- **在问她**（plan.decide）：也要过“5 分钟最多 burst_max 条”的硬刹车，短问句认成在问她以后不会因此刷屏
+- **规则看线上人设**：查“她自己的事有没有来源”（own_sources / persona_sources）时，v2 / v3 人设文件和旧人设两份都算（以前只看最早的 v1）
+- **发版记录**：release_gate --record 遇到没提交的改动，不再记当时的 HEAD（36.4 / 36.5 都记成了上一版），
+  写一张 deploy/.gate_pending，提交、重启后启动时用真在跑的提交补“版本 提交 上线 hotfix”
+- **微信语音**：
+  - 听：微信 4.x 的语音在 media_0.db 的 VoiceInfo（SILK），按 svr_id 找；缓存里没有这个库的密钥就在微信进程里找一次（一小时最多一次）；
+    pilk 解成 16k WAV → DeepSeek /v1/tools/asr（每小时 0.39 元），出错退回 SenseVoice。消息里显示“[语音 4 秒：……]”
+  - 回：有人让她发语音，或者他自己发语音叫她（voice_back_chance 0.3），用 DeepSeek /v1/tools/tts（stella 女声，每万字 1.5 元）合成，
+    ffmpeg 转 mp3 按文件发（电脑版微信发不了语音条）；一天最多 net.tts.per_day 条（默认 5）
+  - requirements 加 pilk；test_v366.py 10 个
+
 ## 36.5 — 回归集能管门控 / 局面判断；局面判断加规则兜底；看不清的图配一句短反应不点评；短问句认成在问她；OCR 认得出聊天截图里的名字；删掉旧 OCR
 
 - **回归集**（tests/test_incidents.py）：expect 可以写 gate、speak、gate_silent、about_her_X / mood_X、own_mentions、pass，

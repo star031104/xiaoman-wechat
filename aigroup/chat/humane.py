@@ -11,7 +11,6 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -396,6 +395,3 @@ class HumaneMixin:
         self.db.set("qq_blind_hist", hist[-50:])
         return res
 
-    @staticmethod
-    def _dump(x) -> str:
-        return json.dumps(x, ensure_ascii=False)

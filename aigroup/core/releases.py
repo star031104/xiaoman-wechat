@@ -48,7 +48,14 @@ def note_deploy(root: Path = ROOT, now: datetime | None = None) -> str:
                               timeout=10).stdout.strip()
         if not head or last_commit(log_path.read_text(encoding="utf-8")) == head:
             return ""
-        line = f"{(now or datetime.now()):%Y-%m-%dT%H:%M} {changelog_version(root)} {head} 上线\n"
+        pending = root / "deploy" / ".gate_pending"         # 36.6 闸门在提交前过的：版本号、是不是急修从条子上拿
+        ver, extra = changelog_version(root), ""
+        if pending.is_file():
+            p = pending.read_text(encoding="utf-8").split()
+            if p:
+                ver, extra = p[0], (" " + " ".join(p[1:]) if len(p) > 1 else "")
+            pending.unlink()
+        line = f"{(now or datetime.now()):%Y-%m-%dT%H:%M} {ver} {head} 上线{extra}\n"
         with log_path.open("a", encoding="utf-8") as f:
             f.write(line)
         log.info("发版记录补了一行：%s", line.strip())

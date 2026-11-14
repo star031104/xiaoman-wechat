@@ -80,9 +80,6 @@ def record_seg(data: bytes) -> dict:
     return {"type": "record", "data": {"file": "base64://" + base64.b64encode(data).decode()}}
 
 
-def face_seg(fid: int) -> dict:
-    return {"type": "face", "data": {"id": str(fid)}}
-
 
 @dataclass
 class Flat:

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from conftest import FRIEND, GROUP, OWNER, _gc, _msg, _run
 
-from aigroup.chat.v33 import exit_clean, in_range
+from aigroup.chat.character import exit_clean, in_range
 
 V2 = """---
 name: 满满

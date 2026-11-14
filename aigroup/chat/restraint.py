@@ -1,4 +1,6 @@
-"""35.2 按 11-03 日报 P1～P8 补的几样（都能在小屋里单独关）：
+"""收着说：安静期全路不说、拦过的意思不再发、在跟别人说不接、主动额度按时段摊、价格出处、占位话、追问已说的事（原 v352.py）。
+
+35.2 按 11-03 日报 P1～P8 补的几样（都能在小屋里单独关）：
 
 - P1 安静期一律不主动：hush 不只拦接话，提醒、跟进、想念、分享、等等再说也拦，发出前再查一次（小屋手动点的除外）；
   发前检查判过“不说”的那个意思，15 分钟内换个说法、加个称呼也不说（11-03 10:44 被拦 6 秒后在前面加了个称呼照发）
@@ -16,7 +18,7 @@ import math
 import re
 import time
 
-log = logging.getLogger("aigroup.v352")
+log = logging.getLogger("aigroup.restraint")
 
 # P7 只有占位、不带内容（“我找找看，等我一下”“我查查手机哈”“稍等”）
 FILLER_RX = re.compile(r"^\s*(好+[，,]?|行+[，,]?|嗯+[，,]?)?(我|让我)?(先|再|去)?(找找|查查|翻翻|搜搜|看看|瞅瞅|找一?下|查一?下|翻一?下|搜一?下|看一?下|问问)"
@@ -100,7 +102,7 @@ def is_filler(bubble: str) -> bool:
     return bool(t) and bool(FILLER_RX.match(t))
 
 
-class V352Mixin:
+class RestraintMixin:
     # ---------------- P1 安静期 / 拦过的意思 ----------------
     def note_blocked(self, gid: int, text: str, now: float | None = None):
         """发前检查判了“不说”：记下这个意思（按意思记，不按原句）。"""

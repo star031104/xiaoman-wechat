@@ -66,14 +66,6 @@ def format_results(results: list[dict], engine: str) -> str:
     return "\n".join(out) + tail
 
 
-def format_page(info: dict, url: str, offset: int) -> str:
-    if not info.get("ok"):
-        return f"（{url} 没打开：{info.get('error') or '读不到'}。换一个来源，或者用搜索摘要）"
-    more = (f"\n（没读完：全文 {info['total']} 字，下一页用 offset={offset + len(info['text'])}）"
-            if info.get("more") else "")
-    return (f'<资料 来源="{info.get("site") or ""}" 日期="{info.get("date") or "无"}">\n'
-            f'{info.get("title", "")}\n{info.get("text", "")}\n</资料>{more}')
-
 
 def research_budget(g: dict, depth: str, qtype: str) -> tuple[int, float, str]:
     """21.0 力度：按问题类型给轮数 / 秒数 / 快深（prompts.TYPES）；没给类型就按判断层的 quick / deep 和老设置。"""
@@ -875,8 +867,6 @@ class AgentMixin:
                                          tz=self.cfg.tz, video_cache=lambda bv: self.db.get(f"qq_video_{bv}"))
         return tb
 
-    async def _agent_exec(self, gid: int, name: str, args: dict) -> str:
-        return await self.toolbox().run(name, args, recall=lambda q: self._agent_recall(gid, q))
 
     async def _agent_recall(self, gid: int, q: str) -> str:
         out = []

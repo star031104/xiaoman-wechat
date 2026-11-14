@@ -1,23 +1,29 @@
-"""35.0 把 GroupChat 的 25 个 Mixin 按“她怎么过一天”分成 7 层（只是分组，方法一个没改）。
+"""GroupChat 的 30 个 Mixin 按“她怎么过一天”分成 7 层（35.0 起；37.0 把按版本号起名的六个文件改成按功能起名）。
 
-以前 GroupChat 一口气继承 23 个 Mixin，新人看不出哪块管什么、改一处会不会碰到别处。现在：
-
-  看到   Senses     收消息、补历史、看图看视频、点开链接、刷到的东西
-  时机   Timing     攒一批 → 算该不该说 → 冷场冒泡、等等再说、说多了收着（gate、listener、idle、v35 的攒批）
-  说话   Voice      拼提示词 → 问大模型 → 发前检查 → 发出去、记账（prompt、speak、checks、outbox、promise、meme）
-  身份   Identity   人设 v2、关系四档、按钮梗、情绪、想念（v33）+ 她自己的经历（autobio）+ 人物慢慢长（grow）
+  看到   Senses     收消息、补历史、看图看视频听语音、点开链接、刷到的东西（ingest、feed）
+  时机   Timing     攒一批 → 读局面 → 算该不该说 → 冷场冒泡、等等再说、说多了收着
+                    （idle、listener、pacing 攒批、restraint 安静期和额度、room 局面判断、followups 约定和打气、empathy 读情绪）
+  说话   Voice      拼提示词 → 问大模型 → 发前检查 → 发出去、记账（prompt、speak、checks、slips、outbox、promise、meme）
+  身份   Identity   人设 v2、关系四档、按钮梗、情绪、想念（character）+ 她自己的经历（autobio）+ 人物慢慢长（grow）
   关系   Social     群友画像、熟悉度、关系网、像人指标（people、social、insight、humane）
   记忆   Recall     整理印象 / 记的事、带出处的摘要、说话风格（digest、episodes、style）
   工具   Tools      联网查资料、研究员、看效果、每周评测（net、agent、feedback、eval）
 
-规则：Mixin 之间不许有同名方法（tests/group/test_v350.py 会查），所以分组的先后不影响行为。
+37.0 改名对照（只改名字，方法一个没动）：v33 → character、v35 → pacing、v352 → restraint、v36 → room、
+v362 → followups、v363 → empathy；对应的测试 test_v330 / v350 / v352 / v36 / v362 / v363 / v364 / v366 →
+test_character / pacing_layers / restraint / room / followups / empathy / ocr / slips_voice。
+
+规则：Mixin 之间不许有同名方法（tests/test_pacing_layers.py 会查），所以分组的先后不影响行为。
 """
 from __future__ import annotations
 
 from aigroup.agent.mixin import AgentMixin
+from aigroup.chat.character import CharacterMixin
 from aigroup.chat.checks import ChecksMixin
+from aigroup.chat.empathy import EmpathyMixin
 from aigroup.chat.feed import FeedMixin
 from aigroup.chat.feedback import FeedbackMixin
+from aigroup.chat.followups import FollowupsMixin
 from aigroup.chat.grow import GrowMixin
 from aigroup.chat.humane import HumaneMixin
 from aigroup.chat.idle import IdleMixin
@@ -26,16 +32,14 @@ from aigroup.chat.insight import InsightMixin
 from aigroup.chat.listener import ListenerMixin
 from aigroup.chat.meme import MemeMixin
 from aigroup.chat.outbox import OutboxMixin
+from aigroup.chat.pacing import PacingMixin
 from aigroup.chat.prompt import PromptMixin
 from aigroup.chat.promise import PromiseMixin
+from aigroup.chat.restraint import RestraintMixin
+from aigroup.chat.room import RoomMixin
+from aigroup.chat.slips import SlipsMixin
 from aigroup.chat.social import SocialMixin
 from aigroup.chat.speak import SpeakMixin
-from aigroup.chat.v33 import V33Mixin
-from aigroup.chat.v35 import V35Mixin
-from aigroup.chat.v352 import V352Mixin
-from aigroup.chat.v36 import V36Mixin
-from aigroup.chat.v362 import V362Mixin
-from aigroup.chat.v363 import V363Mixin
 from aigroup.eval.weekly import EvalMixin
 from aigroup.memory.autobio import AutobioMixin
 from aigroup.memory.digest import DigestMixin
@@ -49,17 +53,17 @@ class Senses(FeedMixin, IngestMixin):
     """看到：收消息（ingest）、刷到的候选（feed）。"""
 
 
-class Timing(IdleMixin, ListenerMixin, V35Mixin, V352Mixin, V36Mixin, V362Mixin, V363Mixin):
-    """时机：冷场冒泡 / 等等再说（idle）、旁听判断（listener）、攒一批再回和说多了收着（v35）、
-    安静期 / 拦过的意思 / 在跟别人说 / 额度按时段摊（v352）。"""
+class Timing(IdleMixin, ListenerMixin, PacingMixin, RestraintMixin, RoomMixin, FollowupsMixin, EmpathyMixin):
+    """时机：冷场冒泡 / 等等再说（idle）、旁听判断（listener）、攒一批再回和说多了收着（pacing）、
+    安静期 / 拦过的意思 / 额度按时段摊（restraint）、局面判断（room）、约定和打气（followups）、痛点和情绪（empathy）。"""
 
 
-class Voice(SpeakMixin, PromptMixin, ChecksMixin, OutboxMixin, PromiseMixin, MemeMixin):
-    """说话：说（speak）、提示词（prompt）、发前检查（checks）、发件箱和叫停（outbox）、答应的事（promise）、梗（meme）。"""
+class Voice(SpeakMixin, PromptMixin, ChecksMixin, SlipsMixin, OutboxMixin, PromiseMixin, MemeMixin):
+    """说话：说（speak）、提示词（prompt）、发前检查（checks、slips）、发件箱和叫停（outbox）、答应的事（promise）、梗（meme）。"""
 
 
-class Identity(V33Mixin, AutobioMixin, GrowMixin):
-    """身份：v2 人设和关系四档等（v33）、她自己的经历（autobio）、人物慢慢长（grow）。"""
+class Identity(CharacterMixin, AutobioMixin, GrowMixin):
+    """身份：v2 人设和关系四档等（character）、她自己的经历（autobio）、人物慢慢长（grow）。"""
 
 
 class Social(PeopleMixin, SocialMixin, InsightMixin, HumaneMixin):

@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG = ROOT / "deploy" / "releases.log"
+PENDING = ROOT / "deploy" / ".gate_pending"           # 36.6 闸门过了、还没提交时记的条子
 RELEASE_DAYS = 7
 
 
@@ -95,7 +96,7 @@ async def critic_recall() -> None:
     print(f"统一自检：认出 {hit}/{hit + miss}，误伤 {fp}")
     print(f"合起来（规则 + 自检）：认出 {hit + by_rule}/{hit + miss}，都没认出 {len(gaps)}" + (f"：{'、'.join(gaps)}" if gaps else ""))
     if room:                                # 36.4 局面判断：模型自己判对几条（判错的还有规则兜底，test_incidents 管）
-        from aigroup.chat.v36 import ROOM_PROMPT
+        from aigroup.chat.room import ROOM_PROMPT
         ok = 0
         for c in room:
             ctx = "\n".join(f"{'你' if w == '她' else w}：{t}" for w, t, _ in c.get("msgs") or [])
@@ -141,10 +142,18 @@ def main():
         asyncio.run(critic_recall())
     if ok and a.record:
         head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True,
+                               text=True).stdout.strip()
         LOG.parent.mkdir(parents=True, exist_ok=True)
-        with LOG.open("a", encoding="utf-8") as f:
-            f.write(f"{datetime.now():%Y-%m-%dT%H:%M} {a.record} {head}{' hotfix' if a.hotfix else ''}\n")
-        print(f"记下了：{a.record} {head}")
+        if dirty:
+            # 36.6 改动还没提交：现在的 HEAD 不是要上的那个（36.4 / 36.5 记成了上一版的提交号）。
+            # 记一张“待上线”的条子，提交、重启后由 aigroup/core/releases.py 用真在跑的提交补这一行
+            PENDING.write_text(f"{a.record}{' hotfix' if a.hotfix else ''}\n", encoding="utf-8")
+            print(f"记下了（待提交）：{a.record}——提交并重启后，启动时补上真正的提交号")
+        else:
+            with LOG.open("a", encoding="utf-8") as f:
+                f.write(f"{datetime.now():%Y-%m-%dT%H:%M} {a.record} {head}{' hotfix' if a.hotfix else ''}\n")
+            print(f"记下了：{a.record} {head}")
     print("可以上线" if ok else "先别上线")
     sys.exit(0 if ok else 1)
 

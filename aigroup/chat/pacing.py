@@ -1,4 +1,6 @@
-"""35.0 几样小机制（都能在小屋里单独关）：
+"""节奏：攒一批再回、说多了收着、看群里直接发的视频、群友查 / 删自己的记录（原 v35.py）。
+
+35.0 几样小机制（都能在小屋里单独关）：
 
 - 时机：攒一批再回（MaiBot natural 档的思路）——被叫到 1 秒、平时 2 秒、群里正热闹 5 秒，一批从第一条算起最多等 8 秒
   （以前固定 2 秒、每来一条都重新计时，一直有人说话就一直不回）
@@ -16,7 +18,7 @@ import re
 import shutil
 import time
 
-log = logging.getLogger("aigroup.v35")
+log = logging.getLogger("aigroup.pacing")
 
 MY_RX = re.compile(r"^\s*[/／]\s*我的记录\s*$")
 DEL_RX = re.compile(r"^\s*[/／]\s*删除我的记录\s*(确认)?\s*$")
@@ -25,7 +27,7 @@ VIDEO_PROMPT = ("这是群友{who}在群聊里发的一段视频的{what}。用�
                 "60 字以内；看不清的别猜，别写人名。只输出这段描述。")
 
 
-class V35Mixin:
+class PacingMixin:
     # ---------------- 时机：攒一批再回 ----------------
     def merge_wait(self, gid: int) -> float:
         g = self.gk(gid)

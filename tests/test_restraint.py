@@ -5,7 +5,7 @@ import time
 
 from aigroup.chat.settings import DEFAULTS
 from aigroup.chat.social import SocialMixin
-from aigroup.chat.v352 import cn_values, is_filler, price_mentions, unsourced_prices
+from aigroup.chat.restraint import cn_values, is_filler, price_mentions, unsourced_prices
 
 from conftest import FRIEND, FRIEND2, GROUP, OWNER, _gc
 

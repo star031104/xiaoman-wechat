@@ -1,4 +1,6 @@
-"""36.2 按《复盘 11-10 突然翻旧账》和 11-09 日报 P1～P4 做的（都能在小屋里单独关）：
+"""约定和跟进：记约定要有原话依据、打气只给考试比赛这类事、有结果就作废、翻旧账关话题（原 v362.py）。
+
+36.2 按《复盘 11-10 突然翻旧账》和 11-09 日报 P1～P4 做的（都能在小屋里单独关）：
 
 - A 翻旧账（约定 qq_plans）：
   · 整理时记约定，日期要在原话里找得到依据（今天 / 明天 / 周四 / 11.8 / 晚上八点……），而且算出来的那天要对得上；
@@ -24,7 +26,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 
-log = logging.getLogger("aigroup.v362")
+log = logging.getLogger("aigroup.followups")
 
 # ---------------- A 约定的日期要有依据 ----------------
 CN_NUM = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
@@ -211,7 +213,7 @@ def topic_words(topic: str) -> tuple[str, ...]:
     return (t.lower(),)
 
 
-class V362Mixin:
+class FollowupsMixin:
     # ================= A 约定 =================
     def plan_supported(self, gid: int, what: str, due: datetime, quote: str = "", rows: list | None = None) -> str:
         """整理时记的约定：返回依据（原话），没有依据返回空字符串（不记）。"""
