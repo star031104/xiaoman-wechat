@@ -1,5 +1,12 @@
 # 更新记录
 
+## 36.4 — 截图 OCR 换成 PP-OCRv6
+
+- aigroup/net/ocr.py 改用 rapidocr 3.9+（默认 PP-OCRv6 small，ONNX Runtime，CPU，模型随 pip 包带着）；新包没装就退回旧的 rapidocr_onnxruntime，都没装照旧跳过
+- 40 张真实聊天截图对比旧版（PP-OCRv4 mobile）：英文单词间的空格、形近字、中英混排、引号括号都认得更对；偶尔少认一小段
+- 速度：2 核服务器上一张中位约 1.9 秒（旧的约 1.0 秒）；PP-OCRv6 medium 在 2 核上一张 10 秒以上，不用
+- requirements.txt：rapidocr_onnxruntime>=1.3 → rapidocr>=3.9 + onnxruntime>=1.17；test_v364.py 3 个
+
 ## 36.3 — 更高情商：别拿别人难过的事开涮、来问事的不阴阳、先读情绪、好消息说他不说自己、被问推荐先接他自己说过的
 
 - **痛点账**（chat/v363.py）：群友这几天发过哭 / 委屈的表情，或者说“被……除名 / 被拒 / 没过 / 烦死 / 进不去”，那件事记 3 天：
