@@ -563,9 +563,12 @@ class SpeakMixin:
                     why: str | None = None, note: str = "", interest: bool = False, gate_id: int | None = None,
                     focus: list[int] | None = None, query: str = "", last_is_sticker: bool = False, web: str = "",
                     must: bool = False, _rethink: int = 0, may_ignore: bool = False, pitch: bool = False,
-                    bid: bool = False, manual: bool = False) -> bool:
+                    bid: bool = False, manual: bool = False, may_rewrite: bool = False) -> bool:
         """问大模型、质检、发。why 为空 = 在接群友的话（跳过时才算进退避）；冒泡、欢迎新人、小屋 nudge 会给 why。
-        must：生日、约好的事、打气这类“这次一定要说”的，不受每天主动开口的预算限制，新消息来了也照样说（会重新想）。"""
+        must：生日、约好的事、打气这类“这次一定要说”的，不受每天主动开口的预算限制，新消息来了也照样说（会重新想）。
+        may_rewrite（37.1）：发前检查说有毛病时，能不能让她改写一次。只有被叫到、你在小屋点的、群友让她设的提醒、
+        她答应过的事、生日过节才改写；想念、打气、跟进这些主动的 must 只在她写的两个说法里挑，都不行就不说
+        （11-11 想念 @ 被拦了“人呢 不理我了是吧”，改写成“一整天没影了 出来说句话”又发了）。"""
         b = self.brain
         st = self._st(gid)
         start = time.time()
@@ -654,7 +657,7 @@ class SpeakMixin:
                                         why=why, note=note, interest=interest, gate_id=gate_id,
                                         focus=list(dict.fromkeys([*(focus or []), *new])), query=self._recent_text(gid),
                                         last_is_sticker=last_is_sticker, web=web, must=must, _rethink=_rethink + 1,
-                                        may_ignore=may_ignore, pitch=pitch, bid=bid, manual=manual)
+                                        may_ignore=may_ignore, pitch=pitch, bid=bid, manual=manual, may_rewrite=may_rewrite)
         mb = 1 if may_ignore else int(self.gk(gid)["max_bubbles"])
         if time.time() - float(st.__dict__.get("admit_ts") or 0) < 120:
             mb = 1                                         # 23.3 被纠正后认错：一句就够
@@ -916,7 +919,9 @@ class SpeakMixin:
                 return skip(lv if lv == "defer" else "skip")
             if fix_notes:                                  # 24.0 检查给的意见放前面：重写只看前 4 条，别被罚分项挤掉
                 hits = list(dict.fromkeys([*fix_notes, *hits]))
-            pick_only = bool(self.gk(gid).get("pick_clean", True)) and not mentioned and not must
+            # 37.1 能改写的只有：被叫到、小屋手动、提醒 / 答应的事 / 生日（may_rewrite）；其余挑不出没毛病的就不说
+            can_fix = bool(mentioned or manual or (must and may_rewrite))
+            pick_only = bool(self.gk(gid).get("pick_clean", True)) and not can_fix
             if (fix_notes and i >= 0 and len(cands[i]) >= 2 and self.gk(gid).get("drop_bad_bubble", True)):
                 # 29.0 毛病只在其中一条里：把那条去掉、剩下的照发，不重写（重写常把好笑的那句也改平）
                 left = drop_bad_bubble(cands[i], fix_notes)
@@ -948,8 +953,8 @@ class SpeakMixin:
                         cands, i, score, hits = fix, i2, s2, h2
                         fix_notes = []
                         rewrote = True
-                        if hasattr(self, "checks22") and not mentioned and not must:
-                            try:                       # 24.0 重写完再过一遍规则检查（以前改完就直接发）
+                        if hasattr(self, "checks22") and not mentioned:
+                            try:                       # 24.0 重写完再过一遍规则检查（以前改完就直接发）；37.1 must 的也查
                                 again = await self.checks22(gid, cands[i], target_uid=target_uid, target_row=tgt_row,
                                                             mentioned=mentioned, web=web or "", recheck=True,
                                                             image=(plan or {}).get("image") or {})
@@ -958,13 +963,13 @@ class SpeakMixin:
                             if again:
                                 log.info("群 %s：重写以后还有毛病（%s），没被叫到就不说了", gid, again[0][:40])
                                 i = -1
-                if fix_notes and not mentioned and not must:
+                if fix_notes and not can_fix:
                     log.info("群 %s：九问自评要改、重写没成，没被叫到就不说了", gid)
                     i = -1
             if i >= 0 and pick_only and fix_notes:
                 log.info("群 %s：几个说法都有毛病（%s），没被叫到就不说了", gid, "、".join(fix_notes)[:60])
                 i = -1
-            if i >= 0 and hasattr(self, "hard_issues") and not mentioned and not must and self.hard_issues(gid, cands[i], focus):
+            if i >= 0 and hasattr(self, "hard_issues") and not can_fix and self.hard_issues(gid, cands[i], focus):
                 log.info("群 %s：重写以后还是碰了硬底线，不说", gid)
                 i = -1
             if i >= 0 and score >= SOFT_BLOCK and not mentioned and (why is None or pick_only):
@@ -1052,7 +1057,7 @@ class SpeakMixin:
                                             why=why, note=note + f"（写的时候他又说了：{lt}。接他最新说的）", interest=interest,
                                             gate_id=gate_id, focus=focus, query=self._recent_text(gid),
                                             last_is_sticker=last_is_sticker, web=web, must=must, _rethink=_rethink + 1,
-                                            may_ignore=may_ignore, pitch=pitch, bid=bid, manual=manual)
+                                            may_ignore=may_ignore, pitch=pitch, bid=bid, manual=manual, may_rewrite=may_rewrite)
                 if not mentioned:
                     log.info("群 %s：写稿时他又说了（%s），这句不发，接着看新的", gid, lt)
                     return skip("late", "写稿时又来了话")

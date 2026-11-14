@@ -613,7 +613,7 @@ class GrowMixin:
         async with st.lock:
             try:
                 return bool(await self.speak(gid, mentioned=False, owner_spoke=False, trigger=None, who=who, why=why,
-                                             must=True))
+                                             must=True, may_rewrite=True))   # 37.1 群友让她设的提醒：被拦就改写一次
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 提醒失败：%s", gid, e)
                 return False
@@ -1218,7 +1218,7 @@ class GrowMixin:
         async with st.lock:
             try:
                 said = await self.speak(gid, mentioned=False, owner_spoke=False, trigger=None, who=who[0] if who else "",
-                                        why=why, must=True)
+                                        why=why, must=True, may_rewrite=True)   # 37.1 生日过节：被拦就改写一次
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 祝生日 / 过节没说成：%s", gid, e)
                 return False

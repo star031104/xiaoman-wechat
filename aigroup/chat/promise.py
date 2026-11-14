@@ -177,7 +177,7 @@ class PromiseMixin:
         async with st.lock:
             try:
                 return bool(await self.speak(gid, mentioned=False, owner_spoke=False, trigger=None, who=who, why=why,
-                                             web=web or "", must=True))
+                                             web=web or "", must=True, may_rewrite=True))   # 37.1 答应过的事
             except Exception as e:  # noqa: BLE001
                 log.info("群 %s 补答应的事出错：%s", gid, e)
                 return False
