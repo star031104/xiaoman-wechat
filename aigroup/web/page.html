@@ -7,16 +7,13 @@
 <title>群聊小屋</title>
 <link rel="stylesheet" href="tokens.css">
 <style>
-/* 18.0「小屋」：颜色、字号、圆角、按钮、卡片都在 tokens.css。
+/* 18.0「小屋」：颜色、字号、圆角、按钮、卡片都在 tokens.css（和有希的小屋共用）。
    这里只有群小屋独有的几块排法，也只用 tokens 里的变量。 */
-body:not(.on-home) .homeonly{display:none!important}
 .bw-brand .ava{font-size:13px}
 .ava img,.pa img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}
 .pa{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-size:var(--fs-meta);font-weight:700;position:relative;overflow:hidden}
 .rows .ava::after{display:none}
 .said-b{min-width:0}
-.wb-only{display:none} body.wbmode .wb-only{display:grid}
-body.wbmode .role-only{display:none}
 
 /* ---------- 首页：工作台 ---------- */
 .home-h{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-4)}
@@ -78,7 +75,7 @@ details.more.nums .minis{margin-top:var(--sp-3)}
 .lifep{white-space:pre-wrap;line-height:1.85}
 .weeks{list-style:none;margin:0;padding:0}
 .weeks li{padding:10px 0;border-top:1px dashed var(--line-2)} .weeks li:first-child{border-top:0}
-.weeks .w{font:600 var(--fs-micro) var(--mono);color:var(--accent-ink);margin-bottom:2px}
+.weeks .w{font:600 var(--fs-micro) var(--font);color:var(--accent-ink);margin-bottom:2px}
 .pref{display:inline-flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border-radius:var(--r-pill);background:var(--tint-2);font-size:var(--fs-sm)}
 .pref b{font-weight:600} .pref button{border:0;background:none;color:var(--ink-3);cursor:pointer;padding:0 6px;font-size:var(--fs-body);line-height:1}
 .pref button:hover{color:var(--bad)}
@@ -119,7 +116,7 @@ details.more.nums .minis{margin-top:var(--sp-3)}
 .m .b{padding:8px 12px;border-radius:4px 16px 16px 16px;background:var(--surface-2);white-space:pre-wrap;word-break:break-word;line-height:1.6}
 .m.her{align-self:flex-end;flex-direction:row-reverse}
 .m.her .body{align-items:flex-end}
-.m.her .b{background:var(--grad);color:#fff;border-radius:16px 4px 16px 16px}
+.m.her .b{background:var(--accent);color:#fff;border-radius:16px 4px 16px 16px}
 .m.owner .b{background:var(--tint-4)}
 .m .b .at{color:var(--accent-ink);font-weight:600} .m.her .b .at{color:var(--on-solid);text-decoration:underline}
 .m .b .sys{color:var(--ink-3);font-size:var(--fs-meta)}
@@ -260,7 +257,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .lab-acts .btn{min-height:44px;padding:0 18px;font-size:var(--fs-sm)}
 .lab-prog{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px}
 .lab-prog .k{font-size:var(--fs-meta);color:var(--ink-3);display:flex;justify-content:space-between;margin-bottom:6px}
-#labCard{box-shadow:0 0 0 2px var(--accent-line),var(--shadow)}
+
 .gate3 .stat{background:var(--surface-2);box-shadow:none}
 .grid>.card.is-empty{grid-column:span 6} .grid>.card.is-empty.wide{grid-column:span 12}
 .grid>.card.is-empty .card-b{padding-top:var(--sp-2);padding-bottom:var(--sp-4)}
@@ -313,12 +310,12 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px;padding:0 1px}
 .route b{min-width:64px;font-family:var(--mono)}
 .route .arrow{color:var(--ink-3)}
 .steps{display:flex;flex-direction:column;gap:12px}
-.logbox{background:#1B1714;color:#E7DCCF;font:12px/1.65 var(--mono);border-radius:var(--r);padding:12px 14px;height:64vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.logbox{background:#15171C;color:#E3E6EC;font:12px/1.65 var(--mono);border-radius:var(--r);padding:12px 14px;height:64vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
 .logbox .w{color:#F2C36B} .logbox .e{color:#FF9A9A} .logbox .s{color:#8EDDB0} .logbox .d{color:#9C8E82}
 .mb{margin-bottom:var(--sp-4)}
 .grow-x{flex:1;min-width:0}
 .wbmain{min-width:0}
-.home-h .emo{width:34px;height:34px;border-radius:11px;display:inline-grid;place-items:center;background:var(--grad);color:#fff;box-shadow:0 6px 14px -6px rgba(85,82,217,.6)}
+
 body:not(.admin) .side .adm-gt{display:none}
 .mt{margin-top:var(--sp-3)}
 /* 30.0 手机上：表格能横着滑、按钮和开关目录换行、卡片内边距收一点、输入框不撑出屏幕 */
@@ -333,115 +330,85 @@ body:not(.admin) .side .adm-gt{display:none}
   .tools{flex-wrap:wrap;gap:6px}
   #p-llm table td,#p-llm table th{white-space:nowrap}
 }
+.groups .gcard{background:var(--surface-2);box-shadow:none}
+.qcard{scroll-margin-top:90px}
+#p-learn .grid>.card.qcard{grid-column:span 12}
+.herpart{min-width:0}
+body.on-home .alerts{display:none}
+#p-learn .qcard.qoff{display:none}
 </style>
 </head>
 <body>
 
-<div class="band home" id="band">
+<header class="band home" id="band">
   <div class="band-in">
-    <header class="bw-head">
-      <a class="bw-brand" href="#home" id="brand"><span class="ava" id="ava" aria-hidden="true">满</span><span id="name">群聊小屋</span><span class="sub" id="sub">正在连接…</span></a>
+    <div class="bw-head">
+      <a class="bw-brand" href="#home" id="brand"><span class="ava" id="ava" aria-hidden="true">满</span><span id="name">小屋</span><span class="sub" id="sub">正在连接…</span></a>
       <nav class="bw-nav" id="tabs" aria-label="主导航">
-        <button data-p="home" class="on">首页</button>
-        <button data-p="life">她的日子</button>
-        <button data-p="her">她</button>
-        <span class="vsep" aria-hidden="true"></span>
-        <button data-p="chat" data-wb="1"><span data-i="list"></span>工作台</button>
+        <button data-p="home" class="on">今天</button>
+        <button data-p="chat">群聊</button>
+        <button data-p="ppl">群友</button>
+        <button data-p="life">她</button>
+        <button data-p="learn">待办<span class="badge" id="todoBadge"></span></button>
+        <button data-p="data">数据</button>
+        <button data-p="knobs">设置</button>
       </nav>
       <div class="bw-tools">
         <a class="bw-ib" id="hub" href="../" title="回小屋首页" aria-label="回小屋首页" hidden></a>
         <button class="bw-ib" id="menuBtn" aria-label="更多" aria-haspopup="menu" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
         <div class="menu" id="menu" role="menu" hidden>
+          <button class="mob" data-go="ppl" role="menuitem"><span data-i="users"></span>群友</button>
+          <button class="mob" data-go="data" role="menuitem"><span data-i="bars"></span>数据</button>
+          <button class="mob" data-go="knobs" role="menuitem"><span data-i="sliders"></span>设置</button>
+          <hr class="mob">
           <button id="theme" role="menuitem"><span id="themeIco"></span><span id="themeTxt">切到深色</span></button>
           <button id="refresh" role="menuitem"><span data-i="refresh"></span>刷新</button>
           <a id="helpdoc" role="menuitem" href="https://github.com/star031104/xiaoman-wechat/blob/main/docs/%E5%B0%8F%E5%B1%8B.md" target="_blank" rel="noopener" title="小屋使用说明：每一页、每个开关是干什么的"><span data-i="book"></span>使用说明</a>
-          <hr>
-          <button class="admbtn" id="admbtn" type="button" role="menuitem"><span data-i="sliders"></span><span id="admTxt">打开管理（性格开关、大模型、日志）</span></button>
         </div>
       </div>
-    </header>
-
-    <section class="hero homeonly" id="hero" aria-label="她此刻">
-      <div class="hero-l">
-        <div class="hero-when num"><span class="dot" id="hDot"></span><span id="hWhen">…</span></div>
-        <div class="hero-eyebrow" id="eyebrow">小满此刻</div>
-        <h1 id="hello">…</h1>
-        <p class="detail" id="helloMore" hidden></p>
-        <p class="mood" id="doing"></p>
-        <div class="hero-said" id="said" hidden>
-          <img src="avatar/avatar" alt="" id="saidAva"><span class="ini" id="saidIni" hidden>满</span>
-          <div class="said-b"><div class="ht" id="saidText"></div><div class="hm" id="saidWhen"></div></div>
-        </div>
-        <div class="hero-acts">
-          <button class="bbtn pri" data-go="chat">看群聊</button>
-          <button class="bbtn line" data-go="learn" data-to="labCard">帮她判“该不该说”</button>
-        </div>
-      </div>
-      <div class="hero-r" id="heroPic">
-        <img src="avatar/portrait" alt="" id="portrait">
-        <div class="ph" id="portraitPh" hidden aria-hidden="true">满</div>
-        <div class="veil" aria-hidden="true"></div>
-      </div>
-    </section>
+    </div>
   </div>
-</div>
+</header>
 
 <main id="main">
 <div class="alerts" id="alerts" role="status" aria-live="polite"></div>
 <!-- ================= 首页 ================= -->
 <section class="page on" id="p-home">
-  <div class="home-h"><h2><span class="emo sec-emo"><span data-i="bars"></span></span>今天的群</h2><div class="seg" id="wbseg" hidden></div><span class="sp"></span><span class="meta" id="wbHint"></span></div>
   <div class="wb-pills" id="pills"></div>
-  <div class="stats" id="kpis"></div>
-  <details class="more nums"><summary>更多数字</summary><div class="minis" id="kpiMore"></div></details>
-  <div class="grid sec">
-    <div class="card c8">
-      <div class="card-h"><h3><span data-i="bars"></span><span id="chartT">今天每小时的消息</span></h3><span class="sp"></span>
-        <div class="seg" id="chartSeg"><button data-c="hour" class="on">今天</button><button data-c="day">两周</button></div>
-        <div class="seg hseg" id="hseg" hidden></div><div class="seg hseg" id="dseg" hidden></div></div>
-      <div class="card-b">
-        <div id="hourBox"><div class="chart" id="hourChart"></div>
-          <div class="legend"><span style="--c:var(--surface-3)"><i></i>群友</span><span style="--c:var(--s1)"><i></i>她</span><span class="sp"></span><span id="hourSum" class="muted"></span></div></div>
-        <div id="dayBox" hidden><div class="chart" id="dayChart"></div>
-          <div class="legend"><span style="--c:var(--surface-3)"><i></i>群消息</span><span style="--c:var(--s1)"><i></i>她说的</span><span style="--c:var(--s2)"><i></i>大模型调用</span></div></div>
+  <div class="k-today">
+    <div class="lock" id="heroPic">
+      <img src="avatar/portrait" alt="" id="portrait">
+      <div class="ph" id="portraitPh" hidden aria-hidden="true">满</div>
+      <div class="lkx lk-top"><span id="lkGroup"></span><span><span class="dot" id="hDot"></span><span id="hWhen">…</span></span></div>
+      <div class="lkx lk-date" id="lkDate"></div>
+      <div class="lkx lk-clock num" id="lkClock">--:--</div>
+      <div class="lkx lk-mood"><b id="hello">…</b><span id="doing"></span><span id="helloMore" hidden></span><span id="eyebrow" hidden></span></div>
+      <div class="notes" id="notes" aria-live="polite"><div id="notesDyn" style="display:contents"></div>
+        <div class="nt" id="said" hidden><img src="avatar/avatar" alt="" id="saidAva" hidden><span class="ini" id="saidIni" hidden>满</span>
+          <div class="h"><b>她在群里说</b><span id="saidWhen"></span></div><div id="saidText"></div></div>
       </div>
     </div>
-    <div class="card c4">
-      <div class="card-h"><h3><span data-i="cal"></span>她今天的安排</h3><span class="sp"></span><button class="btn ghost sm" id="replan">重新排</button></div>
-      <div class="card-b"><ul class="tl" id="plan"></ul></div>
-    </div>
-    <div class="card c8" id="recentCard">
-      <div class="card-h"><h3><span data-i="quote"></span>她最近说的</h3></div>
-      <div class="card-b"><ul class="rows" id="recentHer"></ul></div>
-    </div>
-    <div class="card c4" id="groupsCard">
-      <div class="card-h"><h3><span data-i="users"></span>她待的群</h3></div>
-      <div class="card-b"><div class="groups" id="groups"></div></div>
-    </div>
-    <div class="card c12" id="cmpCard" hidden>
-      <div class="card-h"><h3><span data-i="bars"></span>几个群放一起看</h3><span class="sp"></span><span class="hint">她在哪边更放得开、说完有没有人接；数字大的加粗</span></div>
-      <div class="card-b tblwrap"><table class="cmp" id="cmp"></table></div>
-    </div>
-    <div class="card c6" id="todayCard">
-      <div class="card-h"><h3><span data-i="send"></span><span id="tdT">今天她做了什么</span></h3><span class="sp"></span><span class="hint">按发送账本算：真发出去的才算</span></div>
-      <div class="card-b"><div class="minis" id="tdNums"></div><div class="td-sub" id="tdSub"></div>
-        <details class="more td-acts"><summary>最近发的 30 条</summary><ul class="rows scrollbox" id="tdActs"></ul></details></div>
-    </div>
-    <div class="card c6" id="trendCard">
-      <div class="card-h"><h3><span data-i="bars"></span>最近 7 天</h3><span class="sp"></span><span class="hint">她的占比超过 25% 标黄；花费和缓存是所有群一起算的</span></div>
-      <div class="card-b tblwrap"><table class="cmp" id="trend"></table></div>
-    </div>
-    <div class="card c12" id="effCard">
-      <details class="eff" id="effBox"><summary class="card-h eff-h" style="cursor:pointer"><h3><span data-i="sliders"></span>生效设置</h3><span class="meta" id="effN"></span><span class="sp"></span>
-        <label class="chk"><span class="switch"><input type="checkbox" id="effAll"><span></span></span>全部</label></summary>
-        <div class="card-b tblwrap"><table class="cmp" id="eff"></table></div></details>
+    <div class="wg">
+      <div class="w w4 todo" id="todoW"><h3>要你看一眼<span class="sp"></span><span id="todoHint"></span></h3><div class="todo-row" id="todoRow"><div class="none">在算…</div></div></div>
+      <div class="w w4" id="wxW"><h3>她的天气<span class="sp"></span><button class="btn sm ghost" id="replan" style="color:var(--ink-3)">重新排</button></h3>
+        <div class="wx"><div><div class="temp num" id="wxTemp">0<small>条 / 小时</small></div><div class="cond" id="wxCond"></div><div class="hl" id="wxHi"></div></div>
+          <ol class="hours" id="wxHours"></ol></div>
+        <ul class="tl" id="plan" hidden></ul></div>
+      <div class="stats" id="kpis"></div>
+      <div class="w w2" id="recentCard"><h3>她最近说的<span class="sp"></span><button class="btn sm ghost" data-go="chat" style="color:var(--ink-3)">去群聊</button></h3><ul class="said3" id="recentHer"></ul></div>
+      <div class="w w2" id="fcW"><h3>7 天预报<span class="sp"></span><span class="meta">条形 = 群里多热，橙线 = 她说了多少</span></h3><div class="fc" id="fc"><div class="meta">在算…</div></div></div>
+      <div class="w w4" id="groupsCard" hidden><h3>她待的群</h3><div class="groups" id="groups"></div></div>
     </div>
   </div>
-  <div class="foot">小屋只在这台电脑上能打开 · 每 20 秒自动刷新</div>
+  <div class="foot">每 20 秒自动刷新 · 天色跟着时间变：早上蓝、傍晚橙、夜里深蓝</div>
 </section>
 
 <!-- ================= 她的日子 ================= -->
 <section class="page" id="p-life">
+  <div class="her-hero" id="herHero"><img src="avatar/portrait" alt="" id="herPic"><div class="in"><b id="herName">她</b><span class="s" id="herSub"></span>
+    <div class="q" id="herMood"></div><div class="wxl" id="herWx"></div><div class="cp" id="herCp"></div></div></div>
+  <div class="subnav"><div class="seg" id="herSeg"><button data-h="life" class="on">她的日子</button><button data-h="me">人设和兴趣</button><button data-h="learn">她学到的</button></div></div>
+  <div class="herpart" id="herLife">
   <div class="tools mb"><div class="seg" id="lifeSeg"></div><span class="sp"></span>
     <span class="meta">每周回想、慢慢长出来的性格、说过的喜好、和大家多熟、记着的约定、分享过的、知道的</span></div>
   <div class="grid">
@@ -504,10 +471,8 @@ body:not(.admin) .side .adm-gt{display:none}
             <button class="btn sm" id="lfKAdd">记下</button></div></details></div>
     </div>
   </div>
-</section>
-
-<!-- ================= 她 ================= -->
-<section class="page" id="p-her">
+</div>
+  <div class="herpart" id="herMe" hidden>
   <div class="grid">
     <div class="card c5">
       <div class="card-b">
@@ -542,22 +507,63 @@ body:not(.admin) .side .adm-gt{display:none}
         <p class="meta">想改人设：直接改 persona 文件夹里的这个文件，然后在托盘里点“重启”。</p></div>
     </div>
   </div>
+  </div>
+  <div class="herpart" id="herLearn" hidden>
+  <div class="grid">
+    <div class="card c7">
+      <div class="card-h"><h3><span data-i="book"></span>她记的事</h3><span class="sp"></span><span class="hint">聊到了会想起来；过时的点“过时”</span></div>
+      <div class="card-b"><div id="factTemp"></div><div class="seg ffilter" id="factSeg" hidden></div><ul class="rows" id="factList"></ul><div class="tmore" id="factMore" hidden></div></div>
+    </div>
+    <div class="card c5">
+      <div class="card-h"><h3><span data-i="quote"></span>群规矩</h3><span class="sp"></span><span class="hint">整理群聊时总结的，她会照着来</span></div>
+      <div class="card-b"><textarea class="input" id="normText" rows="5" placeholder="比如：- 大家都不怎么 @人"></textarea>
+        <button class="btn sm mt" id="saveNorms">保存</button></div>
+    </div>
+    <div class="card c7">
+      <div class="card-h"><h3><span data-i="quote"></span>说话方式</h3><span class="sp"></span><span class="hint">“当……时，可以说……”，出现 2 次以上自动用</span></div>
+      <div class="card-b"><ul class="rows" id="exList"></ul></div>
+    </div>
+    <div class="card c5">
+      <div class="card-h"><h3><span data-i="book"></span>群里的黑话</h3><span class="sp"></span><span class="hint">离开这个群就看不懂的才算</span></div>
+      <div class="card-b"><ul class="rows" id="jgList"></ul></div>
+    </div>
+    <div class="card c12">
+      <div class="card-h"><h3><span data-i="book"></span>群梗词条</h3><span class="sp"></span><span class="hint">聊到关键词才告诉她这个梗的意思；提过以后“冷却”条消息内不再提</span></div>
+      <div class="card-b"><ul class="rows" id="loreList"></ul>
+        <div class="form2"><input class="input" id="loreKeys" placeholder="关键词，逗号隔开">
+          <input class="input" id="loreText" placeholder="这个梗是什么意思、什么时候用">
+          <button class="btn sm" id="loreAdd">加一条</button></div></div>
+    </div>
+    <div class="card c12" id="ledgerCard">
+      <div class="card-h"><h3><span data-i="search"></span>她查到的事实</h3><span class="sp"></span><span class="hint">查资料时记下的硬事实，过了有效期 / 被新消息取代就不再用；不对的可以删</span></div>
+      <div class="card-b"><ul class="rows scrollbox" id="ledgerList"><li class="empty">还没有</li></ul></div>
+    </div>
+    <div class="card c6">
+      <div class="card-h"><h3><span data-i="book"></span>她从网上看来、记住的</h3><span class="sp"></span><span class="hint">群友发的链接、她被问到时搜的</span></div>
+      <div class="card-b"><ul class="rows" id="knowList"></ul></div>
+    </div>
+    <div class="card c6" id="feedCard">
+      <div class="card-h"><h3><span data-i="bars"></span>她会去刷的话题</h3><span class="sp"></span><span class="hint" id="feedStat">从大家画像里的兴趣 / 在意整理的；分享后有人接会加分、冷场会减分；点 × 删掉</span></div>
+      <div class="card-b"><div class="chips" id="feedInts"></div><ul class="rows" id="feedCands" style="margin-top:10px"></ul></div>
+    </div>
+    <div class="card c12">
+      <div class="card-h"><h3><span data-i="book"></span>存的表情包</h3><span class="sp"></span><span class="hint">群里被 2 个以上的人发过的才存；意思是从大家什么时候发它猜的</span></div>
+      <div class="card-b"><div class="stks" id="stkList"></div></div>
+    </div>
+    <div class="card c12">
+      <div class="card-h"><h3><span data-i="book"></span>群日报</h3><span class="sp"></span><span class="hint">每天早上整理前一天</span></div>
+      <div class="card-b"><ul class="rows" id="dailyList"></ul></div>
+    </div>
+  </div>
+  <div class="foot">“用”：她一定会参考 · “不用”：永远不进提示词 · “自动”：交给她自己判断（说话方式出现 2 次以上、黑话判断为真黑话才用）</div>
+  </div>
 </section>
 
+<!-- ================= 她 ================= -->
+
+
 <!-- ================= 工作台 ================= -->
-<div class="wbwrap wb-only" id="wbwrap">
-  <nav class="side" id="wbSide" aria-label="工作台">
-    <div class="gt">工作台</div>
-    <button data-p="chat"><span data-i="chat"></span>群聊</button>
-    <button data-p="ppl"><span data-i="users"></span>群友</button>
-    <button data-p="learn"><span data-i="book"></span>学到的</button>
-    <div class="gt adm-gt">管理</div>
-    <button class="adm" data-p="knobs"><span data-i="sliders"></span>性格开关</button>
-    <button class="adm" data-p="llm"><span data-i="cpu"></span>大模型</button>
-    <button class="adm" data-p="log"><span data-i="list"></span>日志</button>
-    <div class="admhint">性格开关、大模型、日志在右上角“…”里打开管理后出现</div>
-  </nav>
-  <div class="wbmain">
+
 
 <!-- ================= 群聊 ================= -->
 <section class="page" id="p-chat">
@@ -627,10 +633,12 @@ body:not(.admin) .side .adm-gt{display:none}
 
 <!-- ================= 学到的 ================= -->
 <section class="page" id="p-learn">
-  <div class="tools mb"><div class="seg" id="lseg"></div><span class="sp"></span>
-    <span class="meta" id="learnOff" hidden>“跟着群里学说话”在性格开关里关着</span></div>
+  <div class="subnav"><div class="seg qseg" id="qseg">
+      <button data-q="labCard" class="on">该不该说<b id="qnLab"></b></button><button data-q="spotCard">抽查<b id="qnSpot"></b></button><button data-q="calibCard">打分<b id="qnCalib"></b></button><button data-q="pairCard">挑一句<b id="qnPair"></b></button><button data-q="blindCard">盲测</button></div>
+    <div class="seg" id="lseg"></div><span class="sp"></span>
+    <span class="meta" id="learnOff" hidden>“跟着群里学说话”在设置里关着</span><span class="meta" id="qHint">一次做一件，做完点上面换下一件</span></div>
   <div class="grid">
-    <div class="card c12" id="labCard">
+    <div class="card c12 qcard" id="labCard">
       <div class="card-h"><h3><span data-i="quote"></span>这一刻她该不该接话</h3><span class="sp"></span>
         <div class="seg" id="labMode"><button data-m="one" class="on">一条条判</button><button data-m="batch">一屏 10 条</button></div></div>
       <div class="card-b">
@@ -650,43 +658,55 @@ body:not(.admin) .side .adm-gt{display:none}
         <div id="labBox"></div>
       </div>
     </div>
-    <div class="card c12" id="spotCard">
+    <div class="card c12 qcard" id="spotCard">
       <div class="card-h"><h3><span data-i="note"></span>每天抽查（点几下就行）</h3><span class="sp"></span><span class="hint" id="spotStat">你点的对错代替自动评测：一周看她发出去的话、查到的梗有几成靠谱</span></div>
       <div class="card-b"><div class="small muted" style="margin-bottom:8px">她发出去的话：合适 / 不行 / 原本想说的那句更好。查到的梗：意思对 / 不对（点“不对”她就先不用这个意思）。</div><div id="spotBox"></div></div>
     </div>
-    <div class="card c12" id="humaneCard">
-      <div class="card-h"><h3><span data-i="heart"></span>像不像人（这一周）</h3><span class="sp"></span><span class="hint">该说没说 = 你判“该接”的里她没接的比例；不该说却说 = 你判“不该插”的里她说了的比例（“可接可不接”不算）；搭话 = 别人接她的话</span></div>
-      <div class="card-b"><div class="hm" id="humane"></div></div>
-    </div>
-    <div class="card c12" id="calibCard">
+    <div class="card c12 qcard" id="calibCard">
       <div class="card-h"><h3><span data-i="star"></span>给她的话打分</h3><span class="sp"></span><span class="hint" id="calibStat">你打的分会当成每周评测的标准；攒够 10 条，每周看评委和你一致不一致</span></div>
       <div class="card-b"><div class="small muted" style="margin-bottom:8px">1 很差 · 2 不太行 · 3 一般 · 4 挺好 · 5 就是她。看的是“像不像她、这时候这么说合不合适”。键盘 Shift + 1~5 给第一条打分。</div><div id="calibBox"></div></div>
     </div>
-    <div class="card c12" id="checksCard">
-      <div class="card-h"><h3><span data-i="heart"></span>每周额外检查</h3><span class="sp"></span><span class="hint">评委准不准、问她自己会不会改口、带着情绪会不会附和、说话像不像群友、提示词哪段有用</span></div>
-      <div class="card-b"><div class="hm" id="checksStat"></div><div id="checksMore" style="margin-top:12px"></div></div>
+    <div class="card c12 qcard" id="pairCard">
+      <div class="card-h"><h3><span data-i="quote"></span>帮她挑一句</h3><span class="sp"></span><span class="hint" id="pairStat">两种说法里哪个更像她？你挑的会用来教她（AI 腔检测器）</span></div>
+      <div class="card-b" id="pairBox"></div>
     </div>
-    <div class="card c12" id="rulesCard">
-      <div class="card-h"><h3><span data-i="heart"></span>发之前的规则</h3><span class="sp"></span><span class="hint">每条规则命中了多少次、拦得对不对；30 天没命中、或者你判过常拦错的，建议关掉</span></div>
-      <div class="card-b"><div id="rulesSamples"></div><ul class="rows scrollbox" id="rulesList" style="margin-top:10px"><li class="empty">还没有</li></ul></div>
-    </div>
-    <div class="card c12" id="ledgerCard">
-      <div class="card-h"><h3><span data-i="search"></span>她查到的事实</h3><span class="sp"></span><span class="hint">查资料时记下的硬事实，过了有效期 / 被新消息取代就不再用；不对的可以删</span></div>
-      <div class="card-b"><ul class="rows scrollbox" id="ledgerList"><li class="empty">还没有</li></ul></div>
-    </div>
-    <div class="card c12" id="feedCard">
-      <div class="card-h"><h3><span data-i="bars"></span>她会去刷的话题</h3><span class="sp"></span><span class="hint" id="feedStat">从大家画像里的兴趣 / 在意整理的；分享后有人接会加分、冷场会减分；点 × 删掉</span></div>
-      <div class="card-b"><div class="chips" id="feedInts"></div><ul class="rows" id="feedCands" style="margin-top:10px"></ul></div>
-    </div>
-    <div class="card c12" id="agentCard">
-      <div class="card-h"><h3><span data-i="search"></span>她查过什么</h3><span class="sp"></span><span class="hint" id="agentStat">回话前先想一想要不要查：每次查了几轮、多久、交了什么简报</span></div>
-      <div class="card-b"><ul class="rows scrollbox" id="agentList"><li class="empty">还没查过</li></ul></div>
-    </div>
-    <div class="card c12" id="blindCard">
+    <div class="card c12 qcard" id="blindCard">
       <div class="card-h"><h3><span data-i="quote"></span>盲测：哪几句是她说的</h3><span class="sp"></span><span class="hint" id="blindStat">她这周说的混在群友说的里，勾出你觉得是她的</span>
         <button class="btn sm" id="blindNew">出一组</button></div>
       <div class="card-b"><ul class="blind" id="blindList"><li class="empty">点“出一组”开始</li></ul>
         <div class="form2" id="blindActs" hidden><button class="btn pri sm" id="blindGo">交卷</button></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 数据 ================= -->
+<section class="page" id="p-data">
+  <div class="grid">
+    <div class="card c12"><div class="card-h"><h3><span data-i="bars"></span>今天的群</h3><div class="seg" id="wbseg" hidden></div><span class="sp"></span><span class="hint" id="wbHint"></span></div>
+      <div class="card-b"><div class="minis" id="kpiMore"></div></div></div>
+    <div class="card c12">
+      <div class="card-h"><h3><span data-i="bars"></span><span id="chartT">今天每小时的消息</span></h3><span class="sp"></span>
+        <div class="seg" id="chartSeg"><button data-c="hour" class="on">今天</button><button data-c="day">两周</button></div>
+        <div class="seg hseg" id="hseg" hidden></div><div class="seg hseg" id="dseg" hidden></div></div>
+      <div class="card-b">
+        <div id="hourBox"><div class="chart" id="hourChart"></div>
+          <div class="legend"><span style="--c:var(--surface-3)"><i></i>群友</span><span style="--c:var(--s1)"><i></i>她</span><span class="sp"></span><span id="hourSum" class="muted"></span></div></div>
+        <div id="dayBox" hidden><div class="chart" id="dayChart"></div>
+          <div class="legend"><span style="--c:var(--surface-3)"><i></i>群消息</span><span style="--c:var(--s1)"><i></i>她说的</span><span style="--c:var(--s2)"><i></i>大模型调用</span></div></div>
+      </div>
+    </div>
+    <div class="card c6" id="todayCard">
+      <div class="card-h"><h3><span data-i="send"></span><span id="tdT">今天她做了什么</span></h3><span class="sp"></span><span class="hint">按发送账本算：真发出去的才算</span></div>
+      <div class="card-b"><div class="minis" id="tdNums"></div><div class="td-sub" id="tdSub"></div>
+        <details class="more td-acts"><summary>最近发的 30 条</summary><ul class="rows scrollbox" id="tdActs"></ul></details></div>
+    </div>
+    <div class="card c6" id="trendCard">
+      <div class="card-h"><h3><span data-i="bars"></span>最近 7 天</h3><span class="sp"></span><span class="hint">她的占比超过 25% 标黄；花费和缓存是所有群一起算的</span></div>
+      <div class="card-b tblwrap"><table class="cmp" id="trend"></table></div>
+    </div>
+    <div class="card c12" id="humaneCard">
+      <div class="card-h"><h3><span data-i="heart"></span>像不像人（这一周）</h3><span class="sp"></span><span class="hint">该说没说 = 你判“该接”的里她没接的比例；不该说却说 = 你判“不该插”的里她说了的比例（“可接可不接”不算）；搭话 = 别人接她的话</span></div>
+      <div class="card-b"><div class="hm" id="humane"></div></div>
     </div>
     <div class="card c12">
       <div class="card-h"><h3><span data-i="route"></span>她现在想不想开口</h3><span class="sp"></span><span class="hint">最近 1 小时的发言配额：概率过了阈值才会去想说什么</span></div>
@@ -694,51 +714,39 @@ body:not(.admin) .side .adm-gt{display:none}
         <div class="chips mt" id="gateAtt"></div>
         <details class="more"><summary id="gateMore">门控细节</summary><div class="minis mt" id="gateKpi"></div></details></div>
     </div>
-    <div class="card c12">
-      <div class="card-h"><h3><span data-i="quote"></span>帮她挑一句</h3><span class="sp"></span><span class="hint" id="pairStat">两种说法里哪个更像她？你挑的会用来教她（AI 腔检测器）</span></div>
-      <div class="card-b" id="pairBox"></div>
+    <div class="card c6" id="rulesCard">
+      <div class="card-h"><h3><span data-i="heart"></span>发之前的规则</h3><span class="sp"></span><span class="hint">每条规则命中了多少次、拦得对不对；30 天没命中、或者你判过常拦错的，建议关掉</span></div>
+      <div class="card-b"><div id="rulesSamples"></div><ul class="rows scrollbox" id="rulesList" style="margin-top:10px"><li class="empty">还没有</li></ul></div>
     </div>
-    <div class="card c7">
-      <div class="card-h"><h3><span data-i="quote"></span>说话方式</h3><span class="sp"></span><span class="hint">“当……时，可以说……”，出现 2 次以上自动用</span></div>
-      <div class="card-b"><ul class="rows" id="exList"></ul></div>
+    <div class="card c6" id="agentCard">
+      <div class="card-h"><h3><span data-i="search"></span>她查过什么</h3><span class="sp"></span><span class="hint" id="agentStat">回话前先想一想要不要查：每次查了几轮、多久、交了什么简报</span></div>
+      <div class="card-b"><ul class="rows scrollbox" id="agentList"><li class="empty">还没查过</li></ul></div>
     </div>
-    <div class="card c5">
-      <div class="card-h"><h3><span data-i="book"></span>群里的黑话</h3><span class="sp"></span><span class="hint">离开这个群就看不懂的才算</span></div>
-      <div class="card-b"><ul class="rows" id="jgList"></ul></div>
-    </div>
-    <div class="card c7">
-      <div class="card-h"><h3><span data-i="book"></span>她记的事</h3><span class="sp"></span><span class="hint">聊到了会想起来；过时的点“过时”</span></div>
-      <div class="card-b"><div id="factTemp"></div><div class="seg ffilter" id="factSeg" hidden></div><ul class="rows" id="factList"></ul><div class="tmore" id="factMore" hidden></div></div>
-    </div>
-    <div class="card c5">
-      <div class="card-h"><h3><span data-i="quote"></span>群规矩</h3><span class="sp"></span><span class="hint">整理群聊时总结的，她会照着来</span></div>
-      <div class="card-b"><textarea class="input" id="normText" rows="5" placeholder="比如：- 大家都不怎么 @人"></textarea>
-        <button class="btn sm mt" id="saveNorms">保存</button></div>
+    <div class="card c12" id="checksCard">
+      <div class="card-h"><h3><span data-i="heart"></span>每周额外检查</h3><span class="sp"></span><span class="hint">评委准不准、问她自己会不会改口、带着情绪会不会附和、说话像不像群友、提示词哪段有用</span></div>
+      <div class="card-b"><div class="hm" id="checksStat"></div><div id="checksMore" style="margin-top:12px"></div></div>
     </div>
     <div class="card c12">
-      <div class="card-h"><h3><span data-i="book"></span>群梗词条</h3><span class="sp"></span><span class="hint">聊到关键词才告诉她这个梗的意思；提过以后“冷却”条消息内不再提</span></div>
-      <div class="card-b"><ul class="rows" id="loreList"></ul>
-        <div class="form2"><input class="input" id="loreKeys" placeholder="关键词，逗号隔开">
-          <input class="input" id="loreText" placeholder="这个梗是什么意思、什么时候用">
-          <button class="btn sm" id="loreAdd">加一条</button></div></div>
+    <div class="card-h"><h3><span data-i="trend"></span>每周评测</h3><span class="sp"></span>
+      <span class="hint">每周一挑她说过的 10 句找毛病打分（满分 100）；人设改过会和上一版盲比</span>
+      <button class="btn sm" id="evRun">现在评一次</button><button class="btn sm" id="evCmp">和上一版人设比一比</button><button class="btn sm" id="evProbe">定向测试人格</button></div>
+    <div class="card-b"><div id="evHist"></div><div class="mt" id="evCmpBox"></div></div>
+  </div>
+    <div class="card c12" id="cmpCard" hidden>
+      <div class="card-h"><h3><span data-i="bars"></span>几个群放一起看</h3><span class="sp"></span><span class="hint">她在哪边更放得开、说完有没有人接；数字大的加粗</span></div>
+      <div class="card-b tblwrap"><table class="cmp" id="cmp"></table></div>
     </div>
-    <div class="card c12">
-      <div class="card-h"><h3><span data-i="book"></span>她从网上看来、记住的</h3><span class="sp"></span><span class="hint">群友发的链接、她被问到时搜的</span></div>
-      <div class="card-b"><ul class="rows" id="knowList"></ul></div>
-    </div>
-    <div class="card c12">
-      <div class="card-h"><h3><span data-i="book"></span>存的表情包</h3><span class="sp"></span><span class="hint">群里被 2 个以上的人发过的才存；意思是从大家什么时候发它猜的</span></div>
-      <div class="card-b"><div class="stks" id="stkList"></div></div>
-    </div>
-    <div class="card c12">
-      <div class="card-h"><h3><span data-i="book"></span>群日报</h3><span class="sp"></span><span class="hint">每天早上整理前一天</span></div>
-      <div class="card-b"><ul class="rows" id="dailyList"></ul></div>
+    <div class="card c12" id="effCard">
+      <details class="eff" id="effBox"><summary class="card-h eff-h" style="cursor:pointer"><h3><span data-i="sliders"></span>生效设置</h3><span class="meta" id="effN"></span><span class="sp"></span>
+        <label class="chk"><span class="switch"><input type="checkbox" id="effAll"><span></span></span>全部</label></summary>
+        <div class="card-b tblwrap"><table class="cmp" id="eff"></table></div></details>
     </div>
   </div>
-  <div class="foot">“用”：她一定会参考 · “不用”：永远不进提示词 · “自动”：交给她自己判断（说话方式出现 2 次以上、黑话判断为真黑话才用）</div>
 </section>
 
 <!-- ================= 性格开关 ================= -->
+<div class="subnav" id="setNav" hidden><div class="seg" id="setSeg"><button data-p="knobs" class="on">性格开关</button><button data-p="llm">大模型</button><button data-p="log">日志</button></div>
+  <span class="sp"></span><span class="meta">改了马上生效，存在她的数据里</span></div>
 <section class="page" id="p-knobs">
   <div class="card">
     <div class="card-h"><h3><span data-i="sliders"></span>性格开关</h3><span class="sp"></span>
@@ -753,12 +761,7 @@ body:not(.admin) .side .adm-gt{display:none}
       <div id="knobs"></div>
     </div>
   </div>
-  <div class="card mt">
-    <div class="card-h"><h3><span data-i="trend"></span>每周评测</h3><span class="sp"></span>
-      <span class="hint">每周一挑她说过的 10 句找毛病打分（满分 100）；人设改过会和上一版盲比</span>
-      <button class="btn sm" id="evRun">现在评一次</button><button class="btn sm" id="evCmp">和上一版人设比一比</button><button class="btn sm" id="evProbe">定向测试人格</button></div>
-    <div class="card-b"><div id="evHist"></div><div class="mt" id="evCmpBox"></div></div>
-  </div>
+  
 </section>
 
 <!-- ================= 大模型 ================= -->
@@ -800,15 +803,14 @@ body:not(.admin) .side .adm-gt{display:none}
   </div>
   <div class="logbox" id="logbox"></div>
 </section>
-  </div>
-</div>
 </main>
 
 <nav class="tabbar" id="tabbar" aria-label="主导航（手机）">
-  <button data-p="home" class="on"><span data-i="home"></span>首页</button>
-  <button data-p="life"><span data-i="cal"></span>她的日子</button>
-  <button data-p="her"><span data-i="heart"></span>她</button>
-  <button data-p="chat" data-wb="1"><span data-i="list"></span>工作台</button>
+  <button data-p="home" class="on"><span data-i="sun"></span>今天</button>
+  <button data-p="chat"><span data-i="chat"></span>群聊</button>
+  <button data-p="learn"><span data-i="note"></span>待办<span class="badge" id="todoBadge2"></span></button>
+  <button data-p="life"><span data-i="heart"></span>她</button>
+  <button id="moreBtn" type="button" aria-label="更多：群友、数据、设置"><span data-i="list"></span>更多</button>
 </nav>
 
 <div class="drawer-bg" id="dbg"></div>
@@ -871,33 +873,48 @@ applyTheme(theme);
 $("theme").onclick=()=>{const dark=document.documentElement.dataset.theme?document.documentElement.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;
   theme=dark?"light":"dark";try{localStorage.setItem("gtheme",theme)}catch(e){}applyTheme(theme)};
 
-/* ============ 标签页 ============ */
+/* ============ 标签页（38.0：一层导航） ============ */
 let cur="home",KALL=false;
-/* 18.0 顶栏：首页 / 她的日子 / 她 是“角色视图”；群聊、群友、学到的、管理三页在“工作台”里，左边有侧栏 */
 let LFPREF_ALL=false;
-const WB=["chat","ppl","learn","knobs","llm","log"];let WBLAST="chat";
-function go(p,to){if(!$("p-"+p))p="home";cur=p;if(!S&&p!=="home")loadState();const wb=WB.includes(p);if(wb)WBLAST=p;
-  document.querySelectorAll("#tabs button[data-p],#tabbar button[data-p],#wbSide button[data-p]").forEach(b=>{const on=b.dataset.wb?wb:b.dataset.p===p;
+const WB=["chat","ppl","learn","knobs","llm","log","data"];
+const SETP=["knobs","llm","log"];let HERSEG="life",QSEL="labCard";
+function go(p,to){if(p==="her"){p="life";HERSEG="me"}if(!$("p-"+p))p="home";cur=p;if(!S&&p!=="home")loadState();const wb=WB.includes(p);
+  document.querySelectorAll("#tabs button[data-p],#tabbar button[data-p]").forEach(b=>{const on=b.dataset.p===p||(b.dataset.p==="knobs"&&SETP.includes(p));
     b.classList.toggle("on",on);if(on)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
+  document.querySelectorAll("#setSeg button").forEach(b=>b.classList.toggle("on",b.dataset.p===p));$("setNav").hidden=!SETP.includes(p);
   document.querySelectorAll(".page").forEach(e=>e.classList.toggle("on",e.id==="p-"+p));
   document.body.classList.toggle("on-home",p==="home");$("band").classList.toggle("home",p==="home");
   document.body.classList.toggle("wbmode",wb);document.body.classList.toggle("wb",wb);
   menu(false);
   const tgt=to&&$(to);if(tgt)setTimeout(()=>tgt.scrollIntoView({behavior:"smooth",block:"start"}),300);else window.scrollTo({top:0});
   try{history.replaceState(null,"","#"+p)}catch(e){}
-  ({home:loadState,life:loadLife,chat:loadChat,ppl:loadPeople,her:loadHer,learn:loadLearn,knobs:loadKnobs,llm:loadLLM,log:loadLog}[p]||(()=>{}))();}
-document.querySelectorAll("#tabs button[data-p],#tabbar button[data-p],#wbSide button[data-p]").forEach(b=>b.onclick=()=>go(b.dataset.wb&&!WB.includes(cur)?WBLAST:b.dataset.p));
+  ({home:loadState,life:loadHerAll,chat:loadChat,ppl:loadPeople,learn:loadLearnQ,data:loadData,knobs:loadKnobs,llm:loadLLM,log:loadLog}[p]||(()=>{}))();}
+document.querySelectorAll("#tabs button[data-p],#tabbar button[data-p],#setSeg button[data-p]").forEach(b=>b.onclick=()=>go(b.dataset.p));
+/* “她”：她的日子 / 人设和兴趣 / 她学到的 */
+function showHer(h){HERSEG=h;document.querySelectorAll("#herSeg button").forEach(b=>b.classList.toggle("on",b.dataset.h===h));
+  $("herLife").hidden=h!=="life";$("herMe").hidden=h!=="me";$("herLearn").hidden=h!=="learn";
+  if(h==="me")loadHer();else if(h==="learn")loadLearn()}
+document.querySelectorAll("#herSeg button").forEach(b=>b.onclick=()=>showHer(b.dataset.h));
+function loadHerAll(){loadLife();showHer(HERSEG)}
+/* 待办：一次只看一件 */
+function showQ(q){if(!$(q))q="labCard";QSEL=q;document.querySelectorAll("#qseg button").forEach(b=>b.classList.toggle("on",b.dataset.q===q));
+  document.querySelectorAll("#p-learn .qcard").forEach(c=>c.classList.toggle("qoff",c.id!==q))}
+document.querySelectorAll("#qseg button").forEach(b=>b.onclick=()=>showQ(b.dataset.q));
+function loadLearnQ(){showQ(QSEL);loadLearn().then(()=>loadTodo(true)).catch(()=>{})}
+async function loadData(){await loadState();loadLearn();loadEval()}
 $("refresh").onclick=()=>{menu(false);go(cur)};
-document.addEventListener("click",e=>{const t=e.target.closest("[data-go]");if(t){e.preventDefault();go(t.dataset.go,t.dataset.to)}});
+document.addEventListener("click",e=>{const t=e.target.closest("[data-go]");if(t){e.preventDefault();if(t.dataset.q)QSEL=t.dataset.q;go(t.dataset.go,t.dataset.to)}});
 $("brand").onclick=e=>{e.preventDefault();go("home")};
 function menu(open){$("menu").hidden=!open;$("menuBtn").setAttribute("aria-expanded",open?"true":"false")}
 $("menuBtn").onclick=e=>{e.stopPropagation();menu($("menu").hidden)};
+$("moreBtn").onclick=e=>{e.stopPropagation();menu($("menu").hidden)};
+$("herPic").addEventListener("error",()=>{$("herPic").hidden=true});
 document.addEventListener("click",e=>{if(!$("menu").hidden&&!e.target.closest("#menu"))menu(false)});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")menu(false)});
 $("portrait").addEventListener("error",()=>{$("portrait").hidden=true;$("portraitPh").hidden=false});
 $("saidAva").addEventListener("error",()=>{$("saidAva").hidden=true;$("saidIni").hidden=false});
 applyTod();setInterval(applyTod,60000);
-window.addEventListener("hashchange",()=>{const h=(location.hash||"#home").slice(1);if(h!==cur&&$("p-"+h))go(h)});
+window.addEventListener("hashchange",()=>{const h=(location.hash||"#home").slice(1);if(h!==cur&&(h==="her"||$("p-"+h)))go(h)});
 
 /* ============ 图表（手画 SVG，悬停看数字） ============ */
 function tipAt(el,ev,html){const t=$("tip");t.innerHTML=html;t.style.display="block";
@@ -945,7 +962,7 @@ let S=null, GSEL=null;
 function setAvatar(p){const ch=String(p.name||"?").trim().slice(-1);["ava","ava3"].forEach(id=>{$(id).innerHTML=`${esc(ch)}<img src="avatar/avatar" alt="" onerror="this.remove()">`});
   $("portraitPh").textContent=ch;$("saidIni").textContent=ch;$("portrait").alt=`${p.name}的立绘`;$("eyebrow").textContent=`${p.name}此刻`}
 /* 17.0 时段：早上暖白 / 傍晚玫瑰 / 深夜深紫 */
-function todOf(h){return h>=5&&h<16?"morning":h>=16&&h<21?"evening":"night"}
+function todOf(h){return h>=5&&h<16?"morning":h>=16&&h<19?"evening":"night"}
 function partOf(h){return h<5?"深夜":h<8?"清晨":h<11?"早上":h<13?"中午":h<16?"下午":h<19?"傍晚":h<23?"晚上":"深夜"}
 function applyTod(){const h=new Date().getHours();document.documentElement.dataset.tod=todOf(h);return h}
 function planLines(text){const out=[];for(const raw of String(text||"").split(/\n/)){const l=raw.replace(/^[-*·\s]+/,"").trim();if(!l)continue;
@@ -958,8 +975,8 @@ function renderPlan(el,text,live=true){const L=planLines(text);if(!L.length){el.
   el.innerHTML=L.map(x=>{let cls="";if(live&&x.a){const a=mins(x.a),b=mins(x.b);if(nm>=a&&nm<b)cls="now";else if(nm>=b&&b>a)cls="past"}
     return `<li class="${cls}"><span class="t">${x.a?esc(x.a+"–"+x.b):"·"}</span><span>${esc(x.t)}</span></li>`}).join("")}
 async function loadState(){
-  try{S=await api("/api/state")}catch(e){$("sub").textContent="连不上：程序没在运行？（托盘图标右键 → 重启）";return}
-  const p=S.persona;setAvatar(p);$("name").textContent=`${p.name}的群聊小屋`;document.title=`${p.name} · 群聊小屋`;
+  try{S=await api("/api/state")}catch(e){$("sub").textContent="连不上：服务没在运行？";return}
+  const p=S.persona;setAvatar(p);$("name").textContent=p.name;document.title=`${p.name} · 小屋`;
   const st=S.quiet?"sleep":S.busy?"busy":S.qq.ready?"on":"";
   $("ava").className="ava"+(st?" "+st:"");
   const CH=S.channel==="wechat"?"wechat":"qq",CHN=CH==="wechat"?"微信":"QQ";
@@ -1016,6 +1033,8 @@ async function loadState(){
   {const m=S.groups.length>1;$("groups").classList.toggle("multi",m);   // 好几个群：群卡片并排占一整行
     for(const [id,a,b] of [["recentCard","c8","c12"],["groupsCard","c4","c12"]]){$(id).classList.toggle(a,!m);$(id).classList.toggle(b,m)}}
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{GSEL=+b.dataset.open;go("chat")});
+  $("groupsCard").hidden=S.groups.length<2;
+  paintLock();paintWx();paintHerHero();loadTodo();
   paintIcons();loadToday();
 }
 /* ============ 24.0 今天她做了什么 / 7 天 / 后台提醒 / 生效设置 ============ */
@@ -1027,14 +1046,20 @@ const valS=v=>v===true?"开":v===false?"关":v==null?"—":Array.isArray(v)?v.jo
 async function loadToday(){const gid=HSEL!=="all"?HSEL:"";
   try{TD=await api("/api/today"+(gid?`?gid=${gid}`:""))}catch(e){TD=null;$("todayCard").hidden=$("trendCard").hidden=$("effCard").hidden=true;return}
   $("todayCard").hidden=$("trendCard").hidden=$("effCard").hidden=false;paintToday()}
-function paintAlerts(){const A=[],H=TD.health||{},nm=(S&&S.persona&&S.persona.name)||"她";
-  const WX=(S&&S.wechat)||{};
-  if(CH==="wechat"&&WX.not_logged_in)A.push(`<div class="notice">${icon("info")}<span><b>微信掉登录了</b>（微信官方夜里常这样）：打开 <a href="../wechat/" target="_blank">微信网页窗口</a>（小屋的用户名密码），点“我知道了”→“登录”，再在${esc(nm)}的手机微信上确认，几秒后会自动接上</span></div>`);
+function paintAlerts(){const A=[],N=[],H=TD.health||{},nm=(S&&S.persona&&S.persona.name)||"她";
+  const WX=(S&&S.wechat)||{},ISWX=(S&&S.channel)==="wechat";
+  if(ISWX&&WX.not_logged_in)N.push(["预警 · 微信掉登录了",`打开微信网页窗口，点“我知道了”→“登录”，再在${nm}的手机微信上确认`,'<a class="btn sm" href="../wechat/" target="_blank" rel="noopener">打开微信窗口</a>']);
+  else if(S&&!S.qq.ready)N.push(["预警 · 没接上",ISWX?"微信没接上，正在连回来":"QQ 没接上，正在连回来",""]);
+  if(ISWX&&WX.not_logged_in)A.push(`<div class="notice">${icon("info")}<span><b>微信掉登录了</b>（微信官方夜里常这样）：打开 <a href="../wechat/" target="_blank">微信网页窗口</a>（小屋的用户名密码），点“我知道了”→“登录”，再在${esc(nm)}的手机微信上确认，几秒后会自动接上</span></div>`);
+  if(isStopped(TD.today.stopped))N.push(["叫停中",`还剩 ${leftTxt(TD.today.stopped)}，${fmtTime(TD.today.stopped)} 自动恢复`,`<button class="btn sm" type="button" data-resume="${TD.gid}">恢复说话</button>`]);
+  if(TD.today.dry_run)N.push(["演练中","照常想、照常“说”，但不会真的发消息",""]);
+  for(const [k,v] of Object.entries(H))N.push([k,v.msg||"出错了",""]);
   if(isStopped(TD.today.stopped))A.push(`<div class="notice stopn"><i class="pdot" aria-hidden="true"></i><span><b>叫停中</b>${multi()?`（${esc(gname(TD.gid))}）`:""}：还剩 ${esc(leftTxt(TD.today.stopped))}，${fmtTime(TD.today.stopped)} 自动恢复。这期间${esc(nm)}什么都不说、叫她也不回，提醒顺延；群里发 /go 也能恢复</span><button class="btn sm" type="button" data-resume="${TD.gid}">恢复说话</button></div>`);
   if(TD.today.dry_run)A.push(`<div class="notice dry">${icon("info")}<span><b>演练中</b>：${esc(nm)}照常想、照常“说”，但不会真的发消息，只记进账本</span></div>`);
   for(const [k,v] of Object.entries(H)){const since=v.since||v.ts;
     A.push(`<div class="notice">${icon("info")}<span><b>${esc(k)}</b>：${esc(v.msg||"出错了")}${since?` <span class="muted">· 从 ${esc(fmtDay(since))} ${fmtTime(since)} 开始${v.n>1?`，出现 ${v.n} 次`:""}</span>`:""}</span></div>`)}
   $("alerts").innerHTML=A.join("");
+  $("notesDyn").innerHTML=N.map(([t,x,b])=>`<div class="nt alert"><div class="h"><b>${esc(t)}</b></div>${esc(x)}${b?`<div>${b}</div>`:""}</div>`).join("");
   document.querySelectorAll("[data-resume]").forEach(b=>b.onclick=()=>setStop(+b.dataset.resume,0))}
 const kchars=n=>n>=10000?`${(n/10000).toFixed(1)} 万字`:`${n} 字`;
 function promptSub(p){const cap=p.roster_cap?` / ${p.roster_cap}`:"";
@@ -1060,7 +1085,7 @@ function paintToday(){paintAlerts();const T=TD.today,sd=T.sends||{},L=T.llm||{},
     (()=>{const mm=Math.max(1,...R.map(d=>d.msgs)),mh=Math.max(1,...R.map(d=>d.her)),db=(v,p,c,soft)=>`<span class="db ${soft?"soft":""}" style="--p:${p};--c:${c}">${v}</span>`;
     return R.map((d,i)=>`<tr><th>${i===R.length-1?"今天":esc(d.day)}</th><td class="num">${d.msgs}</td><td class="num">${db(d.her,d.her/mh,"var(--s1)")}</td><td class="num ${d.her_share!=null&&d.her_share>0.25?"hi":""}">${pctS(d.her_share)}</td>`+
       `<td class="num">${d.engaged_rate==null?"—":db(pctS(d.engaged_rate),d.engaged_rate,"var(--s3)")}</td><td class="num">${usdS(d.usd)}</td><td class="num">${pctS(d.cache_hit)}</td></tr>`).join("")})();
-  paintEff()}
+  paintEff();paintFc()}
 function paintEff(){if(!TD)return;const all=$("effAll").checked,E=TD.effective||[],ch=E.filter(x=>x.changed),list=all?E:ch;
   $("effN").textContent=ch.length?`${ch.length} 个和默认不一样`:"全是默认值";
   $("eff").innerHTML=list.length?`<tr><th>设置</th><th>现在</th><th>默认</th><th>来自</th></tr>`+list.map(x=>`<tr><th>${esc(x.label)}</th><td class="eff-v ${x.changed?"win":""}">${esc(valS(x.value))}</td><td class="eff-v muted">${esc(valS(x.default))}</td>`+
@@ -1117,6 +1142,59 @@ function paintCompare(){const G=S.groups;$("cmpCard").hidden=G.length<2;if(G.len
 $("replan").onclick=async()=>{$("replan").disabled=true;$("replan").textContent="在排…";
   try{const r=await api("/api/her/replan",{});if(r.ok){renderPlan($("plan"),r.plan);toast("重新排好了")}else toast(r.error)}catch(e){toast("出错了："+e.message)}
   $("replan").disabled=false;$("replan").textContent="重新排"};
+
+
+/* ============ 38.0 今天：锁屏、她的天气、要你看一眼、7 天预报 ============ */
+const WD="日一二三四五六";
+const WXI={sun:'<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/>',
+cloud:'<path d="M7 18h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 18z"/>',
+rain:'<path d="M7 15h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 15z"/><path d="M9 18l-1 3M13 18l-1 3M17 18l-1 3"/>',
+storm:'<path d="M7 15h10a4 4 0 0 0 0-8 6 6 0 0 0-11.5 1.5A3.3 3.3 0 0 0 7 15z"/><path d="M12 15l-2 4h3l-2 4"/>',
+moon:'<path d="M20 15A8 8 0 1 1 9 4a6 6 0 0 0 11 11z"/>',fog:'<path d="M4 9h16M3 13h18M6 17h12"/>'};
+const wxSvg=k=>`<svg class="i wxi ${k}" viewBox="0 0 24 24" aria-hidden="true">${WXI[k]||WXI.cloud}</svg>`;
+/* 心情 → 天气：只是换个说法，算法不变 */
+function wxOf(){if(!S)return["cloud","多云"];if(S.quiet)return["moon","夜里 · 睡着了"];if(!S.qq.ready)return["fog","起雾 · 掉线了"];
+  const m=String(S.mood||"")+" "+String(S.activity||"");
+  if(/炸毛|生气|气死|烦死|恼火|火大/.test(m))return["storm","雷阵雨"];
+  if(/委屈|难过|伤心|失落|郁闷|丧|寂寞|孤单|没人理/.test(m))return["rain","小雨"];
+  if(/困|懵|刚起|累|迷糊|没睡醒|发呆|无聊|犯困/.test(m))return["cloud","多云"];
+  if(/开心|得意|高兴|兴奋|爽|哈哈|嘿嘿|美滋滋|乐/.test(m))return["sun","晴"];
+  return["sun","晴间多云"]}
+function paintLock(){if(!S)return;const d=new Date();$("lkClock").textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  $("lkDate").textContent=`${d.getMonth()+1}月${d.getDate()}日 星期${WD[d.getDay()]}`;
+  $("lkGroup").textContent=!S.groups.length?"还没配置群":S.groups.length===1?S.groups[0].name:`${S.groups.length} 个群`}
+function paintWx(){if(!S)return;const H=(S.hours||{}).all||[],h=new Date().getHours(),now=H[h]||0,mx=H.length?Math.max(...H):0,mi=H.indexOf(mx);
+  const [k,t]=wxOf(),mood=String(S.mood||"").replace(/[。.]$/,"");
+  $("wxTemp").innerHTML=`${now}<small>条 / 小时</small>`;
+  $("wxCond").innerHTML=`${wxSvg(k)}<span>${esc(t)}${mood?" · "+esc(mood):""}</span>`;
+  $("wxHi").textContent=mx?`今天最热闹 ${mx} 条/时（${mi} 点）`:"今天群里还没人说话";
+  const L=planLines(S.plan).filter(x=>x.a),nm=h*60+new Date().getMinutes();
+  const cells=[`<li class="now"><span>现在</span>${wxSvg(k)}<b>${pad(h)}</b><span>${esc(S.quiet?"睡觉":noTime(S.activity).slice(0,6)||"在群里")}</span></li>`];
+  for(const x of L){const a=mins(x.a),b=mins(x.b);if(b<=nm)continue;
+    cells.push(`<li${a<=nm?' class="now"':""}><span>${esc(x.a)}</span>${wxSvg(a>=19*60||a<5*60?"moon":"sun")}<b>${esc(x.a.split(":")[0])}</b><span title="${esc(x.t)}">${esc(x.t.slice(0,6))}</span></li>`)}
+  if(cells.length===1)cells.push(`<li><span>之后</span>${wxSvg("cloud")}<b>—</b><span>还没排</span></li>`);
+  $("wxHours").innerHTML=cells.slice(0,8).join("");renderPlan($("plan"),S.plan)}
+function paintHerHero(){if(!S)return;const p=S.persona||{};$("herName").textContent=p.formal_name||p.name||"她";
+  $("herSub").textContent=[p.age?`${p.age} 岁`:"",p.birthday?`生日 ${p.birthday}`:"",p.home||""].filter(Boolean).join(" · ");
+  $("herMood").textContent=S.mood?`“${String(S.mood).replace(/[。.]$/,"")}”`:"";const [k,t]=wxOf();$("herWx").innerHTML=wxSvg(k)+esc(t);
+  $("herCp").innerHTML=(p.catchphrases||[]).map(c=>`<span>${esc(c)}</span>`).join("")}
+let TODO=null,TODOT=0;
+async function loadTodo(force){if(!S||!S.groups.length)return;const now=Date.now();if(!force&&TODO&&now-TODOT<300000){paintTodo();return}
+  const g=LSEL||S.groups[0].id;TODOT=now;
+  const R=await Promise.allSettled([api(`/api/label/batch?gid=${g}&n=10`),api(`/api/spot?gid=${g}`),api(`/api/calib/next?gid=${g}`),api(`/api/pairs/next?gid=${g}`)]);
+  const v=i=>R[i].status==="fulfilled"?R[i].value||{}:{};
+  TODO={lab:(v(0).items||[]).length,spot:(v(1).says||[]).length+(v(1).memes||[]).length,calib:(v(2).items||[]).length,pair:v(3).pair?1:0};paintTodo()}
+function paintTodo(){if(!TODO)return;const t=TODO,n=t.lab+t.spot+t.calib+t.pair;
+  ["todoBadge","todoBadge2"].forEach(id=>$(id).textContent=n?String(n):"");
+  [["qnLab",t.lab],["qnSpot",t.spot],["qnCalib",t.calib],["qnPair",t.pair]].forEach(([id,x])=>{$(id).textContent=x||"";$(id).parentElement.classList.toggle("zero",!x)});
+  $("todoHint").textContent=n?`大概 ${Math.max(1,Math.round((t.lab*15+t.spot*10+t.calib*15+t.pair*15)/60))} 分钟`:"";
+  const B=[["labCard",t.lab,"判一判该不该说"],["spotCard",t.spot,"抽查她昨天的话"],["calibCard",t.calib,"给她的话打分"],["pairCard",t.pair,"帮她挑一句"]].filter(x=>x[1]);
+  $("todoRow").innerHTML=B.length?B.slice(0,3).map((x,i)=>`<button type="button" class="${i===0?"go":""}" data-go="learn" data-q="${x[0]}"><b>${x[1]}</b><span>${x[2]}</span></button>`).join("")
+    :'<div class="none">今天没有要你判的，都做完了。</div>'}
+function paintFc(){const R=(TD&&TD.trend)||[];if(!R.length){$("fc").innerHTML='<div class="meta">还没数据</div>';return}
+  const tot=d=>(d.msgs||0)+(d.her||0),mx=Math.max(1,...R.map(tot));
+  $("fc").innerHTML=R.map((d,i)=>{const T=tot(d),k=T>=50?"sun":T>=15?"cloud":T>0?"fog":"moon",hi=d.her_share!=null&&d.her_share>0.3;
+    return `<div class="d"><span>${i===R.length-1?"今天":esc(d.day)}</span>${wxSvg(k)}<span class="n">${T} 条</span><span class="rg" title="群友 ${d.msgs}，她 ${d.her}"><i style="width:${(T/mx*100).toFixed(1)}%"></i>${d.her?`<u style="left:${(d.her/mx*100).toFixed(1)}%"></u>`:""}</span><span class="t ${hi?"hi":""}">她 ${d.her}${hi?" 偏多":""}</span></div>`}).join("")}
 
 /* ============ 群聊 ============ */
 let CH={msgs:[],more:false,q:""};
@@ -1801,25 +1879,24 @@ for(const [id,photo] of [["lfShare",false],["lfPhoto",true]])$(id).onclick=async
   try{const r=await api("/api/life/share",{gid:LFSEL,photo});toast(r.message||r.error);loadLife()}catch(e){toast("出错了："+e.message)}finally{b.disabled=false}};
 
 /* ============ 4.2 管理 / 回首页 ============ */
-function setAdmin(on){document.body.classList.toggle("admin",on);try{localStorage.setItem("gadmin",on?"1":"")}catch(e){}
-  $("admTxt").textContent=on?"关上管理":"打开管理（性格开关、大模型、日志）";
-  document.querySelectorAll(".adm-only").forEach(e=>e.hidden=!on)}
-let ADM=false;try{ADM=!!localStorage.getItem("gadmin")}catch(e){}
-$("admbtn").onclick=()=>{menu(false);ADM=!document.body.classList.contains("admin");setAdmin(ADM);if(!ADM&&["knobs","llm","log"].includes(cur))go("home");else if(ADM)go("knobs")};
+function setAdmin(){document.body.classList.add("admin");document.querySelectorAll(".adm-only").forEach(e=>e.hidden=false)}
+let ADM=true;
 if(/^\/(yuki|qq|wx)\//.test(location.pathname)){$("hub").hidden=false;$("hub").innerHTML=icon("home")}
 
 /* ============ 定时刷新 ============ */
 setInterval(()=>{if(document.hidden)return;
   if(cur==="home")loadState();
+  else if(cur==="data")loadState();
   else if(cur==="log"&&$("lauto").checked)loadLog()},20000);
 setInterval(()=>{if(!document.hidden&&cur==="chat"&&!CH.q&&GSEL)fetchMsgs(true).catch(()=>{})},5000);
+setInterval(()=>{if(!document.hidden&&cur==="home"&&S)paintLock()},15000);
 setInterval(()=>{if(!document.hidden&&cur==="log"&&$("lauto").checked)loadLog()},5000);
 
 paintIcons();
 const start=(location.hash||"#home").slice(1);
 if(["knobs","llm","log"].includes(start))ADM=true;
 setAdmin(ADM);
-go(["home","life","chat","ppl","her","learn","knobs","llm","log"].includes(start)?start:"home");
+go(["home","life","chat","ppl","her","learn","data","knobs","llm","log"].includes(start)?start:"home");
 </script>
 </body>
 </html>

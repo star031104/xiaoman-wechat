@@ -239,7 +239,7 @@ def test_life_page_api(cfg, brain):
             L = await (await c.get(f"/api/life?gid={GROUP}")).json()
             assert not L["plans"] and not L["prefs"]
             page = await (await c.get("/")).text()
-            assert 'data-p="life"' in page and 'class="adm" data-p="knobs"' in page
+            assert 'data-p="life"' in page and 'data-p="knobs"' in page and 'id="p-data"' in page
     asyncio.run(go())
 
 

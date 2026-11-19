@@ -92,6 +92,9 @@ def test_deepseek_search(monkeypatch, cfg):
     assert w.ds_key == "sk-test" and not w.ds_first          # 20.4.3 默认 Tavily 在前（这里没配 Tavily，直接 DeepSeek）
     sent = {}
 
+    from datetime import date, timedelta
+    recent, older = (date.today() - timedelta(days=2)).isoformat(), (date.today() - timedelta(days=19)).isoformat()   # 38.0 日期跟着今天走，不然过一个月就被“只要最近 30 天”滤掉
+
     class R:
         status_code = 200
         text = ""
@@ -102,9 +105,9 @@ def test_deepseek_search(monkeypatch, cfg):
         def json(self):
             return {"results": [
                 {"title": "低分", "url": "https://a.com/1", "summary": "x" * 50, "rerank_score": 0.5, "authority": 1,
-                 "date": "2026-10-01T02:00:00Z", "site_name": "A"},
+                 "date": f"{older}T02:00:00Z", "site_name": "A"},
                 {"title": "aspas 合同", "url": "https://www.vlr.gg/p", "summary": "合同到 2027", "rerank_score": 2.1,
-                 "authority": 3, "date": "2026-10-18T02:00:00Z", "site_name": "VLR"}]}
+                 "authority": 3, "date": f"{recent}T02:00:00Z", "site_name": "VLR"}]}
 
     class C:
         def __init__(self, *a, **k):
@@ -123,7 +126,7 @@ def test_deepseek_search(monkeypatch, cfg):
             return R()
     monkeypatch.setattr(httpx, "AsyncClient", C)
     res, eng = asyncio.run(w.agent_search("aspas 近况", 2, days=30, site="vlr.gg", question="aspas 最近状态怎么样"))
-    assert eng == "DeepSeek" and res[0]["title"] == "aspas 合同" and res[0]["date"] == "2026-10-18"
+    assert eng == "DeepSeek" and res[0]["title"] == "aspas 合同" and res[0]["date"] == recent
     assert "site:vlr.gg" in sent["body"]["query"] and "after:" in sent["body"]["query"]
     assert len(sent["all"]) == 2 and "after:" not in sent["all"][1]["query"]          # 20.1 带日期结果太少：不带日期补一次
     assert sent["body"]["ori_question"] == "aspas 最近状态怎么样"
