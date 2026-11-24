@@ -5,7 +5,8 @@
                                                             导出要复核的那段（默认：上次复核到的之后）
   python scripts/mem_review.py apply 操作单.json [--dry]     校验并写入（先备份数据库；--dry 只校验不写）
   python scripts/mem_review.py undo RUN                     把某一次复核整个退回
-  python scripts/mem_review.py check                        复核后的体检：临时的还剩几条、琐碎的占比、重复的、超长的
+  python scripts/mem_review.py check                        复核后的体检：临时的还剩几条、琐碎的占比、重复的、超长的、看图统计
+  python scripts/mem_review.py image ID                     38.2 把第 ID 张图（qq_images）存成 jpg 看（微信的图在 attach 目录，可能要 sudo）
 
 --home 默认 home/wechat；群只有一个时自动认，不然用 --gid。操作单的格式见 docs/记忆复核.md。
 """
@@ -59,7 +60,7 @@ def her_name(home: Path) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["status", "export", "apply", "undo", "check"])
+    ap.add_argument("cmd", choices=["status", "export", "apply", "undo", "check", "image"])
     ap.add_argument("arg", nargs="?")
     ap.add_argument("--home", default="home/wechat")
     ap.add_argument("--gid", type=int)
@@ -118,8 +119,59 @@ def main():
             by_imp[r.get("importance") or 2] = by_imp.get(r.get("importance") or 2, 0) + 1
         print(json.dumps({"valid": len(rows), "provisional": sum(1 for r in rows if not r.get("review")),
                           "importance": by_imp, "near_dups": dups[:20],
-                          "no_quote": sum(1 for r in rows if r.get("review") and not r.get("quote"))},
+                          "no_quote": sum(1 for r in rows if r.get("review") and not r.get("quote")),
+                          "images_7d": image_stats(db, gid)},
                          ensure_ascii=False, indent=1))
+    elif a.cmd == "image":
+        out = save_image(db, home, int(a.arg))
+        print(json.dumps({"file": str(out) if out else None}, ensure_ascii=False))
+
+
+def image_stats(db, gid: int) -> dict:
+    """38.2 最近 7 天的看图：几张、一开始是缩略图 / 没加载出来的、补到原图的、被问后细看的。"""
+    from aigroup.chat.vision import ensure_schema
+    ensure_schema(db.conn)
+    now = time.time()
+    rows = db.conn.execute("SELECT status, recovered, deep FROM qq_images WHERE group_id=? AND ts>? AND msg_row IS NOT NULL",
+                           (gid, now - 7 * 86400)).fetchall()
+    bad = sum(1 for r in rows if r["status"] != "ok" or r["recovered"])
+    rec = sum(1 for r in rows if r["recovered"])
+    return {"images": len(rows), "thumb_or_missing": bad, "recovered": rec,
+            "still_bad": sum(1 for r in rows if r["status"] != "ok"),
+            "deep_looks": sum(len(json.loads(r["deep"] or "[]")) for r in rows)}
+
+
+def save_image(db, home: Path, img_id: int) -> Path | None:
+    """38.2 qq_images 里第 img_id 张图 → data/mem_review/img-<id>.jpg（微信本地的图要解开）。"""
+    r = db.conn.execute("SELECT url FROM qq_images WHERE id=?", (img_id,)).fetchone()
+    if not r:
+        return None
+    url = str(r["url"] or "")
+    data = None
+    if url.startswith("wximg:"):
+        import yaml
+        from aigroup.wechat.wximg import ImageStore
+        _, chat, name, ts = url.split(":", 3)
+        cfg = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8")) or {}
+        root = Path(str((cfg.get("wechat") or {}).get("data_dir") or ""))
+        for acc in sorted(root.glob("wxid_*")):
+            st = ImageStore(acc, acc.name, root, None)
+            try:
+                data = st.load(chat, name, float(ts or 0), True)
+            except PermissionError:
+                print("没权限读微信的图：用 sudo 跑这条命令")
+                return None
+            if data:
+                break
+    elif url.startswith("http"):
+        import urllib.request
+        data = urllib.request.urlopen(url, timeout=15).read()            # noqa: S310
+    if not data:
+        return None
+    out = home / "data" / "mem_review" / f"img-{img_id}.jpg"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
+    return out
 
 
 if __name__ == "__main__":

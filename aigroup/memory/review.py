@@ -178,6 +178,19 @@ def export(db, gid: int, tz, *, from_id: int | None = None, to_id: int | None = 
                           "due": datetime.fromtimestamp(float(r["due"]), tz).strftime("%Y-%m-%d %H:%M"), "kind": r["kind"]})
     except Exception:  # noqa: BLE001
         pass
+    images = []
+    try:                                                    # 38.2 这批消息里的图：看一眼描述对不对
+        for r in db.conn.execute("SELECT * FROM qq_images WHERE group_id=? AND msg_row>=? AND msg_row<=? ORDER BY id",
+                                 (gid, lo, int(rows[-1]["id"]) if rows else lo)).fetchall():
+            info = json.loads(r["info"] or "{}")
+            images.append({"id": r["id"], "msg": r["msg_row"], "who": r["who"], "status": r["status"],
+                           "recovered": r["recovered"], "kind": info.get("kind", ""), "line": r["line"],
+                           "text": info.get("text") or [], "sensitive": info.get("sensitive", ""),
+                           "speakers": [f"{x.get('who')}：{str(x.get('said', ''))[:20]}" for x in (info.get("speakers") or [])[:4]],
+                           "deep": [f"{d.get('q')} → {d.get('a')}" for d in json.loads(r["deep"] or "[]")],
+                           "ocr": str(r["ocr"] or "")[:120]})
+    except Exception:  # noqa: BLE001
+        images = []
     last = int(rows[-1]["id"]) if rows else mark
     more = bool(rows) and db.conn.execute("SELECT COUNT(*) FROM qq_group_messages WHERE group_id=? AND id>? AND id<=?",
                                           (gid, last, hi)).fetchone()[0] > 0
@@ -185,7 +198,8 @@ def export(db, gid: int, tz, *, from_id: int | None = None, to_id: int | None = 
             "from_id": lo, "to_id": last, "more": more, "mark": mark,
             "members": {str(k): v for k, v in members(db, gid, self_id).items()},
             "context": [m(r, True) for r in before], "messages": [m(r) for r in rows],
-            "facts": facts, "profiles": {str(k): v for k, v in profs.items()}, "notes": notes, "plans": plans}
+            "facts": facts, "profiles": {str(k): v for k, v in profs.items()}, "notes": notes, "plans": plans,
+            "images": images}
 
 
 # ======================= 写入 =======================
@@ -467,6 +481,55 @@ class Applier:
         after = dict(self.db.conn.execute("SELECT * FROM qq_plans WHERE id=?", (before["id"],)).fetchone())
         self._log(op, True, "取消了" if op.get("drop") else "改了日子", f"plan:{before['id']}", before, after)
 
+    # ---------- 38.2 看图描述改正：{"id", "gist"?, "kind"?, "sensitive"?, "text"?: [只留这几处原字]} ----------
+    def image(self, op: dict):
+        try:
+            r = self.db.conn.execute("SELECT * FROM qq_images WHERE id=? AND group_id=?", (int(op.get("id")), self.gid)).fetchone()
+        except Exception:  # noqa: BLE001
+            r = None
+        if not r:
+            return self._log(op, False, "这张图不存在")
+        from aigroup.chat.vision import KINDS, make_line, on_ocr
+        info = json.loads(r["info"] or "{}")
+        new = dict(info)
+        if op.get("gist"):
+            new["gist"] = str(op["gist"])[:40]
+        if op.get("kind"):
+            if op["kind"] not in KINDS:
+                return self._log(op, False, f"kind 只能是：{'、'.join(KINDS)}")
+            new["kind"] = op["kind"]
+        if "sensitive" in op:
+            from aigroup.chat.vision import SENS_ALIAS, SENSITIVE
+            sv = SENS_ALIAS.get(str(op["sensitive"] or ""), str(op["sensitive"] or ""))
+            if sv and sv not in SENSITIVE:
+                return self._log(op, False, f"sensitive 只能是：{'、'.join(SENSITIVE)}（不是就写空）")
+            new["sensitive"] = sv
+            if not new["sensitive"]:
+                new.pop("sensitive")
+            new["ask_ok"] = not new.get("sensitive")
+        if "text" in op:
+            tx = [str(t) for t in op.get("text") or []]
+            bad = [t for t in tx if not on_ocr(t, r["ocr"] or "")]
+            if bad:
+                return self._log(op, False, f"「{bad[0]}」OCR 里没有：原字只能留 OCR 认出来的")
+            new["text"] = tx
+            if not tx:
+                new.pop("text")
+        if new == info:
+            return self._log(op, False, "什么都没改")
+        line = make_line(new, r["status"])
+        msg = self.db.conn.execute("SELECT content FROM qq_group_messages WHERE id=?", (r["msg_row"],)).fetchone() if r["msg_row"] else None
+        before = {"info": info, "line": r["line"], "content": msg["content"] if msg else None}
+        if self.dry:
+            return self._log(op, True, f"（试跑）→ {line}")
+        self.db.conn.execute("UPDATE qq_images SET info=?, line=?, gist=?, kind=?, updated=? WHERE id=?",
+                             (json.dumps(new, ensure_ascii=False), line, new.get("gist", ""), new.get("kind", ""), time.time(), r["id"]))
+        content = None
+        if msg:
+            content = re.sub(r"\[图片(?:[：:][^\]]*)?\]", f"[图片：{line[:100]}]", str(msg["content"] or ""), count=1)
+            self.db.conn.execute("UPDATE qq_group_messages SET content=? WHERE id=?", (content[:500], r["msg_row"]))
+        self._log(op, True, f"→ {line}", f"image:{r['id']}", before, {"info": new, "line": line, "content": content})
+
     # ---------- 一张操作单 ----------
     def run(self, sheet: dict) -> dict:
         if int(sheet.get("gid") or self.gid) != self.gid:
@@ -487,6 +550,11 @@ class Applier:
                 self._log(op, False, f"出错：{e}")
         for uid, fields in (sheet.get("profiles") or {}).items():
             self.profile(uid, fields, replace=bool(sheet.get("profiles_replace")))
+        for op in sheet.get("images") or []:
+            try:
+                self.image(op)
+            except Exception as e:  # noqa: BLE001
+                self._log(op, False, f"出错：{e}")
         ok = sum(1 for r in self.results if r["ok"])
         bad = len(self.results) - ok
         to_id = sheet.get("to_id")
@@ -537,6 +605,14 @@ def undo(db, run_id: int) -> int:
             n += 1
         elif target.startswith("plan:") and before:
             db.conn.execute("UPDATE qq_plans SET status=?, due=? WHERE id=?", (before["status"], before["due"], int(target[5:])))
+            n += 1
+        elif target.startswith("image:") and before:
+            iid = int(target[6:])
+            db.conn.execute("UPDATE qq_images SET info=?, line=? WHERE id=?",
+                            (json.dumps(before.get("info") or {}, ensure_ascii=False), before.get("line") or "", iid))
+            row = db.conn.execute("SELECT msg_row FROM qq_images WHERE id=?", (iid,)).fetchone()
+            if row and row["msg_row"] and before.get("content") is not None:
+                db.conn.execute("UPDATE qq_group_messages SET content=? WHERE id=?", (before["content"], row["msg_row"]))
             n += 1
         elif target.startswith("profile:"):
             uid = int(target[8:])
@@ -606,4 +682,15 @@ def render_text(data: dict) -> str:
     if data.get("plans"):
         out.append("## 约好的事（没到点的）")
         out += [f"- {p['due']} {p['who']}：{p['what']}（{p['kind']}）" for p in data["plans"]]
+    if data.get("images"):
+        out.append("## 看图（这批消息里的图：描述对不对、有没有编字 / 认错人 / 该算敏感没算）")
+        for im in data["images"]:
+            extra = "｜".join(x for x in [
+                f"原字：{'、'.join(im['text'])}" if im.get("text") else "",
+                f"敏感：{im['sensitive']}" if im.get("sensitive") else "",
+                f"谁说的：{'／'.join(im['speakers'])}" if im.get("speakers") else "",
+                f"细看：{'／'.join(im['deep'])}" if im.get("deep") else "",
+                f"OCR：{im['ocr']}" if im.get("ocr") else ""] if x)
+            out.append(f"- 图{im['id']}（消息 {im['msg']}，{im['who']}，{im['status']}{'，补到原图' if im.get('recovered') else ''}）"
+                       f"{im['line']}" + (f"｜{extra}" if extra else ""))
     return "\n".join(out)

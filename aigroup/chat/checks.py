@@ -1014,13 +1014,15 @@ class ChecksMixin:
             ("old_backlog", lambda: self._old_backlog(gid, target_row, mentioned, now)),
             # 36.2 E 看不清的图认出牌子 / 型号，和“报价没出处”同属“具体说法没出处”，记在 price_src 名下
             ("price_src", lambda: (self._price_src(gid, text, web) if hasattr(self, "_price_src") else "")
-             or (self._brand_unseen(gid, text, now) if hasattr(self, "_brand_unseen") else "")),
+             or (self._brand_unseen(gid, text, now) if hasattr(self, "_brand_unseen") else "")
+             or (self._img_unseen(gid, text, now) if hasattr(self, "_img_unseen") else "")),       # 38.2 引了没对上的 OCR 字
             ("ask_told", lambda: self._ask_told(gid, text, target_uid, mentioned, now) if hasattr(self, "_ask_told") else ""),
             ("filler", lambda: self._filler(gid, bubbles, mentioned) if hasattr(self, "_filler") else ""),
             ("ask_humans", lambda: self._ask_humans(gid, text, target_row, mentioned) if hasattr(self, "_ask_humans") else ""),
             ("sore_tease", lambda: self._sore_tease(gid, text, target_uid, now) if hasattr(self, "_sore_tease") else ""),   # 36.3
-            ("social_slip", lambda: self._social_slip(gid, text, target_uid, target_row, mentioned, now)
-             if hasattr(self, "_social_slip") else ""),                                                            # 36.6
+            ("social_slip", lambda: (self._social_slip(gid, text, target_uid, target_row, mentioned, now)
+                                     if hasattr(self, "_social_slip") else "")
+             or (self._img_sensitive(gid, text, now) if hasattr(self, "_img_sensitive") else "")),            # 38.2 敏感的图别点评细节                                                            # 36.6
             ("overtalk", lambda: self._overtalk(gid, text, target_uid, target_row, mentioned, now, web=web)
              if hasattr(self, "_overtalk") else ""),                                                               # 36.6
         ]

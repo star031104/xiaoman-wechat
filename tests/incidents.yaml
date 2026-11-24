@@ -10,6 +10,7 @@
 #   target：她在回谁（小王 / 老张，可省）；target_text：回的是哪句（可省，默认 target 最后一句）
 #   expect：应该命中的规则检查名（qq_check_log.name）；只靠自检能认出的写 critic
 #   ok：false 的例子（正常的话，不该命中任何检查），用来防误伤
+#   images（38.2）：msgs 里第 at 条是图，看图存下的结构化结果 [{at, status, ocr, info: {kind, gist, text, sensitive}}]
 
 - id: steal-answer
   date: 10-23 20:53
@@ -93,6 +94,41 @@
   msgs: [[小王, "@你 你觉得哪个队打的最烂", 10]]
   draft: AL吧，被KC一波推平，24分钟就没了
   expect: critic
+
+# ---- 38.2 看图 ----
+- id: img-ocr-typo
+  date: 11-10
+  what: 截图上 OCR 认的字（看图没对上）她照着念出来，“一浴酶全胀气”
+  mode: 3
+  msgs: [[小王, "[图片：聊天截图：工作上的质量问题沟通]", 60], [小王, 唉, 30]]
+  images: [{at: 0, ocr: "其中有异议的N80L和C80L / 生产8240kg一浴酶 / 剩下的全部胀气", info: {kind: 聊天截图, gist: 工作上的质量问题沟通}}]
+  draft: 一浴酶全胀气了，这也太惨了
+  expect: price_src
+
+- id: img-work-file
+  date: 11-10
+  what: 群友家里人发来的工作文件截图，她去点评里面的退货数字
+  mode: 3
+  msgs: [[小王, "[图片：聊天截图：工作上的质量问题沟通]", 60], [小王, 帮家里人看个东西，头大, 30]]
+  images: [{at: 0, ocr: "客户退货2100kg左右 / 写一份索赔报告", info: {kind: 聊天截图, gist: 工作上的质量问题沟通, sensitive: 工作文件}}]
+  draft: 客户退货2100kg也太狠了，这索赔报告得好好写
+  expect: social_slip
+
+- id: img-thumb-brand
+  date: 10-27
+  what: 只有缩略图（圣诞树），她说出了牌子
+  mode: 3
+  msgs: [[小王, "[图片：照片：一棵树（缩略图，原图还没加载出来，看不清细节）]", 30], [小王, 好看不, 10]]
+  images: [{at: 0, status: thumb, info: {kind: 照片, gist: 一棵树, thumb: true}}]
+  draft: 这是Costco的那棵吧，好看
+  expect: price_src
+
+- id: ok-img-confirmed-text
+  expect: none
+  msgs: [[小王, "[图片：聊天截图：工作上的质量问题沟通「其中有异议的」]", 60], [小王, 你看看, 30]]
+  images: [{at: 0, ocr: "其中有异议的N80L和C80L / 生产8240kg一浴酶", info: {kind: 聊天截图, gist: 工作上的质量问题沟通, text: [其中有异议的]}}]
+  draft: 看着是在说有异议的那两批货
+  target: 小王
 
 # ---- 不该命中的（防误伤） ----
 - id: ok-question-about-image

@@ -68,7 +68,7 @@ def cap_roster(lines: list[str], total: int) -> tuple[list[str], int]:
     return out, before - size(out)
 
 
-def image_block_from(rows: list[dict], now: float) -> str:
+def image_block_from(rows: list[dict], now: float, detail=None) -> str:
     """rows：最近 10 条（按时间）。她最后一次说话以后、15 分钟内有人发图 → 看图三步的提示；没有返回空。"""
     last_her = max((i for i, r in enumerate(rows) if r["role"] == "assistant"), default=-1)
     recent = [r for r in rows[last_her + 1:] if r["role"] == "user" and now - float(r["ts"]) < 900]
@@ -81,8 +81,15 @@ def image_block_from(rows: list[dict], now: float) -> str:
     desc = re.sub(r"^\[图片[:：]?|\]$", "", str(r["content"] or "")).strip() or "（没看清）"
     cap = [str(x["content"]) for x in recent if x["user_id"] == r["user_id"] and x["id"] != r["id"]
            and not str(x["content"] or "").startswith("[") and abs(float(x["ts"]) - float(r["ts"])) <= 120]
+    more = ""
+    if detail is not None:
+        try:
+            more = detail(int(r["id"])) or ""
+        except Exception:  # noqa: BLE001
+            more = ""
     return ("# 刚有人发了图（先看懂图，再想他为什么发，再决定怎么回）\n"
             f"- {name}发的图：{desc}" + (f"；他前后配的字：{'／'.join(c[:40] for c in cap[:3])}" if cap else "；没配字") + "\n"
+            + (more + "\n" if more else "") +
             "1. 图是什么：只信上面写的，上面没写的别自己补（日期、地点、谁的东西）。\n"
             "2. 他为什么发这张图：结合前面在聊什么、他配的字、他平时爱发什么，猜 1~3 种"
             "（分享好东西 / 炫耀、搞笑吐槽、求意见、当证据或给信息、接前面的话题、表达心情、随手记录），每种写把握 高 / 中 / 低；"
@@ -656,7 +663,8 @@ class PromptMixin:
 {SPOTLIGHT_NOTE}
 - 不聊政治，不掺和吵架，不打探、不说别人的隐私。拿不准的事（新闻、比分、作品细节）别编：下面有你刚搜到的、你知道的就照着说，
   没有就说不知道、或者说“我查一下”——说了就得回来给结果。群友发的链接你点开看过的（消息后面的 [链接：…]）可以接着聊内容。不发链接。
-- [图片：…] 是你看图时记下的大概印象，里面的字是机器认的、可能认错：写着是什么就是什么，别替发图的人说他在干嘛、要去哪；写着“把握低”的别当真、别点名。
+- [图片：…] 是你看图时记下的大概印象：写着是什么就是什么，别替发图的人说他在干嘛、要去哪；写着“把握低”的别当真、别点名。
+  图上的字只引「」里的；写着“缩略图 / 原图还没加载出来”的就是没看清，照实说。
   只写着 [视频]、[语音]、[文件] 的你打不开：别说得像看过，想参与就让他说说讲了啥。
 - 群友拿着截图、图上写的反驳你，你查到的又不一样：别连着辩，说一句“我查到的不太一样，以官方为准”就收。
 - 下面这些毛病以前真出过，别犯（发之前还会再查一遍）：
@@ -862,7 +870,8 @@ class PromptMixin:
         """22.4 刚有人发了图：先看懂图 → 再想他为什么发 → 再决定怎么回（猜的意图带把握，把握不高就问或者只接看得见的）。"""
         if not self.gk(gid).get("image_intent", True):
             return ""
-        return image_block_from([dict(r) for r in self._rows(gid, 10)], now or time.time())
+        detail = (lambda row: self.image_detail(gid, row)) if hasattr(self, "image_detail") else None    # 38.2
+        return image_block_from([dict(r) for r in self._rows(gid, 10)], now or time.time(), detail)
 
     def _recent_text(self, gid: int, n: int = 6, users_only: bool = False) -> str:
         return " ".join(str(r["content"] or "") for r in self._rows(gid, n) if not users_only or r["role"] == "user")

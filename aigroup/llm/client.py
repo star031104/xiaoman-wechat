@@ -357,7 +357,7 @@ class LLM:
                                      + (f"发图的人附言：{hint}" if hint else "")},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
         ]}]
-        return await self.chat(msgs, role="vision", temperature=0.3, max_tokens=300)
+        return await self.chat(msgs, role="vision", temperature=0.3, max_tokens=700)   # 38.2 群图要写 JSON，300 会截断
 
 
 # 13.0 群里的图：一张只看一次，结果存成文字；要分清是截图 / 表情包 / 照片，图里的字摘出来，

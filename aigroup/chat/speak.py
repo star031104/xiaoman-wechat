@@ -1285,6 +1285,9 @@ class SpeakMixin:
             read_task = None
             if hasattr(self, "read_turn") and self.gk(gid).get("read_turn", True):
                 read_task = asyncio.ensure_future(self.read_turn(gid, mentioned))   # 26.0 先读懂：字面 / 实际意思、梗（和“想一想”一起跑）
+            img_task = None
+            if hasattr(self, "image_zoom_wait") and texts:
+                img_task = asyncio.ensure_future(self.image_zoom_wait(gid, who))   # 38.2 有人问刚才那张图：拿原图再细看（最多等 15 秒）
             zoom_task = None
             if hasattr(self, "video_zoom") and texts:
                 zoom_task = asyncio.ensure_future(self.video_zoom(gid, " ".join(str(x or "") for x in texts[-3:])))   # 31.0 追问视频某个时间：放大看
@@ -1309,6 +1312,13 @@ class SpeakMixin:
                     tm["read"] = round(time.time() - t_r, 1)
                 except Exception as e:  # noqa: BLE001
                     log.info("群 %s：读懂这几句没成：%s", gid, e)
+            if img_task is not None:
+                try:
+                    t_i = time.time()
+                    await asyncio.wait_for(img_task, 17)
+                    tm["img_zoom"] = round(time.time() - t_i, 1)
+                except Exception as e:  # noqa: BLE001
+                    log.info("群 %s：细看图没赶上：%s", gid, e)
             if zoom_task is not None:
                 try:
                     await asyncio.wait_for(zoom_task, 25)

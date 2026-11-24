@@ -1,6 +1,6 @@
-"""GroupChat 的 30 个 Mixin 按“她怎么过一天”分成 7 层（35.0 起；37.0 把按版本号起名的六个文件改成按功能起名）。
+"""GroupChat 的 31 个 Mixin 按“她怎么过一天”分成 7 层（35.0 起；37.0 把按版本号起名的六个文件改成按功能起名）。
 
-  看到   Senses     收消息、补历史、看图看视频听语音、点开链接、刷到的东西（ingest、feed）
+  看到   Senses     收消息、补历史、看图看视频听语音、点开链接、刷到的东西（ingest、feed、vision）
   时机   Timing     攒一批 → 读局面 → 算该不该说 → 冷场冒泡、等等再说、说多了收着
                     （idle、listener、pacing 攒批、restraint 安静期和额度、room 局面判断、followups 约定和打气、empathy 读情绪）
   说话   Voice      拼提示词 → 问大模型 → 发前检查 → 发出去、记账（prompt、speak、checks、slips、outbox、promise、meme）
@@ -40,6 +40,7 @@ from aigroup.chat.room import RoomMixin
 from aigroup.chat.slips import SlipsMixin
 from aigroup.chat.social import SocialMixin
 from aigroup.chat.speak import SpeakMixin
+from aigroup.chat.vision import VisionMixin
 from aigroup.eval.weekly import EvalMixin
 from aigroup.memory.autobio import AutobioMixin
 from aigroup.memory.digest import DigestMixin
@@ -49,8 +50,8 @@ from aigroup.memory.style import StyleMixin
 from aigroup.net.knowledge import NetMixin
 
 
-class Senses(FeedMixin, IngestMixin):
-    """看到：收消息（ingest）、刷到的候选（feed）。"""
+class Senses(FeedMixin, IngestMixin, VisionMixin):
+    """看到：收消息（ingest）、刷到的候选（feed）、看图（vision，38.2）。"""
 
 
 class Timing(IdleMixin, ListenerMixin, PacingMixin, RestraintMixin, RoomMixin, FollowupsMixin, EmpathyMixin):

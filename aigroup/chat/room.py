@@ -26,7 +26,7 @@ from collections import Counter
 log = logging.getLogger("aigroup.room")
 
 MEDIA_ONLY = re.compile(r"^\s*(\[(图片|位置|视频|链接|分享|文件|小程序|卡片|聊天记录)[^\]]*\]\s*)+$")
-MEDIA_UNCLEAR = re.compile(r"看不清|缩略图|模糊|没下完|只看了封面")
+MEDIA_UNCLEAR = re.compile(r"看不清|缩略图|模糊|没下完|没加载出来|只看了封面")
 OPT_OUT = re.compile(r"(小满|你)\s*(别|不要|少)\s*(理|@|艾特|搭理|回)我|别\s*@\s*我了?")
 OPT_IN = re.compile(r"(小满|你)\s*(可以|能)?\s*(理|@|搭理)我了?$|小满理我")
 # 冲着她、不看她刚说没说都算嫌她的（“催命鬼又来了”离她上一句 23 分钟）

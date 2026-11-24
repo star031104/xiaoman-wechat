@@ -31,6 +31,11 @@ def build(gc, case):
                              ts=now - ago)
         rows.setdefault(who, []).append({"id": rid, "role": "assistant" if who == "她" else "user", "content": text,
                                          "ts": now - ago})
+    all_rows = gc._rows(GROUP, len(case.get("msgs") or []) or 1)
+    for im in case.get("images") or []:                 # 38.2 这条消息是图：看图的结构化结果（qq_images）
+        row = all_rows[int(im.get("at", 0))]
+        gc._img_save(GROUP, {"status": im.get("status", "ok"), "line": im.get("line", ""), "hash": f"h{row['id']}",
+                             "info": im.get("info") or {}, "ocr": im.get("ocr", "")}, int(row["id"]), "u", "x")
     tgt = case.get("target")
     return (WHO.get(tgt), rows[tgt][-1]) if tgt and rows.get(tgt) else (None, None)
 

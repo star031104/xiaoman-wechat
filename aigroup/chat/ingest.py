@@ -131,10 +131,14 @@ class IngestMixin:
             return                                  # 35.0 /我的记录、/删除我的记录 确认（谁发的管谁的）
         called = self._called(text)             # 只看他自己打的字（不看引用的内容、图片描述）
         st = self._st(gid)
+        img_rec = None
         if f.images and self.gk(gid).get("see_images") and self.brain.llm.vision:
-            desc = await self._look(f.images[0], name, gid)
-            if desc:
-                text = text.replace("[图片]", f"[图片：{clean_member_text(desc, 100)}]", 1)
+            try:                                    # 38.2 看图 2.0：结构化地看，细节存 qq_images（chat/vision.py）
+                img_rec = await self._see(f.images[0], name, gid, uid=uid)
+            except Exception as e:  # noqa: BLE001
+                log.info("群图片没看成：%s", e)
+            if img_rec and img_rec.get("line"):
+                text = text.replace("[图片]", f"[图片：{clean_member_text(img_rec['line'], 100)}]", 1)
         if (getattr(f, "videos", None) and self.gk(gid).get("see_videos", True) and self.brain.llm.vision
                 and hasattr(self, "_look_video") and "[视频]" in text):
             try:
@@ -224,6 +228,8 @@ class IngestMixin:
             st.batch_texts = []
             st.batch_first_ts = now
         mid_row = self._record(gid, uid, name, text, ev.get("message_id"), to_her=mentioned, reply_to=f.reply_id)
+        if img_rec is not None and hasattr(self, "after_image"):
+            self.after_image(gid, mid_row, img_rec, f.images[0], name, uid)      # 38.2 存细节；缩略图排队补原图
         st.batch_texts.append((ev.get("message_id"), uid, text, meta))
         st.last_msg_ts = now
         if self.mood is not None:
@@ -292,6 +298,7 @@ class IngestMixin:
         called: list[dict] = []
         live: list[tuple] = []                     # 她不在时、但就在刚才（20 分钟内）群友说的：上线后当成刚看到的一批
         n = 0
+        imgs: list[tuple] = []
         for m in fresh:
             uid = int(m.get("user_id") or (m.get("sender") or {}).get("user_id") or 0)
             ts = float(m.get("time") or now)
@@ -320,8 +327,10 @@ class IngestMixin:
             mentioned = f.mentioned or reply_to_her or self._called(clean_member_text(f.text))
             if f.mentioned:
                 text = "@你 " + text
-            self._record(gid, uid, name, text, m.get("message_id"), to_her=mentioned, reply_to=f.reply_id, ts=ts)
+            row_id = self._record(gid, uid, name, text, m.get("message_id"), to_her=mentioned, reply_to=f.reply_id, ts=ts)
             n += 1
+            if f.images and self.gk(gid).get("see_images") and self.brain.llm.vision and now - ts < 12 * 3600:
+                imgs.append((row_id, f.images[0], name, uid, ts))     # 38.2 她不在时发的图：补完消息后在后台看
             if now - ts < 20 * 60:
                 live.append((m.get("message_id"), uid, text, {"at_other": False, "reply_other": False,
                                                                 "sticker": text.startswith("[表情")}))
@@ -347,6 +356,8 @@ class IngestMixin:
             old = [old] if isinstance(old, dict) else list(old)
             self.db.set(f"qq_night_{gid}", (old + called)[-6:])
             log.info("群 %s：她不在的时候 %s 叫过她，等会儿补一句", gid, "、".join(dict.fromkeys(c["who"] for c in called)))
+        if imgs and hasattr(self, "img_backfill"):
+            self._spawn(self.img_backfill(gid, imgs[-int(self.gk(gid).get("img_backfill_max", 6) or 0):]))
         self._after_catch_up(gid, bool(called), live, prev_ts)
         return n
 
@@ -461,59 +472,3 @@ class IngestMixin:
         if desc:
             self.db.set(key, desc)
         return desc
-
-    async def _look(self, url: str, who: str = "群友", gid: int | None = None) -> str:
-        thumb = False
-        if str(url).startswith("wximg:") and hasattr(self.ob, "fetch_image"):      # 13.1 微信本地的图（30.0 没下完的不算）
-            data = await self.ob.fetch_image(url)
-            thumb = bool(getattr(self.ob, "last_was_thumb", False))
-        else:
-            data = await fetch_bytes(url)
-        if not data:
-            return ""
-        import base64
-        import hashlib
-
-        from aigroup.llm.client import GROUP_IMAGE_PROMPT
-        key = "qq_img_" + hashlib.md5(data).hexdigest()[:16]            # 同一张图（转发、复读）只看一次
-        old = self.db.get(key)
-        if old:
-            return str(old)
-        if len(data) > 1_200_000:                               # 13.1 太大的图先缩一下（看图模型反正会缩，省流量）
-            try:
-                import io
-
-                from PIL import Image
-                im = Image.open(io.BytesIO(data)).convert("RGB")
-                im.thumbnail((1600, 1600))
-                b = io.BytesIO()
-                im.save(b, "JPEG", quality=85)
-                data = b.getvalue()
-            except Exception:  # noqa: BLE001
-                pass
-        names = "、".join(self.member_names(gid)[:12]) if gid is not None and hasattr(self, "member_names") else ""
-        ocr = ""
-        if not thumb and self.gk(gid).get("ocr", True):    # 34.0 截图先过 OCR：引用图上的字只认这里
-            try:
-                from aigroup.net.ocr import ocr_text
-                ocr = await asyncio.wait_for(asyncio.to_thread(ocr_text, data), 10)
-            except Exception as e:  # noqa: BLE001
-                log.info("OCR 没跑完：%s", e)
-            if len(re.sub(r"\W", "", ocr)) < 6:
-                ocr = ""
-        try:
-            desc = (await self.brain.llm.describe_image(
-                base64.b64encode(data).decode(), "",
-                prompt=GROUP_IMAGE_PROMPT.format(who=who, names=names or "（不知道）")
-                + ("\n\n（30.1 这是一张很小的缩略图，原图没下下来：只写看得清的大概是什么；看不清的字一个也别写、别猜，别写人名；"
-                   "最后加一句“缩略图，看不清细节”。）" if thumb else "")
-                + (f"\n\n（OCR 认出的图上原文，要写图上的字只能照这个抄，别自己补：{ocr}）" if ocr else "")))
-            desc = trim_desc(desc, 180)
-            if ocr:
-                desc += f"｜图上原字（OCR）：{ocr[:120]}"          # 22.2 以前硬截 100 字，会截在引号中间（“電話「5478”）
-            if desc:
-                self.db.set(key, desc)
-            return desc
-        except Exception as e:  # noqa: BLE001
-            log.info("群图片没看清：%s", e)
-            return ""
