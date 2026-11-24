@@ -80,7 +80,7 @@ def test_dodge_check(cfg, brain):
 
 def test_judge_cap_when_mentioned(cfg, brain):
     gc, _ = _gc(cfg, brain)
-    assert float(gc.gk(GROUP).get("agent_mention_judge_cap")) >= 40
+    assert float(gc.gk(GROUP).get("agent_mention_judge_cap")) >= 25          # 38.3 40 → 25（8 秒先回一句）
     note = gc._source_note(GROUP, "判断 英雄联盟 AL TL 谁最差", "judge")
     assert "gol.gg" in note
     assert gc._source_note(GROUP, "判断 英雄联盟 AL TL 谁最差", "fact") == ""

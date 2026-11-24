@@ -93,7 +93,7 @@ def test_names_not_jargon(cfg, brain):
 def test_bagu_and_template_pile():
     from aigroup.chat.quality import check, template_kinds
     s, h = check("看完了。最扎的是结尾，不是剧情而是配乐")
-    assert s >= 6 and any("句式扎堆" in x for x in h) and "八股开头" in h
+    assert s >= 6 and any("句式扎堆" in x for x in h) and "八股" in h
     assert check("最接近的是销售岗")[0] == 0          # 普通的“最…的是”不算
     assert check("感觉应该是周五吧")[0] == 0
     assert template_kinds("一边吃一边看") == ["一边…一边"]

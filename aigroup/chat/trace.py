@@ -88,7 +88,7 @@ class Tracer:
             (trace, time.time(), gid, gate_id, int(mentioned), (why or "")[:200],
              h, body, (raw or "")[:2000],
              json.dumps(plan, ensure_ascii=False) if plan else "", json.dumps(sent, ensure_ascii=False),
-             quality[:200], outcome, json.dumps(timing or {})))
+             quality[:4000], outcome, json.dumps(timing or {})))   # 38.3 挑句子的明细是 JSON，别截坏
         self.db.conn.commit()
 
     def prune(self, days: float = KEEP_DAYS):

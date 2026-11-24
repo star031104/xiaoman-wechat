@@ -278,16 +278,6 @@ class SocialMixin:
         return (f"- 这个群大家一条一般 {L} 个字左右。short 就是一条 {max(6, 2 * L)} 个字以内；"
                 "不用每句都比别人长，能短就短（被认真问到时照常说清楚）。")
 
-    def too_long(self, gid: int, bubbles: list[str], *, mentioned: bool, long_ok: bool) -> bool:
-        """主动说、不是要长说的，一条超过群友中位的 length_max_ratio 倍（至少 18 个字）。"""
-        if mentioned or long_ok or not self.gk(gid).get("length_match", True):
-            return False
-        L = self.group_len(gid)
-        if not L:
-            return False
-        lim = max(18, int(L * float(self.gk(gid).get("length_max_ratio", 3))))
-        return any(len(b) > lim for b in bubbles)
-
     # ================= 21.1 群里一句话调她的话量（Koala：控制要能随时调、由程序执行） =================
     QUIET = re.compile(r"(少说(点|几句|两句)|安静(点|会儿|一会)|闭嘴|别说了|别插嘴|话(好|太|真)多|太吵|消停|别刷屏|"
                        r"(回答|回|说)了?(两|三)(次|遍)|说两遍|又说一遍|别抢|别接话|"

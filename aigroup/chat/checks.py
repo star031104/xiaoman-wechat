@@ -249,31 +249,37 @@ def critic_verdict(d: dict, v2: bool = True) -> str:
             + (f"（有问题的是「{span}」）" if span else ""))
 
 
+# 26.0 / 38.3 自检和挑句子共用的“先分清是哪种话 + 尺度例子”
+CRITIC_GUIDE = (
+    "先判断她这句是哪种话：事实（会被当真的说法）/ 看法（她的判断、倾向、锐评）/ 玩笑（夸张、反问、调侃、自嘲、损人）/ 关心。\n"
+    "- 玩笑：只看第 1、4、6、7、9、13、14、19、20、24 条和会不会伤人（被纠正时拿玩笑带过算第 4 条；别人在吐槽、诉苦时拿他开涮、"
+    "催他回去干活算第 19 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
+    "- 看法：只看里面当成事实说的数字有没有依据，和第 17、18、19 条（只有评语没有撑着的事实 / 把证实的事说成传闻 / 拿没证实的去纠正人、说教）；看法本身不算毛病，更不要让她“别下结论”\n"
+    "- 事实：照清单全看\n"
+    "例子（照这个尺度）：\n"
+    "- 群友发白图，她说“白得这么彻底，是截图截到灵魂了” → 玩笑，没毛病\n"
+    "- 群友让她跟老板请假，她说“行，我这就给老板发条消息” → 玩笑，没毛病\n"
+    "- 群友问“所以你觉得是 hope 最差吗”，她说“我没说他最差啊，被针对不等于打得烂” → 看法，没毛病（他是在追问，不是纠正）\n"
+    "- 群友说“al不是打了33分钟吗”，她回“认字，广告太抢戏了” → 第 4 条（真错了还找补）\n"
+    "- 群友说“al不是打了33分钟吗”，她回“啊我记错了，是 33 分钟” → 没毛病（认错改口不算说第二遍）\n"
+    "- 群友问别人“老王这个能开发票吗”，她抢着答 → 第 1 条\n"
+    "- 群友吐槽“领导又点人去开会了”“还是科技公司好”，她说“行，情商用完了，接着开会去吧” → 第 19 条（吐槽时说风凉话、催他回去干活）\n"
+    "- 群友吐槽“领导又点人去开会了”，她说“这也太折磨了，换我也受不了” → 关心，没毛病\n"
+    "- 群友上午说进不了学校、发了哭的表情，傍晚她说“自己被门禁除名，倒挺会安慰人” → 第 24 条（拿他难过的事开涮）\n"
+    "- 她前面说过“今晚早点躺”，这句又说“今晚就别熬了” → 第 6 条（关心、叮嘱换个说法也算说第二遍）\n"
+    "- 她前面说过“我小本本记岔了”，群友又问了一件别的事，她说“我不记得了，你问老张” → 没毛病（回答新问题时说不记得不算说第二遍）\n"
+    "- 群友说自己发烧 37.3，她说“跑完步 37.3 那叫状态好” → 第 13 条（把话理解错、安错了）\n"
+    "- 资料里没有，她说“T1现在1-1，输DK那局是领先被翻的” → 第 5 条（当事实说的比分）\n\n"
+)
+
+
 def critic_prompt(ctx: str, text: str, brief: str = "", read: str = "", v2: bool = True, mine: str = "", sore: str = "") -> str:
     """26.0 统一自检的提示词（线上和 release_gate --llm 用同一份）。"""
     if v2:
         # 26.0 先分清每句是什么话：玩笑、夸张、反问不拿去对资料；只指出毛病，不写替换句（以前重写照抄“改成……”，发出去全是检查员的口吻）
         prompt = ("你帮一个在朋友群里聊天的人看她要发的话有没有犯下面这些毛病。只看这些；没犯就是没犯，别挑剔说法，别嫌不够稳妥。\n"
                   + "\n".join(f"{i + 1}. {m}" for i, m in enumerate(FAILURE_MODES))
-                  + "\n\n先判断她这句是哪种话：事实（会被当真的说法）/ 看法（她的判断、倾向、锐评）/ 玩笑（夸张、反问、调侃、自嘲、损人）/ 关心。\n"
-                  "- 玩笑：只看第 1、4、6、7、9、13、14、19、20、24 条和会不会伤人（被纠正时拿玩笑带过算第 4 条；别人在吐槽、诉苦时拿他开涮、"
-                  "催他回去干活算第 19 条）；夸张、反话本来就不是真的，不算编、不算断言\n"
-                  "- 看法：只看里面当成事实说的数字有没有依据，和第 17、18、19 条（只有评语没有撑着的事实 / 把证实的事说成传闻 / 拿没证实的去纠正人、说教）；看法本身不算毛病，更不要让她“别下结论”\n"
-                  "- 事实：照清单全看\n"
-                  "例子（照这个尺度）：\n"
-                  "- 群友发白图，她说“白得这么彻底，是截图截到灵魂了” → 玩笑，没毛病\n"
-                  "- 群友让她跟老板请假，她说“行，我这就给老板发条消息” → 玩笑，没毛病\n"
-                  "- 群友问“所以你觉得是 hope 最差吗”，她说“我没说他最差啊，被针对不等于打得烂” → 看法，没毛病（他是在追问，不是纠正）\n"
-                  "- 群友说“al不是打了33分钟吗”，她回“认字，广告太抢戏了” → 第 4 条（真错了还找补）\n"
-                  "- 群友说“al不是打了33分钟吗”，她回“啊我记错了，是 33 分钟” → 没毛病（认错改口不算说第二遍）\n"
-                  "- 群友问别人“老王这个能开发票吗”，她抢着答 → 第 1 条\n"
-                  "- 群友吐槽“领导又点人去开会了”“还是科技公司好”，她说“行，情商用完了，接着开会去吧” → 第 19 条（吐槽时说风凉话、催他回去干活）\n"
-                  "- 群友吐槽“领导又点人去开会了”，她说“这也太折磨了，换我也受不了” → 关心，没毛病\n"
-                  "- 群友上午说进不了学校、发了哭的表情，傍晚她说“自己被门禁除名，倒挺会安慰人” → 第 24 条（拿他难过的事开涮）\n"
-                  "- 她前面说过“今晚早点躺”，这句又说“今晚就别熬了” → 第 6 条（关心、叮嘱换个说法也算说第二遍）\n"
-                  "- 她前面说过“我小本本记岔了”，群友又问了一件别的事，她说“我不记得了，你问老张” → 没毛病（回答新问题时说不记得不算说第二遍）\n"
-                  "- 群友说自己发烧 37.3，她说“跑完步 37.3 那叫状态好” → 第 13 条（把话理解错、安错了）\n"
-                  "- 资料里没有，她说“T1现在1-1，输DK那局是领先被翻的” → 第 5 条（当事实说的比分）\n\n"
+                  + "\n\n" + CRITIC_GUIDE
                   + f"# 最近的群聊（最后几条最新）\n{ctx}\n\n"
                   + (f"# 最近几句群友话的意思（读过的）\n{read}\n\n" if read else "")
                   + (f"{sore}\n（第 24 条对着这里看）\n\n" if sore else "")
@@ -975,23 +981,14 @@ class ChecksMixin:
         return out[-limit:]
 
     # ================= 汇总 =================
-    async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
-                       mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None,
-                       recheck: bool = False, quiet: bool = False) -> list[str]:
-        """发前检查。返回要处理的问题（只包含开关是 on 的）；shadow 的只记录。
-        27.1 只留模型一次看不全、要查历史或状态的 10 个（回过、问过、承诺、说法族 / 口头禅、叫错人、照抄、视频还在看、躲判断、翻旧事、接错人），
-        其余的毛病都在 FAILURE_MODES 里交给统一自检（以前同一个毛病提示词、正则、自检各写一遍，三处打架）。
-        recheck（24.0）：重写以后再查一遍——只跑规则检查（不再调模型），不记日志。"""
-        if not bubbles:
-            return []
-        text = " ".join(str(b) for b in bubbles if b and not str(b).startswith("[表情包"))
+    def rule_findings(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
+                      mentioned: bool = False, web: str = "", now: float | None = None) -> list[tuple[str, str, str]]:
+        """38.3 发前规则（不含自检、不记日志）→ [(规则名, 开关 on/shadow, 说明)]。多写几句挑一句时每一句都过一遍。"""
+        text = " ".join(str(b) for b in bubbles or [] if b and not str(b).startswith("[表情包"))
         if not text.strip():
             return []
-        now = time.time()
-        found: list[tuple[str, str]] = []
+        now = now or time.time()
         mode = {c: self.check_mode(gid, c) for c in CHECKS}
-        if recheck:
-            mode["critic"] = "off"
         rules = [
             ("ask_repeat", lambda: self._ask_repeat(gid, text, target_uid, now)),
             ("addressee", lambda: self._addressee(gid, text, target_uid, target_row if not mentioned else None)),
@@ -1026,11 +1023,37 @@ class ChecksMixin:
             ("overtalk", lambda: self._overtalk(gid, text, target_uid, target_row, mentioned, now, web=web)
              if hasattr(self, "_overtalk") else ""),                                                               # 36.6
         ]
+        out = []
         for name, fn in rules:
             if mode[name] != "off":
-                w = fn()
+                try:
+                    w = fn()
+                except Exception as e:  # noqa: BLE001
+                    log.info("规则 %s 出错：%s", name, e)
+                    w = ""
                 if w:
-                    found.append((name, w))
+                    out.append((name, mode[name], w))
+        return out
+
+    async def checks22(self, gid: int, bubbles: list[str], *, target_uid=None, target_row: dict | None = None,
+                       mentioned: bool = False, gate_id=None, web: str = "", image: dict | None = None,
+                       recheck: bool = False, quiet: bool = False) -> list[str]:
+        """发前检查。返回要处理的问题（只包含开关是 on 的）；shadow 的只记录。
+        27.1 只留模型一次看不全、要查历史或状态的 10 个（回过、问过、承诺、说法族 / 口头禅、叫错人、照抄、视频还在看、躲判断、翻旧事、接错人），
+        其余的毛病都在 FAILURE_MODES 里交给统一自检（以前同一个毛病提示词、正则、自检各写一遍，三处打架）。
+        recheck（24.0）：重写以后再查一遍——只跑规则检查（不再调模型），不记日志。"""
+        if not bubbles:
+            return []
+        text = " ".join(str(b) for b in bubbles if b and not str(b).startswith("[表情包"))
+        if not text.strip():
+            return []
+        now = time.time()
+        found: list[tuple[str, str]] = []
+        mode = {c: self.check_mode(gid, c) for c in CHECKS}
+        if recheck:
+            mode["critic"] = "off"
+        found = [(n, w) for n, _m, w in self.rule_findings(gid, bubbles, target_uid=target_uid, target_row=target_row,
+                                                             mentioned=mentioned, web=web, now=now)]
         if mode["critic"] != "off":
             w = await self._critic(gid, text, mentioned, [n for n, _ in found], web=web, target_uid=target_uid)
             if w:
@@ -1050,15 +1073,8 @@ class ChecksMixin:
                 log.info("群 %s 检查（只记录）%s：%s", gid, name, why)
         return out
 
-    async def _critic(self, gid: int, text: str, mentioned: bool, already: list[str], web: str = "",
-                      target_uid=None) -> str:
-        """23.3 统一的发前自检：一个便宜模型拿着“出过的毛病清单”（FAILURE_MODES，每条都来自日报里确认过的事）
-        看这句该不该改。正则检查是初筛：已经命中了就不再问（省钱）；每小时有上限。
-        24.0：把她这次查到的资料也给它（以前看不到，把查到的真比分当成编的，让她改成“不写具体比分”）。"""
-        if already or not getattr(self, "brain", None) or not hasattr(self, "_allow"):
-            return ""
-        if not self._allow(f"critic_{gid}", int(self.gk(gid).get("critic_per_hour", 30) or 0)):
-            return ""
+    def _critic_ctx(self, gid: int, text: str, web: str = "", target_uid=None) -> tuple[str, str, str, str, str]:
+        """自检 / 挑句子共用的上下文：(最近 10 条聊天, 查到的资料, 读懂的意思, 她今天说过的, 这几天谁难过过)。"""
         names = self.names(gid)
         rows10 = self._rows(gid, 10)
         lab = self._speaker_labels(gid, rows10) if hasattr(self, "_speaker_labels") else {}     # 25.0 带称呼，认得出谁说的
@@ -1086,6 +1102,18 @@ class ChecksMixin:
                 sore = self.sore_block(gid, about=self.sore_about(gid, text, target_uid))
             except Exception:  # noqa: BLE001
                 sore = ""
+        return ctx, brief, read, mine, sore
+
+    async def _critic(self, gid: int, text: str, mentioned: bool, already: list[str], web: str = "",
+                      target_uid=None) -> str:
+        """23.3 统一的发前自检：一个便宜模型拿着“出过的毛病清单”（FAILURE_MODES，每条都来自日报里确认过的事）
+        看这句该不该改。正则检查是初筛：已经命中了就不再问（省钱）；每小时有上限。
+        24.0：把她这次查到的资料也给它（以前看不到，把查到的真比分当成编的，让她改成“不写具体比分”）。"""
+        if already or not getattr(self, "brain", None) or not hasattr(self, "_allow"):
+            return ""
+        if not self._allow(f"critic_{gid}", int(self.gk(gid).get("critic_per_hour", 30) or 0)):
+            return ""
+        ctx, brief, read, mine, sore = self._critic_ctx(gid, text, web, target_uid)
         prompt = critic_prompt(ctx, text, brief, read, v2=bool(self.gk(gid).get("critic_v2", True)), mine=mine, sore=sore)
         try:
             out = await asyncio.wait_for(self.brain.llm.chat([{"role": "user", "content": prompt}], role="gate",

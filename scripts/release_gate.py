@@ -52,10 +52,12 @@ def last_release() -> tuple[float, str]:
 
 
 async def critic_recall() -> None:
-    """拿真的大模型跑统一自检：回归集里每一条“该认出”的，自检认出没有；“不该命中”的有没有误伤。"""
+    """拿真的大模型跑挑句子那一步（38.3 起线上用 choose.judge_prompt，以前是统一自检）：回归集里每一条“该认出”的，
+    挑选认出没有（标了清单里的毛病，或者打 ≤2 分）；“不该命中”的有没有误伤。"""
     import yaml
     sys.path.insert(0, str(ROOT))
-    from aigroup.chat.checks import critic_prompt, critic_verdict
+    from aigroup.chat.checks import STYLE_IDX
+    from aigroup.chat.choose import judge_prompt, parse_judge
     from aigroup.core.config import load_config
     from aigroup.llm.client import LLM, parse_json
     cases = yaml.safe_load((ROOT / "tests" / "incidents.yaml").read_text(encoding="utf-8"))
@@ -74,13 +76,14 @@ async def critic_recall() -> None:
             continue                        # 36.4 门控 / 提示词的事，test_incidents 已经管了，不是自检的事
         ctx = "\n".join(f"{w}：{t}" for w, t, _ in c.get("msgs") or [])
         mine = "\n".join(f"- {t}" for w, t, _ in c.get("msgs") or [] if w == "她")        # 27.1 线上自检也看她今天说过的
-        prompt = critic_prompt(ctx, c["draft"], str(c.get("web") or ""), mine=mine)          # 26.0 和线上同一份提示词
+        prompt = judge_prompt(ctx, [c["draft"]], brief=str(c.get("web") or ""), mine=mine, mentioned=True)   # 和线上同一份
         try:
-            out = await llm.chat([{"role": "user", "content": prompt}], role="gate", temperature=0.0, max_tokens=200)
+            out = await llm.chat([{"role": "user", "content": prompt}], role="gate", temperature=0.0, max_tokens=220)
         except Exception as e:  # noqa: BLE001
             print(f"  ? {c['id']} 没问成：{e}")
             continue
-        bad = bool(critic_verdict(parse_json(out, {}) or {}))
+        jc = (parse_judge(out, 1).get("cands") or {}).get(1) or {}
+        bad = bool((jc.get("bad") and jc["bad"] not in STYLE_IDX) or float(jc.get("score", 5)) <= 2)
         rule = c.get("expect") not in ("critic", "none")      # 有规则检查管（test_incidents 已经保证规则认得出）
         if c.get("expect") in ("none", "pass"):
             fp += bad
@@ -91,10 +94,10 @@ async def critic_recall() -> None:
             by_rule += rule and not bad
             if not bad and not rule:
                 gaps.append(c["id"])
-            tag = "✓" if bad else (f"· 自检没认出，规则 {c['expect']} 认出" if rule else "✗ 都没认出")
+            tag = "✓" if bad else (f"· 挑句子没认出，规则 {c['expect']} 认出" if rule else "✗ 都没认出")
             print(f"  {tag} {c['id']}（{c.get('what', '')}）")
-    print(f"统一自检：认出 {hit}/{hit + miss}，误伤 {fp}")
-    print(f"合起来（规则 + 自检）：认出 {hit + by_rule}/{hit + miss}，都没认出 {len(gaps)}" + (f"：{'、'.join(gaps)}" if gaps else ""))
+    print(f"挑句子（模型）：认出 {hit}/{hit + miss}，误伤 {fp}")
+    print(f"合起来（规则 + 挑句子）：认出 {hit + by_rule}/{hit + miss}，都没认出 {len(gaps)}" + (f"：{'、'.join(gaps)}" if gaps else ""))
     if room:                                # 36.4 局面判断：模型自己判对几条（判错的还有规则兜底，test_incidents 管）
         from aigroup.chat.room import ROOM_PROMPT
         ok = 0

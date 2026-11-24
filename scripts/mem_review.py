@@ -120,11 +120,35 @@ def main():
         print(json.dumps({"valid": len(rows), "provisional": sum(1 for r in rows if not r.get("review")),
                           "importance": by_imp, "near_dups": dups[:20],
                           "no_quote": sum(1 for r in rows if r.get("review") and not r.get("quote")),
-                          "images_7d": image_stats(db, gid)},
+                          "images_7d": image_stats(db, gid), "her_scores": score_stats(db, gid)},
                          ensure_ascii=False, indent=1))
     elif a.cmd == "image":
         out = save_image(db, home, int(a.arg))
         print(json.dumps({"file": str(out) if out else None}, ensure_ascii=False))
+
+
+def score_stats(db, gid: int) -> dict:
+    """38.3 复核时给她打的分：最近 3 天 / 之前 7 天的均分、≤2 分占比、常见毛病、挑句子挑对的比例。"""
+    now = time.time()
+
+    def part(a, b):
+        rows = db.conn.execute("SELECT score, tags, pick FROM qq_human_score WHERE group_id=? AND src='claude-review' AND ts>? AND ts<=?",
+                               (gid, now - a * 86400, now - b * 86400)).fetchall()
+        if not rows:
+            return {"n": 0}
+        tags: dict = {}
+        for r in rows:
+            for t in [x for x in str(r["tags"] or "").split("、") if x]:
+                tags[t] = tags.get(t, 0) + 1
+        picks = [r["pick"] for r in rows if r["pick"]]
+        return {"n": len(rows), "avg": round(sum(r["score"] for r in rows) / len(rows), 2),
+                "low": round(sum(1 for r in rows if r["score"] <= 2) / len(rows), 2),
+                "tags": dict(sorted(tags.items(), key=lambda x: -x[1])[:8]),
+                "pick_right": round(picks.count("对") / len(picks), 2) if picks else None}
+    try:
+        return {"last3d": part(3, 0), "prev7d": part(10, 3)}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def image_stats(db, gid: int) -> dict:

@@ -20,7 +20,8 @@ def _rec(gc, uid, name, text, ts, role="user"):
 def test_defaults():
     assert DEFAULTS["social_read"] == "on" and DEFAULTS["social_read_speak"] == "shadow"
     assert DEFAULTS["critic_enforce"] == [4, 5, 19, 21, 24]        # 36.2 加 19（吐槽时说风凉话）
-    assert DEFAULTS["agent_filler"] is False and DEFAULTS["agent_filler_gen"] is False
+    # 38.3 重新打开：只在被叫到、要查、8 秒还没查完时先回一句（10 分钟最多一次、3 分钟里已说 2 条就不发）
+    assert DEFAULTS["agent_filler"] is True and DEFAULTS["agent_filler_after"] == 8
 
 
 def test_huh_new_words():

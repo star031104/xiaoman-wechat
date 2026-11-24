@@ -683,7 +683,8 @@ class AgentMixin:
                 ("agent_mention_deep_cap", 25) if deep else ("agent_mention_quick_cap", 12)
             deadline = min(deadline, float(g.get(cap[0], cap[1])))
         want_filler, filler = filler, None
-        if want_filler and mentioned and g.get("agent_filler", True) and deep:
+        if want_filler and mentioned and g.get("agent_filler", True) and (deep or deadline > float(g.get("agent_filler_after", 8) or 0) + 3):
+            # 38.3 快查也算：交卷时间比“先回一句”的秒数还长得多，就照样先回
             # 21.1 先用她自己的口气短回一句，查完再补。23.3 查得快就不发这句（10-24“我去手机查一下哈”+ 答案连着 5 条）：
             # 过 agent_filler_after 秒还没查完才发
             after = float(g.get("agent_filler_after", 10) or 0)

@@ -1,9 +1,9 @@
-"""GroupChat 的 31 个 Mixin 按“她怎么过一天”分成 7 层（35.0 起；37.0 把按版本号起名的六个文件改成按功能起名）。
+"""GroupChat 的 32 个 Mixin 按“她怎么过一天”分成 7 层（35.0 起；37.0 把按版本号起名的六个文件改成按功能起名）。
 
   看到   Senses     收消息、补历史、看图看视频听语音、点开链接、刷到的东西（ingest、feed、vision）
   时机   Timing     攒一批 → 读局面 → 算该不该说 → 冷场冒泡、等等再说、说多了收着
                     （idle、listener、pacing 攒批、restraint 安静期和额度、room 局面判断、followups 约定和打气、empathy 读情绪）
-  说话   Voice      拼提示词 → 问大模型 → 发前检查 → 发出去、记账（prompt、speak、checks、slips、outbox、promise、meme）
+  说话   Voice      拼提示词 → 问大模型（写 3 句）→ 每句过规则、挑一句 → 发出去、记账（prompt、speak、checks、choose、slips、outbox、promise、meme）
   身份   Identity   人设 v2、关系四档、按钮梗、情绪、想念（character）+ 她自己的经历（autobio）+ 人物慢慢长（grow）
   关系   Social     群友画像、熟悉度、关系网、像人指标（people、social、insight、humane）
   记忆   Recall     整理印象 / 记的事、带出处的摘要、说话风格（digest、episodes、style）
@@ -20,6 +20,7 @@ from __future__ import annotations
 from aigroup.agent.mixin import AgentMixin
 from aigroup.chat.character import CharacterMixin
 from aigroup.chat.checks import ChecksMixin
+from aigroup.chat.choose import ChooseMixin
 from aigroup.chat.empathy import EmpathyMixin
 from aigroup.chat.feed import FeedMixin
 from aigroup.chat.feedback import FeedbackMixin
@@ -59,8 +60,8 @@ class Timing(IdleMixin, ListenerMixin, PacingMixin, RestraintMixin, RoomMixin, F
     安静期 / 拦过的意思 / 额度按时段摊（restraint）、局面判断（room）、约定和打气（followups）、痛点和情绪（empathy）。"""
 
 
-class Voice(SpeakMixin, PromptMixin, ChecksMixin, SlipsMixin, OutboxMixin, PromiseMixin, MemeMixin):
-    """说话：说（speak）、提示词（prompt）、发前检查（checks、slips）、发件箱和叫停（outbox）、答应的事（promise）、梗（meme）。"""
+class Voice(SpeakMixin, PromptMixin, ChecksMixin, ChooseMixin, SlipsMixin, OutboxMixin, PromiseMixin, MemeMixin):
+    """说话：说（speak）、提示词（prompt）、发前检查（checks、slips）、多写几句挑一句（choose，38.3）、发件箱和叫停（outbox）、答应的事（promise）、梗（meme）。"""
 
 
 class Identity(CharacterMixin, AutobioMixin, GrowMixin):

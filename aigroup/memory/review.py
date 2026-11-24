@@ -60,10 +60,52 @@ MARK = "mem_review_to_{}"
 DROP_WHY = {"玩笑", "琐碎", "记错", "重复", "过期", "隐私", "不是他的事", "被取代"}
 
 
+SCORE_COLS = {"src": "TEXT NOT NULL DEFAULT ''", "tags": "TEXT NOT NULL DEFAULT ''", "better": "TEXT NOT NULL DEFAULT ''",
+              "pick": "TEXT NOT NULL DEFAULT ''", "msg_id": "INTEGER"}
+# 38.3 给她的话打分时用的毛病标签（docs/记忆复核.md 有说明）；和挑句子的 4 条原则对得上
+SCORE_TAGS = ("评人不接话", "自夸", "助手腔", "交报告", "太长", "连发", "读错人", "读错场面", "编", "硬接", "复读",
+              "该说没说", "说教", "伤人", "答非所问", "好")
+
+
 def ensure_schema(conn):
     conn.executescript(SCHEMA)
     ensure_columns(conn, "qq_facts", FACT_COLS)
+    from aigroup.eval.calib import SCHEMA as SCORE_SCHEMA
+    conn.executescript(SCORE_SCHEMA)
+    ensure_columns(conn, "qq_human_score", SCORE_COLS)
     conn.commit()
+
+
+def her_turns(db, gid: int, rows: list) -> list[dict]:
+    """38.3 这批消息里她说的每一句 + 当时写了哪几句、各扣多少分、选了哪句（qq_trace.quality，38.3 以后才有）。"""
+    out = []
+    for r in rows:
+        if r["role"] != "assistant":
+            continue
+        ts = float(r["ts"])
+        tr = None
+        for t in db.conn.execute("SELECT trace, sent, quality FROM qq_trace WHERE group_id=? AND ts BETWEEN ? AND ? "
+                                 "AND outcome='say' ORDER BY ts DESC", (gid, ts - 180, ts + 5)).fetchall():
+            try:
+                sent = json.loads(t["sent"] or "[]")
+            except ValueError:
+                sent = []
+            if any(plain(x) and plain(x) in plain(r["content"]) or plain(r["content"]) in plain(x) for x in sent):
+                tr = t
+                break
+        pick = {}
+        if tr is not None:
+            try:
+                q = json.loads(tr["quality"] or "{}")
+                if isinstance(q, dict) and q.get("cands"):
+                    pick = {"chosen": q.get("chosen"),
+                            "cands": [{"k": c.get("k"), "text": str(c.get("text") or "")[:80],
+                                       "total": c.get("total"), "hard": bool(c.get("hard"))} for c in q["cands"]]}
+            except ValueError:
+                pick = {}
+        out.append({"msg": int(r["id"]), "trace": tr["trace"] if tr is not None else "", "text": str(r["content"] or ""),
+                    **({"pick": pick} if pick else {})})
+    return out
 
 
 def plain(t: str) -> str:
@@ -199,7 +241,7 @@ def export(db, gid: int, tz, *, from_id: int | None = None, to_id: int | None = 
             "members": {str(k): v for k, v in members(db, gid, self_id).items()},
             "context": [m(r, True) for r in before], "messages": [m(r) for r in rows],
             "facts": facts, "profiles": {str(k): v for k, v in profs.items()}, "notes": notes, "plans": plans,
-            "images": images}
+            "images": images, "her_turns": her_turns(db, gid, rows)}
 
 
 # ======================= 写入 =======================
@@ -530,6 +572,40 @@ class Applier:
             self.db.conn.execute("UPDATE qq_group_messages SET content=? WHERE id=?", (content[:500], r["msg_row"]))
         self._log(op, True, f"→ {line}", f"image:{r['id']}", before, {"info": new, "line": line, "content": content})
 
+    # ---------- 38.3 给她说的话打分：{"msg", "score": 1~5, "tags": [...], "better": "更好的说法", "pick": "对/错"} ----------
+    def score(self, op: dict):
+        try:
+            mid = int(op.get("msg"))
+            sc = int(op.get("score"))
+        except (TypeError, ValueError):
+            return self._log(op, False, "msg 和 score 要是数字")
+        if not 1 <= sc <= 5:
+            return self._log(op, False, "score 是 1~5")
+        r = self.db.conn.execute("SELECT * FROM qq_group_messages WHERE id=? AND group_id=?", (mid, self.gid)).fetchone()
+        if not r or r["role"] != "assistant":
+            return self._log(op, False, "这条不是她说的")
+        tags = [str(t) for t in op.get("tags") or []]
+        bad = [t for t in tags if t not in SCORE_TAGS]
+        if bad:
+            return self._log(op, False, f"标签「{bad[0]}」不认识：只能用 {'、'.join(SCORE_TAGS)}")
+        pick = str(op.get("pick") or "")
+        if pick not in ("", "对", "错"):
+            return self._log(op, False, "pick 只能是 对 / 错（挑的那句对不对），没有就不写")
+        turn = next((t for t in her_turns(self.db, self.gid, [r]) if t["msg"] == mid), {})
+        trace = turn.get("trace") or f"msg:{mid}"
+        ctx = [f"{x['name'] if x['role'] == 'user' else '她'}：{str(x['content'] or '')[:80]}" for x in reversed(
+            self.db.conn.execute("SELECT name, role, content FROM qq_group_messages WHERE group_id=? AND id<? ORDER BY id DESC LIMIT 6",
+                                 (self.gid, mid)).fetchall())]
+        old = self.db.conn.execute("SELECT * FROM qq_human_score WHERE trace=?", (trace,)).fetchone()
+        if self.dry:
+            return self._log(op, True, "（试跑）")
+        self.db.conn.execute(
+            "INSERT OR REPLACE INTO qq_human_score(trace, group_id, said, context, score, ts, src, tags, better, pick, msg_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (trace, self.gid, str(r["content"] or ""), "\n".join(ctx), sc, time.time(), "claude-review", "、".join(tags),
+             str(op.get("better") or "")[:120], pick, mid))
+        self._log(op, True, f"{sc} 分", f"score:{trace}", dict(old) if old else None, {"score": sc})
+
     # ---------- 一张操作单 ----------
     def run(self, sheet: dict) -> dict:
         if int(sheet.get("gid") or self.gid) != self.gid:
@@ -550,6 +626,11 @@ class Applier:
                 self._log(op, False, f"出错：{e}")
         for uid, fields in (sheet.get("profiles") or {}).items():
             self.profile(uid, fields, replace=bool(sheet.get("profiles_replace")))
+        for op in sheet.get("scores") or []:
+            try:
+                self.score(op)
+            except Exception as e:  # noqa: BLE001
+                self._log(op, False, f"出错：{e}")
         for op in sheet.get("images") or []:
             try:
                 self.image(op)
@@ -605,6 +686,15 @@ def undo(db, run_id: int) -> int:
             n += 1
         elif target.startswith("plan:") and before:
             db.conn.execute("UPDATE qq_plans SET status=?, due=? WHERE id=?", (before["status"], before["due"], int(target[5:])))
+            n += 1
+        elif target.startswith("score:"):
+            tr = target[6:]
+            if before:
+                cols_ = list(before)
+                db.conn.execute(f"INSERT OR REPLACE INTO qq_human_score({', '.join(cols_)}) VALUES ({', '.join('?' * len(cols_))})",
+                                [before[c] for c in cols_])
+            else:
+                db.conn.execute("DELETE FROM qq_human_score WHERE trace=?", (tr,))
             n += 1
         elif target.startswith("image:") and before:
             iid = int(target[6:])
@@ -682,6 +772,14 @@ def render_text(data: dict) -> str:
     if data.get("plans"):
         out.append("## 约好的事（没到点的）")
         out += [f"- {p['due']} {p['who']}：{p['what']}（{p['kind']}）" for p in data["plans"]]
+    if data.get("her_turns"):
+        out.append("## 她说的话（逐句打分；有“写了几句”的看挑得对不对）")
+        for h in data["her_turns"]:
+            out.append(f"- {h['msg']}：{h['text']}")
+            pk = h.get("pick") or {}
+            for c in pk.get("cands") or []:
+                mark = "→" if c.get("k") == pk.get("chosen") else "  "
+                out.append(f"    {mark} {c.get('text')}（{'底线' if c.get('hard') else c.get('total')}）")
     if data.get("images"):
         out.append("## 看图（这批消息里的图：描述对不对、有没有编字 / 认错人 / 该算敏感没算）")
         for im in data["images"]:

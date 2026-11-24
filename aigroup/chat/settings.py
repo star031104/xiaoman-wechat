@@ -43,7 +43,7 @@ DEFAULTS = {
     # —— 2.0 ——
     "talk_curve": {"09:00-11:59": 0.8, "12:00-13:59": 1.1, "14:00-17:59": 0.9, "18:00-23:59": 1.2},  # 按时段调话量
     "quality_check": True,         # 发之前检查 AI 腔、越界说法、复读（chat/quality.py）
-    "candidates": 2,               # 让大模型多写几种说法，挑最像群友的（1 = 不多写）
+    "candidates": 3,               # 38.3 一次写几种说法（接内容 / 接梗或情绪 / 最短的），挑总分最好的一句（chat/choose.py）
     "typo_rate": 0.03,             # 偶尔打错一个字
     "typo_fix_chance": 0.5,        # 打错后补一句“*正确的字”
     "stickers": True,              # 跟着群友存表情包、偶尔发
@@ -77,12 +77,12 @@ DEFAULTS = {
     "agent_quick_seconds": 15,     # 快查最多多少秒（到了就交卷）
     "agent_deep_seconds": 40,      # 深查最多多少秒
     "agent_deep_thinking": True,   # 深查打开思考模式（更准、慢一倍）
-    "agent_filler": False,         # 被问到、要深查时先说一句“等我看看”（每个群 10 分钟最多一次）
+    "agent_filler": True,          # 被叫到、要查一会儿时先说一句（8 秒还没查完才说；每个群 10 分钟最多一次；3 分钟里已说 2 条就不说）。38.3 重新打开（36.0 关的）
     "sports_data": True,
     "sticker_auto_prob": 0.2,      # 34.0 没写表情包时，短的、不是问句的话按意思配一张的概率
     "sticker_describe_n": 8,       # 34.0 每次整理时给几张表情包看图补“意思”
     "ocr": True,                   # 34.0 截图先过 OCR，引用图上的字只认 OCR           # 34.1 查资料时先拿赛事数据接口的赛程比分（aigroup/net/sports.py）
-    "agent_filler_after": 25,      # 34.1 60 → 25：要读网页的深查，25 秒还没好先回一句      # 23.3 查了这么多秒还没查完才说“等我看看”；31.2 10 → 60（10-29 一天 5 句，都在 1 分钟内跟了答案）
+    "agent_filler_after": 8,       # 38.3 25 → 8：被叫到要查的，8 秒还没好先用她的口气回一句、查完再补（被叫到 P90 曾到 67 秒）  # 34.1 60 → 25；31.2 10 → 60（10-29 一天 5 句，都在 1 分钟内跟了答案）
     "remember_web": True,          # 搜到 / 读到的要点记下来，以后聊到关键词想起来，常用到的变成她的兴趣
     "weekly_reflect": True,        # 每周一回想这一周，写几句“这一周的我”放进提示词（人物跟着经历慢慢变）
     # —— 4.2 人物慢慢长（chat/grow.py）——
@@ -187,19 +187,19 @@ DEFAULTS = {
     "move_cooldown": True,         # 21.1 同一种接法半小时里用过 2 次就提醒她换一种
     "move_cooldown_minutes": 30,
     "length_match": True,          # 21.1 长度靠拢群友：告诉她群里一条一般几个字，主动说太长就换短的
-    "length_max_ratio": 3,         # 主动说时一条超过群友中位长度的几倍算太长
+    "length_max_ratio": 3,         # 38.3 挑句子时太长扣分：被叫到超过群友中位的这么多倍开始扣，主动说超过一半就扣太长
     "talk_control": True,          # 21.1 群里有人冲她说“少说点 / 多说点”：话痨度 ×0.5 / ×1.5
     "talk_control_hours": 3,       # 管多久（群主说的管到明早）
     "share_target": 0.8,           # 21.1 她的消息份额超过“平均份额 × 这个”就收紧（0 = 不管）
     "mention_read_cap": 20,        # 21.1 被叫到“看到消息”最多拖几秒（在忙除外）
     "offline_note_minutes": 30,    # 21.1 被叫到隔了这么久才回：带一句“刚掉线了 / 才看到”
     "agent_mention_quick_cap": 12, # 21.1 被叫到时快查最多几秒（到点交卷，没覆盖的写进“没查到”）
-    "agent_mention_deep_cap": 25,  # 被叫到时深查最多几秒
-    "agent_mention_judge_cap": 40, # 25.1 被叫到、要她下判断 / 推荐买什么时最多几秒（要拿原始数据，25 秒常常拿不到；10 秒时先回一句）
+    "agent_mention_deep_cap": 20,  # 被叫到时深查最多几秒（38.3 25 → 20）
+    "agent_mention_judge_cap": 25, # 38.3 40 → 25（先回了一句，答案晚一点也不至于冷场）；25.1 被叫到、要她下判断 / 推荐买什么时最多几秒（要拿原始数据，25 秒常常拿不到；10 秒时先回一句）
     "agent_source_hints": True,    # 25.1 给研究员“常去的数据站”（按问题里的领域挑几行；net.source_hints 可以加）
     "agent_stop_on_covered": True, # 21.1 研究员写的“要证实”的都有资料了就交卷（HALT），不等到时间到
     "agent_verify_cites": True,    # 21.1 简报里的来源必须在这次搜到的结果里出现过，对不上的删掉
-    "agent_filler_gen": False,      # 21.1 要查一会儿时先用她自己的口气现写一句短回（不是固定那几句）
+    "agent_filler_gen": True,       # 38.3 打开；21.1 要查一会儿时先用她自己的口气现写一句短回（不是固定那几句）
     "favors": True,                # 21.1 每晚记人情账（谁帮过她、她答应过谁），人卡里提一句
     "anchor_volume": 20,           # 21.1 她今天在这个群说了这么多句以后，每次在提示词最后提一遍人格核心（0 = 不管）
     "rules_off": [],               # 21.1 小屋“规则”里关掉的质检规则（按名字）
@@ -285,14 +285,10 @@ DEFAULTS = {
     "spot_autotune": True,           # 30.0 按一周的抽查自动调：梗错得多就提高读懂的把握要求；“原本那句更好”多就让自检先只记录
     "cold_sticker": True,            # 30.0 她刚才主动说的几句都没人接、这次又是主动说：有合适的表情包就只发表情包
     "sticker_on_sticker": 0.5,       # 30.0 别人刚发表情包时，她也回表情包的概率（以前是 0：真人常常表情包对表情包）
-    "prefer_short": True,            # 30.0 主动说时几个说法差不多好、第一个比群友长一半以上：挑短的
-    "drop_bad_bubble": True,         # 29.0 毛病只在其中一条里：去掉那条、剩下的照发，不重写
-    "check_parallel": True,          # 29.0 备选说法的检查和第一个同时跑（第一个有毛病时少等一轮）
     "closed_topics": True,           # 29.0 群友说过“别提 X 了 / 压力很大”的事，这几天谁都别提（问候、关心、玩笑都算）
     "weather_bg": True,              # 29.0 天气放后台查，拼提示词时不等
     "meme_weekly": True,             # 29.0 每周一份热梗：搜“本周热梗”和群里在聊的圈子，存进黑话表（先懂后用：群友用了才带给她）
     "spot_check": True,              # 29.0 小屋“学到的”里每天抽几条让你点对错（想说的 vs 发出的、查到的梗）
-    "pick_clean": True,              # 27.0 有毛病先在她自己写的别的说法里挑没毛病的；没被叫到就不重写（挑不出就不说）
     "rethink_on_stop": True,         # 27.0 想的时候有人说“别提了 / 压力很大 / 别问了”：重新想一次
     "memory_merge": True,            # 28.0 记忆合成几块（关于这个群 / 关于你自己 / 和这几句有关的），每块有字数上限
     "mem_self_chars": 1000,          # 28.0 “关于你自己”最多多少字
@@ -391,7 +387,8 @@ def defaults_for(channel: str | None) -> dict:
 DEAD_KNOBS = ("interject_chance", "owner_chance", "interest_boost", "question_boost", "busy_factor",
               "ai_voice_chance", "ai_voice_character",
               "check_source_gate", "check_self_consistency", "check_template", "check_time_sense", "check_tease_risk", "check_responsive", "check_room_read", "check_other_claims", "check_disputed", "check_image_guess", "check_media_claim", "check_pushback", "check_self_repeat", "check_self_like",
-              "self_score", "self_score_min", "appraise", "appraise_enforce", "ablate_rate", "self_like_threshold")   # 4.3 语音去掉了
+              "self_score", "self_score_min", "appraise", "appraise_enforce", "ablate_rate", "self_like_threshold",
+              "prefer_short", "drop_bad_bubble", "check_parallel", "pick_clean")   # 4.3 语音去掉了；38.3 多写几句挑一句以后用不着后四个
 
 # 小屋里能调的“性格开关”：键 → (标签, 类型, 最小, 最大, 步长, 说明)
 KNOBS = {
@@ -426,7 +423,7 @@ KNOBS = {
     "see_images": ("看群里的图片", "bool", None, None, None, "会多花看图模型的调用次数"),
     "night_catch_up": ("半夜被叫早上补回", "bool", None, None, None, "免打扰时段被叫到先不回，醒了补一句"),
     "quality_check": ("发之前检查", "bool", None, None, None, "AI 腔、越界说法、和刚说过的太像的不发"),
-    "candidates": ("多写几种说法挑一条", "int", 1, 3, 1, "1 = 只写一种；2~3 会多花一点输出"),
+    "candidates": ("多写几种说法挑一条", "int", 1, 3, 1, "38.3 默认 3：接内容 / 接梗或情绪 / 最短的，挑总分最好的；1 = 只写一种"),
     "typo_rate": ("打错字的概率", "float", 0, 0.2, 0.01, "偶尔打错一个字，有时补一句“*正确的字”"),
     "stickers": ("存表情包、偶尔发", "bool", None, None, None, "群里常用的表情包她会存下来"),
     "memory_recall": ("想起以前的事", "bool", None, None, None, "聊到了会想起群里以前说过的话"),
@@ -437,7 +434,6 @@ KNOBS = {
     "meme_lookup": ("不懂的梗去查", "bool", None, None, None, "26.0 拿不准的梗搜“X 是什么梗”，查到的记进黑话表"),
     "critic_v2": ("自检分清玩笑和事实", "bool", None, None, None, "26.0 玩笑、看法不拿去对资料；只指毛病不写替换句"),
     "rewrite_minimal": ("重写只改有毛病的字", "bool", None, None, None, "26.0 保留原来的接法、语气、玩笑；改不了就不说"),
-    "pick_clean": ("有毛病先换个说法", "bool", None, None, None, "27.0 在她写的几个说法里挑没毛病的；没被叫到不重写，挑不出就不说"),
     "meme_sure": ("读懂时梗的把握要求", "float", 0.5, 0.95, 0.05, "低于这个的梗提醒她别硬接；按抽查会自动调"),
     "check_critic": ("统一自检", "str", None, None, None, "on 拦 / shadow 只记录 / off 关；按抽查会自动调"),
     "topic_watch": ("每天跟进群里在聊的事", "bool", None, None, None, "30.0 每天 10 点后查一次最新进展"),
@@ -450,7 +446,7 @@ KNOBS = {
     "agent": ("先想一想再回（查资料、设提醒）", "bool", None, None, None, "被问到要查的事会多搜几次、打开网页看，再用她的话说；有人让她到点提醒也会当场记下"),
     "agent_per_day": ("每天最多查几次资料", "int", 0, 200, 5, "每个群；超过了退回只搜一次"),
     "agent_deep_thinking": ("深查时多想想", "bool", None, None, None, "打开思考模式：更准，但要慢一倍（20~40 秒）"),
-    "agent_filler": ("要查一会儿先说“等我看看”", "bool", None, None, None, "被问到、要深查时；每个群 10 分钟最多一次"),
+    "agent_filler": ("要查一会儿先说“等我看看”", "bool", None, None, None, "被叫到、要查的、8 秒还没查完时；每个群 10 分钟最多一次"),
     "remember_web": ("记住查到的东西", "bool", None, None, None, "以后聊到关键词会想起来，常用到的会变成她的兴趣"),
     "weekly_reflect": ("每周回想一次", "bool", None, None, None, "每周一写几句“这一周的我”，人物跟着经历慢慢变"),
     "monthly_self": ("每月整理一次自己", "bool", None, None, None, "把每周的回想沉淀成“我是怎样的人”"),
@@ -597,6 +593,6 @@ def clean_knob(key: str, val):
 _MAIN = ("persona_version", "fav_name", "chat_temperature", "longing", "buttons", "sleep_hours", "talkativeness", "max_per_10min", "cooldown_seconds", "max_bubbles", "unprompted_per_day", "unprompted_hours",
          "active_hours", "idle_chance", "welcome_chance", "share_chance", "group_note", "owner_note", "call_names", "pace",
          "stickers", "see_images", "voice_reply", "hear_voice", "night_catch_up", "memory_recall", "profile_every",
-         "agent", "agent_per_day", "search_per_hour", "read_turn", "meme_lookup", "critic_v2", "pick_clean",
+         "agent", "agent_per_day", "search_per_hour", "read_turn", "meme_lookup", "critic_v2",
          "dry_run", "send_per_day", "stop_cmd")
 MAIN_KNOBS = tuple(k for k in _MAIN if k in KNOBS)

@@ -172,7 +172,7 @@ def test_claims_today_in_critic_and_research(cfg, brain):
 
 def test_filler_waits_a_minute():
     from aigroup.chat.settings import DEFAULTS
-    assert 20 <= DEFAULTS["agent_filler_after"] <= 60          # 34.1 60 → 25：深查 25 秒还没好先回一句
+    assert 5 <= DEFAULTS["agent_filler_after"] <= 15           # 38.3 25 → 8：被叫到要查的，8 秒还没好先回一句
 
 
 def test_note_deploy(tmp_path):

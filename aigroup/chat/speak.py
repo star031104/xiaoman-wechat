@@ -27,26 +27,14 @@ from aigroup.chat.plan import (
     parse_group_reply,
     to_segments,
 )
-from aigroup.chat.quality import make_typo, pick
+from aigroup.chat.quality import make_typo
 from aigroup.chat.trace import new_trace
 from aigroup.onebot import face_for, image_seg, reply_seg, text_seg
 
 log = logging.getLogger("aigroup.group")
 tlog = logging.getLogger("aigroup.text.group")       # 13.0 带聊天正文的：只进她家里的日志文件，不进控制台
-def drop_bad_bubble(bubbles: list[str], notes: list[str]) -> list[str]:
-    """29.0 检查意见里引用了有问题的原话（「…」）：只去掉含这段原话的那一条。都对不上 / 全去掉了返回空。"""
-    spans = [x for n in notes for x in re.findall(r"[「“]([^」”]{2,40})[」”]", str(n))]
-    if not spans:
-        return []
-    bad = {k for k, b in enumerate(bubbles) for sp in spans if sp and (sp in b or (len(sp) >= 6 and sp[:6] in b))}
-    if not bad or len(bad) >= len(bubbles):
-        return []
-    return [b for k, b in enumerate(bubbles) if k not in bad]
-
-
 # 27.0 群友让她别提、别问、说压力大：还没发出去的那句要重新想
 STOP_RX = re.compile(r"别(再)?提(了|.{1,6}了)|别说了|别问了|闭嘴|压力(很|好|太)?大|不想(聊|说|提)|换个话题|能不能不(说|提)")
-SOFT_BLOCK = 6.0          # 5.0 罚分到这么多：没被叫到就不说了；被叫到就让她重写一次
 
 
 
@@ -668,13 +656,12 @@ class SpeakMixin:
         cands: list[list[str]] = []
         sticker = ""
         kind = ""
-        fix_notes: list[str] = []          # 21.0 九问自评里要改的地方（说漏、伤面子、玩笑不合适、讨好）：交给重写
         far_dist, tgt_row = 0, None        # 22.0 回的是几条以前的话（微信不能引用时要点名）、回的那条
         listen_task = None                 # 23.0 听者和发前检查同时跑
 
         async def listener_verdict() -> str:
             """等听者的结果、照它办：返回 "" 照常、"skip" 不说、"defer" 先放着；它挑的毛病并进 fix_notes。"""
-            nonlocal listen_task, fix_notes
+            nonlocal listen_task
             if listen_task is None:
                 return ""
             t, listen_task = listen_task, None
@@ -700,8 +687,6 @@ class SpeakMixin:
                 log.info("群 %s：听者说太早（等到：%s），先放着", gid, res.get("until") or "群里停一下")
                 self._pitch_outcome(gid, "queued", plan["say"])
                 return "defer"
-            if enforced and res.get("issues"):
-                fix_notes = list(dict.fromkeys([*fix_notes, *res["issues"]]))
             return ""
 
         def done(outcome: str, sent: list | None = None, quality: str = ""):
@@ -839,169 +824,42 @@ class SpeakMixin:
             sim = float(self.gk(gid).get("similar_threshold", 0.75))
             from aigroup.chat import quality as _q
             _q.OFF = set(self.gk(gid).get("rules_off") or [])           # 21.1 小屋里关掉的规则
-            orig = " / ".join(cands[0]) if cands else ""
-            i, score, hits = pick(cands, recent, sim, **qargs)
-            if (i >= 0 and len(cands) > 1 and not mentioned and self.gk(gid).get("prefer_short", True)):
-                # 30.0 主动说时几个说法差不多好，挑短的（她平均 18 字、群友 11 字）
-                L = self.group_len(gid) if hasattr(self, "group_len") else 0
-                if L:
-                    def _len(c):
-                        return sum(len(x) for x in c)
-                    alts = [(_len(c), k) for k, c in enumerate(cands) if k != i and _len(c) < _len(cands[i])
-                            and pick([c], recent, sim, **qargs)[1] <= score + 0.5]
-                    if alts and _len(cands[i]) > 1.5 * L:
-                        i = min(alts)[1]
+            # 38.3 多写几句、挑最好的一句（chat/choose.py）：除了底线都只扣分，不再拦下来改写
+            t_c = time.time()
+            ckw = dict(recent=recent, sim=sim, qargs=qargs, focus=focus, target_uid=target_uid, target_row=tgt_row,
+                       mentioned=mentioned, web=web or "")
+            res = await self.choose(gid, cands, **ckw) if cands else {"i": -1, "score": 0.0, "hits": [], "skip": True,
+                                                                      "hard_all": False, "table": [], "rows": []}
+            tm["checks"] = round(time.time() - t_c, 1)
             rewrote = False
-            rule_hits: list = []
-            if hasattr(self, "hard_issues"):          # 21.0 四条硬底线：隐私、编线下、说幕后、安全
-                hard = self.hard_issues(gid, cands[i] if i >= 0 else (cands[0] if cands else []), focus)
-                if hard:
-                    hits = list(dict.fromkeys([*hard, *hits]))
-                    score = max(score, SOFT_BLOCK)
-            if hasattr(self, "checks22") and (i >= 0 or cands):
-                t_c = time.time()
-                alt_task = None
-                if (len(cands) > 1 and i >= 0 and self.gk(gid).get("pick_clean", True) and self.gk(gid).get("check_parallel", True)
-                        and hasattr(self, "_pick_clean")):
-                    # 29.0 备选说法的检查同时跑：第一个有毛病时不用再等一轮自检（多花一次便宜调用，少等约 1 秒）
-                    alt_task = asyncio.ensure_future(self._pick_clean(
-                        gid, cands, i, recent, sim, qargs, focus,
-                        dict(target_uid=target_uid, target_row=tgt_row, mentioned=mentioned, gate_id=None, web=web or "",
-                             image=(plan or {}).get("image") or {}, quiet=True)))
-                try:                                   # 22.0 亲历闸门、矛盾、问过、套路、叫错人、时间感、损人、回应性
-                    c22 = await self.checks22(gid, cands[i] if i >= 0 else cands[0], target_uid=target_uid,
-                                              target_row=tgt_row, mentioned=mentioned, gate_id=gate_id, web=web or "",
-                                              image=(plan or {}).get("image") or {})
-                except Exception as e:  # noqa: BLE001
-                    log.info("22.0 检查出错：%s", e)
-                    c22 = []
-                tm["checks"] = round(time.time() - t_c, 1)
-                from aigroup.chat.checks import DROP as _DROP
-                if alt_task is not None and not c22:
-                    alt_task.cancel()
-                if c22 and len(cands) > 1 and i >= 0 and self.gk(gid).get("pick_clean", True):
-                    # 27.0 先在她自己写的几个说法里挑一个没毛病的（不重写：重写出来的常常是检查员的口吻）
-                    t_p = time.time()
-                    if alt_task is not None:
-                        try:
-                            alt = await alt_task
-                        except Exception:  # noqa: BLE001
-                            alt = None
-                    else:
-                        alt = await self._pick_clean(gid, cands, i, recent, sim, qargs, focus,
-                                                     dict(target_uid=target_uid, target_row=tgt_row, mentioned=mentioned,
-                                                          gate_id=gate_id, web=web or "", image=(plan or {}).get("image") or {}))
-                    tm["pick"] = round(time.time() - t_p, 1)
-                    if alt is not None:
-                        log.info("群 %s：第 %d 个说法有毛病，换成第 %d 个：%s", gid, i + 1, alt[0] + 1, " / ".join(cands[alt[0]])[:60])
-                        rule_hits = list(c22)
-                        i, score, hits = alt
-                        c22 = []
-                c22_drop = [w[len(_DROP):] for w in c22 if w.startswith(_DROP)]
-                c22 = [w[len(_DROP):] if w.startswith(_DROP) else w for w in c22]
-                if c22_drop and not mentioned and not manual:
-                    # 23.2 替别人答、视频还没看完就空说“去看”：重写也还是这个毛病，没被叫到就直接不说
-                    # 35.2 P1 提醒、跟进这些 must 的也一样（以前 must 跳过这里，11-03 拦下的“说好的部署呢”重写一下照发）
-                    log.info("群 %s：发前检查要不说（%s）", gid, c22_drop[0][:40])
-                    if hasattr(self, "note_blocked"):
-                        for c_ in cands:
-                            self.note_blocked(gid, " ".join(c_))
-                    try:
-                        from aigroup.chat.rules import note as _rnote
-                        _rnote(self.db, gid, c22_drop, "拦下", " / ".join(cands[i] if i >= 0 else cands[0]))
-                    except Exception:  # noqa: BLE001
-                        pass
-                    return skip("blocked", "检查：" + c22_drop[0][:40])
-                if c22:
-                    fix_notes = list(dict.fromkeys([*fix_notes, *c22]))
-            lv = await listener_verdict()
-            if lv:
-                return skip(lv if lv == "defer" else "skip")
-            if fix_notes:                                  # 24.0 检查给的意见放前面：重写只看前 4 条，别被罚分项挤掉
-                hits = list(dict.fromkeys([*fix_notes, *hits]))
-            # 37.1 能改写的只有：被叫到、小屋手动、提醒 / 答应的事 / 生日（may_rewrite）；其余挑不出没毛病的就不说
             can_fix = bool(mentioned or manual or (must and may_rewrite))
-            pick_only = bool(self.gk(gid).get("pick_clean", True)) and not can_fix
-            if (fix_notes and i >= 0 and len(cands[i]) >= 2 and self.gk(gid).get("drop_bad_bubble", True)):
-                # 29.0 毛病只在其中一条里：把那条去掉、剩下的照发，不重写（重写常把好笑的那句也改平）
-                left = drop_bad_bubble(cands[i], fix_notes)
-                if left:
-                    try:
-                        again = await self.checks22(gid, left, target_uid=target_uid, target_row=tgt_row, mentioned=mentioned,
-                                                    web=web or "", recheck=True, image=(plan or {}).get("image") or {})
-                    except Exception:  # noqa: BLE001
-                        again = ["x"]
-                    if not again:
-                        log.info("群 %s：去掉有毛病的那条，剩下的照发：%s", gid, " / ".join(left)[:60])
-                        rule_hits = list(fix_notes)
-                        cands = [left] + [c for k, c in enumerate(cands) if k != i]
-                        i, fix_notes = 0, []
-            if (cands and (i < 0 or score >= SOFT_BLOCK or fix_notes) and (mentioned or why is not None or fix_notes) and use_plan
-                    and not pick_only):                     # 27.0 没被叫到就不重写：挑不出没毛病的就不说
-                # 5.0 被叫到（或者是她自己要说的）却只有毛病很大的说法：告诉她哪里不对，重写一次
+            if cands and can_fix and use_plan and (res.get("hard_all") or (res.get("skip") and not mentioned)):
+                # 几句全撞了底线（被叫到 / 小屋手动 / 答应过的事），或者答应过的事、小屋手动的几句都不及格：
+                # 重新写一批（只一次），和原来的一起挑；被叫到时不及格的照发最好的那句，不为这个多等一轮
                 t_w = time.time()
-                fix = await self._rewrite(messages, raw, hits, gid)
+                why_ = res.get("hard_reasons") if res.get("hard_all") else res.get("hits")
+                fix = await self._rewrite(messages, raw, list(why_ or ["不太对"]), gid)
                 tm["rewrite"] = round(time.time() - t_w, 1)
                 if fix:
-                    i2, s2, h2 = pick(fix, recent, sim, **qargs)
-                    if hasattr(self, "hard_issues") and i2 >= 0:
-                        h3 = self.hard_issues(gid, fix[i2], focus)
-                        if h3:
-                            s2, h2 = max(s2, SOFT_BLOCK), list(dict.fromkeys([*h3, *h2]))
-                    if i2 >= 0 and (i < 0 or s2 < score or fix_notes):
-                        rule_hits = list(hits)
-                        cands, i, score, hits = fix, i2, s2, h2
-                        fix_notes = []
-                        rewrote = True
-                        if hasattr(self, "checks22") and not mentioned:
-                            try:                       # 24.0 重写完再过一遍规则检查（以前改完就直接发）；37.1 must 的也查
-                                again = await self.checks22(gid, cands[i], target_uid=target_uid, target_row=tgt_row,
-                                                            mentioned=mentioned, web=web or "", recheck=True,
-                                                            image=(plan or {}).get("image") or {})
-                            except Exception:  # noqa: BLE001
-                                again = []
-                            if again:
-                                log.info("群 %s：重写以后还有毛病（%s），没被叫到就不说了", gid, again[0][:40])
-                                i = -1
-                if fix_notes and not can_fix:
-                    log.info("群 %s：九问自评要改、重写没成，没被叫到就不说了", gid)
-                    i = -1
-            if i >= 0 and pick_only and fix_notes:
-                log.info("群 %s：几个说法都有毛病（%s），没被叫到就不说了", gid, "、".join(fix_notes)[:60])
+                    res2 = await self.choose(gid, fix, **ckw)
+                    if res2["i"] >= 0 and (res["i"] < 0 or float(res2["score"]) < float(res["score"])):
+                        cands, res, rewrote = fix, res2, True
+            if must and may_rewrite and res["i"] >= 0:
+                res["skip"] = False                        # 答应过的事、提醒、生日：重写过还不及格也照发最好的那句
+            i, score, hits = res["i"], float(res.get("score") or 0.0), list(res.get("hits") or [])
+            if i >= 0 and res.get("skip") and not (mentioned or manual):
+                log.info("群 %s：几句里最好的也不行（%.1f 分%s），没被叫到就不说", gid, score,
+                         "，挑选说不说更好" if res.get("silence") else "")
                 i = -1
-            if i >= 0 and hasattr(self, "hard_issues") and not can_fix and self.hard_issues(gid, cands[i], focus):
-                log.info("群 %s：重写以后还是碰了硬底线，不说", gid)
-                i = -1
-            if i >= 0 and score >= SOFT_BLOCK and not mentioned and (why is None or pick_only):
-                log.info("群 %s 质检：%.1f %s，没被叫到，这句不说了", gid, score, "、".join(hits))
-                i = -1
-            if i >= 0 and hasattr(self, "too_long") and self.too_long(
-                    gid, cands[i], mentioned=bool(mentioned or bid), long_ok=bool(plan and plan.get("len") == "long")):
-                # 21.1 主动说却比群友长好几倍（她中位 20 字、群友 7 字）：换短的候选，没有就让她只说一半
-                short = [j for j, c in enumerate(cands) if not self.too_long(gid, c, mentioned=False, long_ok=False)]
-                if short:
-                    i = short[0]
-                elif use_plan:
-                    L = self.group_len(gid)
-                    fix = await self._rewrite(messages, raw, [f"太长了：群里一条一般 {L} 个字，你这句砍到一半，只留最想说的"], gid)
-                    ok2 = [c for c in fix if not self.too_long(gid, c, mentioned=False, long_ok=False)]
-                    if ok2:
-                        cands, i = ok2, 0
-                hits = list(dict.fromkeys([*hits, "太长"]))
+            self.choose_log(gid, res, gate_id, i, "重写" if rewrote else "")
+            qtxt = self.choose_summary(res, i)
+            if len(cands) > 1 or hits:
+                tlog.info("群 %s 挑句子：%s", gid, " ｜ ".join(
+                    f"{'→' if r['k'] == i else ''}{r['text'][:30]}（{'底线' if r['hard'] else r['total']}）" for r in res.get("table") or []))
+            lv = await listener_verdict()
+            if lv:
+                return skip(lv if lv == "defer" else "skip", qtxt)
             bubbles = cands[i] if i >= 0 else None
-            qtxt = f"{score:.1f} {'、'.join(hits)}".strip()
-            try:                                           # 21.1 规则登记：哪条规则命中了、最后怎么处理的
-                from aigroup.chat.rules import note as _rnote
-                if rewrote:
-                    _rnote(self.db, gid, rule_hits or hits, "重写", orig)
-                elif i < 0 and cands:
-                    _rnote(self.db, gid, hits, "拦下", orig)
-                elif hits:
-                    _rnote(self.db, gid, hits, "罚分")
-            except Exception as e:  # noqa: BLE001
-                log.debug("记规则命中失败：%s", e)
-            if hits:
-                log.info("群 %s 质检：%s（%d 个候选，选了第 %d 个）", gid, qtxt, len(cands), i + 1)
         else:
             lv = await listener_verdict()
             if lv:
@@ -1274,7 +1132,7 @@ class SpeakMixin:
 
     async def _prepare(self, gid: int, mentioned: bool, who: str, trigger, why, web: str, tm: dict) -> str:
         """28.0 回复流水线第 1 步（准备）：接群友的话时，同时做“想一想”（要不要查资料 / 设提醒）和“读懂”（实际意思、梗），
-        返回放进提示词的资料段。后面几步：想好说什么（build_messages + 主模型，带几个说法）→ 发前检查、挑一个没毛病的（checks22 + _pick_clean）→ 发。每一步的秒数记在 qq_trace.timing。"""
+        返回放进提示词的资料段。后面几步：想好说什么（build_messages + 主模型，带几个说法）→ 几句各过一遍规则、便宜模型挑一句（38.3 chat/choose.py）→ 发。每一步的秒数记在 qq_trace.timing。"""
         if why is None and not web:                                   # 接群友话时：有她得先查一下的事就搜一搜
             texts = []
             for r in reversed(list(self._rows(gid, 6))):     # 只看她上次说话以后的新消息（问过的不再重复搜）
@@ -1327,25 +1185,6 @@ class SpeakMixin:
         elif hasattr(self, "_read_txt"):
             self._read_txt.pop(gid, None)
         return web
-
-    async def _pick_clean(self, gid: int, cands: list, i: int, recent, sim: float, qargs: dict, focus, ckw: dict):
-        """27.0 第 i 个说法有毛病：看看她写的别的说法里有没有没毛病的。返回 (下标, 质检分, 质检意见) 或 None。"""
-        for j in range(len(cands)):
-            if j == i:
-                continue
-            j2, s2, h2 = pick([cands[j]], recent, sim, **qargs)
-            if j2 < 0 or s2 >= SOFT_BLOCK:
-                continue
-            if hasattr(self, "hard_issues") and self.hard_issues(gid, cands[j], focus):
-                continue
-            try:
-                c = await self.checks22(gid, cands[j], **ckw)
-            except Exception as e:  # noqa: BLE001
-                log.info("群 %s：备选说法检查出错：%s", gid, e)
-                continue
-            if not c:
-                return j, s2, h2
-        return None
 
     async def _rewrite(self, messages: list[dict], raw: str, hits: list[str], gid: int) -> list[list[str]]:
         """质检毛病很大时重写一次：把她刚写的和毛病告诉她。返回新的候选。"""

@@ -87,6 +87,6 @@ def report(db, known: list[str] | None = None, days: float = 30, now: float | No
 
 
 def known_rules() -> list[str]:
-    from aigroup.chat.quality import RULES
-    return [n for n, _, _ in RULES] + ["太像最近说的", "今天说过", "碰了雷区", "说了幕后的事", "编了线下的事", "叫了名字",
-                                        "复读别人", "像AI", "他这会儿状态不好", "太长"]
+    """38.3 规则名都从总表（chat/rulebook.py）来：说法检查 + 发前检查 + 挑选。"""
+    from aigroup.chat.rulebook import CHECKS_BOOK, QUALITY_BOOK, QUALITY_EXTRA
+    return [*QUALITY_BOOK, *QUALITY_EXTRA, *CHECKS_BOOK, "挑选"]

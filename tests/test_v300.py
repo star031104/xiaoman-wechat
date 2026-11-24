@@ -37,9 +37,10 @@ def test_looks_loaded():
 
 
 def test_new_keys_and_dead_knobs():
-    for k in ("topic_watch", "topic_watch_max", "spot_autotune", "cold_sticker", "sticker_on_sticker", "prefer_short"):
+    for k in ("topic_watch", "topic_watch_max", "spot_autotune", "cold_sticker", "sticker_on_sticker"):
         assert k in DEFAULTS
     assert "ablate_rate" in DEAD_KNOBS and "ablate_rate" not in DEFAULTS
+    assert "prefer_short" in DEAD_KNOBS and "prefer_short" not in DEFAULTS          # 38.3
 
 
 def test_topic_watch(cfg, brain):

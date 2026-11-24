@@ -84,11 +84,11 @@ def test_listener_shadow_and_auto(cfg, brain):
     assert gc.listener_enforced(GROUP)
 
 
-def test_listener_issues_force_rewrite(cfg, brain):
+def test_listener_issues_only_logged(cfg, brain):
     brain.llm = ListenLLM("now", issues=["当众纠错没给台阶"])
     gc, ob = _gc(cfg, brain, cooldown_seconds=0, listener_mode="on")
     gc._record(GROUP, FRIEND, "小王", "鲁迅说过人生苦短", 1)
-    assert not _say(gc, brain, "那是叔本华说的，你记错了") and not ob.sent    # 重写不成（假模型不会重写）：没被叫到就不说
+    assert _say(gc, brain, "那是叔本华说的，你记错了") and ob.sent      # 38.3 听者只管时机；说法的毛病交给挑句子
 
 
 # ---------------- 标注挑题 ----------------
@@ -117,11 +117,9 @@ def test_group_len_and_too_long(cfg, brain):
         gc._record(GROUP, FRIEND, "小王", "哈哈好的", i + 1)
     assert gc.group_len(GROUP) == 4 and "4 个字" in gc.length_block(GROUP)
     long = "我觉得这个事情吧其实可以从好几个方面来看一看再说"
-    assert gc.too_long(GROUP, [long], mentioned=False, long_ok=False)
-    assert not gc.too_long(GROUP, [long], mentioned=True, long_ok=False)
     brain.llm.reply = J(act="say", kind="I2", to=1, len="short", say=[long], alt=[["笑死"]])
     assert asyncio.run(gc.speak(GROUP, mentioned=False, owner_spoke=False, trigger=None, who=""))
-    assert "笑死" in str(ob.sent[-1])                                    # 挑了短的那个说法
+    assert "笑死" in str(ob.sent[-1])                                    # 挑了短的那个说法（38.3 挑句子时太长扣分）
 
 
 def test_talk_control_and_share(cfg, brain):

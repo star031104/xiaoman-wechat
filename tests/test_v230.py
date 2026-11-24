@@ -75,14 +75,14 @@ def test_listener_runs_alongside_checks(cfg, brain):
     gc, ob = _gc(cfg, brain, cooldown_seconds=0, listener_mode="on")
     gc._record(GROUP, FRIEND, "小王", "今天好冷", 1)
     seen = {}
-    orig = gc.checks22
+    orig = gc.choose
 
     async def slow_checks(*a, **k):
         await asyncio.sleep(0.05)
-        seen["listen_calls_when_checking"] = brain.llm.listen_calls      # 检查的时候听者已经在问了
+        seen["listen_calls_when_checking"] = brain.llm.listen_calls      # 挑句子的时候听者已经在问了
         await asyncio.sleep(0.25)
         return await orig(*a, **k)
-    gc.checks22 = slow_checks
+    gc.choose = slow_checks
     t = time.time()
     assert _say(gc, brain) and ob.sent
     assert seen["listen_calls_when_checking"] == 1 and time.time() - t < 0.55

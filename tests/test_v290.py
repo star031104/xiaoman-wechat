@@ -111,9 +111,3 @@ def test_appraise_removed(cfg, brain):
     assert json.loads(J(a=1))
 
 
-def test_drop_bad_bubble():
-    from aigroup.chat.speak import drop_bad_bubble
-    b = ["我连手都没有，疼什么", "倒是AL那几位，手可以歇歇了"]
-    assert drop_bad_bubble(b, ["自检：同一个梗——又在自嘲（有问题的是「我连手都没有」）"]) == ["倒是AL那几位，手可以歇歇了"]
-    assert drop_bad_bubble(b, ["自检：说了没依据的数字"]) == []                  # 没引用原话：不动
-    assert drop_bad_bubble(b, ["「我连手都没有」", "「AL那几位」"]) == []         # 全有毛病：不动
