@@ -116,6 +116,7 @@ class GroupChat(Senses, Timing, Voice, Identity, Social, Recall, Tools):    # 35
         self.learner = Learner(self.db, brain)
         from aigroup.memory.facts import load_embedder
         self.memory = Memory(self.db, cfg.tz, load_embedder(str(self.g.get("memory_embed_model") or ""), cfg))
+        self.memory.self_aliases = [str(getattr(brain.persona, "name", "") or "")]
         from pathlib import Path
         self.stickers = Stickers(self.db, Path(cfg.root))
         self.tracer = Tracer(self.db)

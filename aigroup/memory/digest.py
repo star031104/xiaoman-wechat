@@ -111,8 +111,10 @@ class DigestMixin:
             if p:
                 known.append(f"{uid}|{p['name']}|{p['note'] or '（还没有）'}")
         p = self.brain.persona
-        old_notes = self.db.get(f"qq_group_notes_{gid}") or "（还没有）"
-        old_norms = self.db.get(f"qq_group_norms_{gid}") or "（还没有）"
+        from aigroup.memory.review import add_new_notes, notes_text
+        reviewed = bool(self.gk(gid).get("mem_review", True))      # 38.1 每天有人复核：白天只往“新的”里加，不盖掉复核过的
+        old_notes = notes_text(self.db, "group_notes", gid) or "（还没有）"
+        old_norms = notes_text(self.db, "norms", gid) or "（还没有）"
         win = [dict(r) for r in self._rows(gid, 80)]           # 24.0 这次看的那段聊天（给记的事找“门牌”）
         talkers = {int(r["user_id"]) for r in win if r["role"] == "user" and r["user_id"]}
         allf = [f for f in self.memory.facts(gid, limit=300) if f.get("kind") not in ("experience", "opinion")]
@@ -154,14 +156,19 @@ class DigestMixin:
             return [re.sub(rf"^{tag}\s*[|｜]\s*", "", ln).strip()[:limit] for ln in lines
                     if re.match(rf"^{tag}\s*[|｜]", ln)]
         notes = [x for x in tagged("群") if x and not looks_like_order(x)]
-        if notes:
-            self.db.set(f"qq_group_notes_{gid}", "\n".join(f"- {x}" for x in notes[:5]))
         norms = [x for x in tagged("规") if x and not looks_like_order(x)]
-        if norms:
-            self.db.set(f"qq_group_norms_{gid}", "\n".join(f"- {x}" for x in norms[:4]))
         mine = [x for x in tagged("我") if x and not looks_like_order(x)]
-        if mine:
-            self.db.set(f"qq_self_notes_{gid}", "\n".join(f"- {x}" for x in mine[:8]))
+        if reviewed:
+            for kind, got in (("group_notes", notes[:5]), ("norms", norms[:4]), ("self_notes", mine[:8])):
+                if got:
+                    add_new_notes(self.db, kind, gid, got)
+        else:
+            if notes:
+                self.db.set(f"qq_group_notes_{gid}", "\n".join(f"- {x}" for x in notes[:5]))
+            if norms:
+                self.db.set(f"qq_group_norms_{gid}", "\n".join(f"- {x}" for x in norms[:4]))
+            if mine:
+                self.db.set(f"qq_self_notes_{gid}", "\n".join(f"- {x}" for x in mine[:8]))
         memes = list(self.db.get(f"qq_memes_{gid}") or [])
         for x in tagged("梗", 200)[:3]:
             parts = [y.strip() for y in re.split(r"[|｜]", x)]
@@ -479,6 +486,8 @@ class DigestMixin:
     async def deep_profiles(self) -> int:
         """每天一次：这一周说话最多的几个人，各自拿一周的话仔细回想一遍画像（一次一个人）。"""
         if not self.g.get("profile_deep", True):
+            return 0
+        if self.g.get("mem_review", True):           # 38.1 每天 18 点 Claude 复核时会把画像梳理一遍，这里不再让 Flash 重写
             return 0
         k = int(self.g.get("profile_deep_people", 5))
         since = time.time() - 7 * 86400

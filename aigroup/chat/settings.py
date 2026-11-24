@@ -48,6 +48,7 @@ DEFAULTS = {
     "typo_fix_chance": 0.5,        # 打错后补一句“*正确的字”
     "stickers": True,              # 跟着群友存表情包、偶尔发
     "memory_recall": True,         # 聊天时想起以前群里的事（memory/facts.py）
+    "mem_review": True,            # 38.1 每天 18 点 Claude 复核记忆：白天 Flash 记的算临时、群笔记只往“新的”里加、不再每天让 Flash 重写画像
     "profile_deep": True,          # 3.1 每天一次：这一周说话最多的几个人，拿一周的话仔细回想一遍画像
     "profile_deep_people": 5,      # 每天仔细回想几个人
     "profile_detail": 4,           # 提示词里最多写几个人的详细画像（其他人一句话）

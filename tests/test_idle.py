@@ -72,7 +72,8 @@ def test_interests_notes_and_self(cfg, brain):
     brain.db.conn.execute("INSERT INTO qq_people(user_id, name, msgs) VALUES (?,?,1)", (FRIEND, "小王"))
     brain.db.conn.commit()
     asyncio.run(gc.digest())
-    assert "看展" in brain.db.get(f"qq_group_notes_{GROUP}") and "芝麻" in brain.db.get(f"qq_self_notes_{GROUP}")
+    from aigroup.memory.review import notes_text       # 38.1 白天的整理只往“还没复核”的那份里加
+    assert "看展" in notes_text(brain.db, "group_notes", GROUP) and "芝麻" in notes_text(brain.db, "self_notes", GROUP)
     note = brain.db.conn.execute("SELECT note FROM qq_people WHERE user_id=?", (FRIEND,)).fetchone()["note"]
     assert "赶论文" in note
     sys = asyncio.run(gc.build_messages(GROUP, False, False, ""))[0]["content"]

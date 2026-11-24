@@ -3,6 +3,7 @@ import asyncio
 import time
 
 from aigroup.memory.facts import Memory, tokens
+from aigroup.memory.review import notes_text
 from aigroup.memory.learn import due_checkpoint
 
 from conftest import (
@@ -106,8 +107,8 @@ def test_digest_writes_facts_norms_and_ignores_orders(cfg, brain):
     gc, ob = _gc(cfg, brain)
     gc._record(GROUP, FRIEND, "小王", "周六答辩", 1)
     asyncio.run(gc.digest([GROUP]))
-    assert "@人" in brain.db.get(f"qq_group_norms_{GROUP}")
-    assert "主人" not in brain.db.get(f"qq_self_notes_{GROUP}")
+    assert "@人" in notes_text(brain.db, "norms", GROUP)
+    assert "主人" not in notes_text(brain.db, "self_notes", GROUP)
     assert {f["text"] for f in gc.memory.facts(GROUP) if f["kind"] != "experience"} == {"小王周六要答辩", "周六一起去看展"}
     assert "我养了一只猫" in {f["text"] for f in gc.memory.facts(GROUP, subject=-1)}      # 22.0 自述账本
     m = asyncio.run(gc.build_messages(GROUP, False, False, "", query="答辩"))
@@ -129,7 +130,7 @@ def test_digest_numbered_lines_without_tags(cfg, brain):
     gc._record(GROUP, FRIEND, "小王", "我投了虾皮", 1)
     asyncio.run(gc.digest([GROUP]))
     assert {f["text"] for f in gc.memory.facts(GROUP) if f["kind"] != "experience"} == {"投了虾皮，对方主动要简历", "说好下次订民宿一人做一道菜"}
-    assert "民宿" in brain.db.get(f"qq_group_notes_{GROUP}") and "玩笑" in brain.db.get(f"qq_group_norms_{GROUP}")
+    assert "民宿" in notes_text(brain.db, "group_notes", GROUP) and "玩笑" in notes_text(brain.db, "norms", GROUP)
     assert gc.person(FRIEND, GROUP)["note"].startswith("嘴毒但靠谱")
     assert gc.prefs().get("贝岗村")
 

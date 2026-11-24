@@ -210,7 +210,8 @@ class PromptMixin:
     def self_notes(self, gid: int) -> str:
         """她在这个群说过的自己的事；再加上在别的群说过的（人是同一个，自己的事要前后一致）——
         提到别的群里的人的那几条不带过来（两个群的事不串）。"""
-        own = self.db.get(f"qq_self_notes_{gid}") or ""
+        from aigroup.memory.review import notes_text
+        own = notes_text(self.db, "self_notes", gid)
         others = []
         for g in sorted(self.groups):
             if g == gid:
@@ -665,7 +666,8 @@ class PromptMixin:
         gnote = str(self.gk(gid).get("group_note") or "").strip()
         learned = self.learner.expressions_block(gid) if self.gk(gid).get("learn", True) else ""
         jargon = self.learner.jargon_block(gid, hist) if self.gk(gid).get("learn", True) else ""
-        norms = self.db.get(f"qq_group_norms_{gid}") or ""
+        from aigroup.memory.review import notes_text
+        norms = notes_text(self.db, "norms", gid)
         stick = self.stickers.prompt_block(gid) if stick_on and plan else ""
         ign = self.ignored_count(gid)
         static = [
@@ -680,7 +682,7 @@ class PromptMixin:
         v2 = bool(hasattr(self, "v2") and self.v2(gid))
         if v2:                       # 33.0 身份层 + 底线层：v2 人设（≤1500 字 + 示例）代替旧人设、人格文件和 29 条相处规则
             static = self.v2_static(gid, gname, fmt, getattr(self.ob, "prompt_hint", ""))
-        gnotes = self.db.get(f'qq_group_notes_{gid}')
+        gnotes = notes_text(self.db, "group_notes", gid)
         selfcore = self.db.get(f'qq_selfcore_{gid}')
         reflect = self.db.get(f'qq_reflect_{gid}')
         group_bits = [

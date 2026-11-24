@@ -134,7 +134,7 @@ def test_profile_evidence_and_deep(cfg, brain):
     """3.1 画像：证据里带上他接的是谁的话、别人怎么说他；每天的仔细回想。"""
     from conftest import ProfileLLM
     brain.llm = ProfileLLM()
-    gc, ob = _gc(cfg, brain, profile_every=3)
+    gc, ob = _gc(cfg, brain, profile_every=3, mem_review=False)     # 38.1 每天的仔细回想只在没开复核时由 Flash 做
     gc.g["talkativeness"] = 0
     gc.set_aliases(FRIEND, "王小明")
     _run(gc, _msg(FRIEND2, "阿杰", "今晚谁打游戏", 1), _msg(FRIEND, "小王", "我我我", 2),
