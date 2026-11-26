@@ -64,7 +64,9 @@ SCORE_COLS = {"src": "TEXT NOT NULL DEFAULT ''", "tags": "TEXT NOT NULL DEFAULT 
               "pick": "TEXT NOT NULL DEFAULT ''", "msg_id": "INTEGER"}
 # 38.3 给她的话打分时用的毛病标签（docs/记忆复核.md 有说明）；和挑句子的 4 条原则对得上
 SCORE_TAGS = ("评人不接话", "自夸", "助手腔", "交报告", "太长", "连发", "读错人", "读错场面", "编", "硬接", "复读",
-              "该说没说", "说教", "伤人", "答非所问", "好")
+              "该说没说", "说教", "伤人", "答非所问", "八股", "好")
+# 38.4 标了这些的话（≤2 分），之后拼聊天记录时不原样给她看（chat/prompt.self_clean），免得她跟着自己学
+TONE_TAGS = ("八股", "助手腔", "交报告", "说教")
 
 
 def ensure_schema(conn):

@@ -141,7 +141,42 @@ def length_penalty(n_chars: int, group_len: int, mentioned: bool, ratio: float =
     return round(min(3.0, max(0.0, (r - start) * 1.2)), 2)
 
 
+WENYAN_PROMPT = """下面是{name}想在朋友群里说的一句话，先用文言写下了意思。把它翻成她会随手打出来的大白话。
+
+风格：{style}
+{target}文言：{wy}
+
+要求：
+- 只翻意思，不加文言里没有的事；人名、数字、比分、专有名词照原样
+- 像真人打字：口语、可以省主语、不用书面语和成语堆砌
+- 不要“我认”“我记下了”“稳”“你掂量”“我不拦”这种江湖腔，不要“要不要我帮你”
+- 一两句；想分两条发就用 ||| 隔开
+只输出翻好的话。"""
+
+
+def wenyan_prompt(name: str, wy: str, style: str, target: str = "") -> str:
+    """38.4 文言 → 白话（南竹《用文言文打败鱼八股》）：文言里没有那股腔，只带几个字的风格提示翻回来，
+    比“白话润色白话”更不容易绕回原来的腔调。"""
+    tgt = f"她要接的是这条：{target[:80]}\n" if target else ""
+    return WENYAN_PROMPT.format(name=name, style=style or "朋友群里随手打字，短", target=tgt, wy=wy[:60])
+
+
 class ChooseMixin:
+    async def wenyan_cand(self, gid: int, wy: str, target: str = "") -> str:
+        """文言那句翻回白话（一次便宜模型调用，6 秒超时）；不成返回空串，这一轮就少一句候选，别的照常。"""
+        wy = (wy or "").strip()
+        if not wy or not getattr(self, "brain", None):
+            return ""
+        prompt = wenyan_prompt(self.brain.persona.name, wy, str(self.gk(gid).get("wenyan_style") or ""), target)
+        try:
+            out = await asyncio.wait_for(self.brain.llm.chat([{"role": "user", "content": prompt}], role="gate",
+                                                             temperature=0.8, max_tokens=80), 6)
+        except Exception as e:  # noqa: BLE001
+            log.info("群 %s：文言转白话没成：%s", gid, e)
+            return ""
+        out = re.sub(r"^(白话|翻译|译文)[:：]\s*", "", str(out or "").strip().strip("“”\"'"))
+        return out[:120]
+
     async def judge_cands(self, gid: int, cands: list[list[str]], *, mentioned: bool, web: str = "",
                           target_uid=None) -> dict:
         """一次便宜模型调用，给几句一起打分。每小时有上限（和以前的自检共用 critic_per_hour）；失败返回空（只靠规则挑）。"""
@@ -242,5 +277,7 @@ class ChooseMixin:
         cands = [{"k": c.get("k"), "text": str(c.get("text") or "")[:80], "rule": c.get("rule"), "judge": c.get("judge"),
                   "len": c.get("len"), "total": c.get("total"), "hard": [str(h)[:40] for h in (c.get("hard") or [])[:2]],
                   "hits": [str(h)[:50] for h in (c.get("hits") or [])[:4]]} for c in (res.get("table") or [])[:4]]
-        return json.dumps({"chosen": chosen, "skip": bool(res.get("skip")), "silence": bool(res.get("silence")),
-                           "cands": cands}, ensure_ascii=False)
+        d = {"chosen": chosen, "skip": bool(res.get("skip")), "silence": bool(res.get("silence")), "cands": cands}
+        if res.get("wy_k") is not None:                    # 38.4 第几句是文言转白话来的（统计它被挑中的比例）
+            d["wy_k"], d["wy"] = res["wy_k"], str(res.get("wy") or "")[:60]
+        return json.dumps(d, ensure_ascii=False)

@@ -43,6 +43,8 @@ DEFAULTS = {
     # —— 2.0 ——
     "talk_curve": {"09:00-11:59": 0.8, "12:00-13:59": 1.1, "14:00-17:59": 0.9, "18:00-23:59": 1.2},  # 按时段调话量
     "quality_check": True,         # 发之前检查 AI 腔、越界说法、复读（chat/quality.py）
+    "wenyan_cand": False,          # 38.4 多一句“先写文言、再翻回白话”的说法，和另外几句一起挑（chat/choose.py；默认关，回放试验见 scripts/wenyan_eval.py）
+    "wenyan_style": "朋友群里随手打字，短，一两句，口语，可以嘴硬、得意一下",   # 文言翻回白话时带的几个字的风格提示
     "candidates": 3,               # 38.3 一次写几种说法（接内容 / 接梗或情绪 / 最短的），挑总分最好的一句（chat/choose.py）
     "typo_rate": 0.03,             # 偶尔打错一个字
     "typo_fix_chance": 0.5,        # 打错后补一句“*正确的字”
@@ -270,6 +272,7 @@ DEFAULTS = {
     "research_said_today": True,     # 31.2 查资料时把她今天说过的相关判断 / 比分给研究员对着看
     "check_life_done": "on",         # 31.0 把安排里的打算 / 还没到点的事说成做过了（“想去吃某家店”→“我去吃了”）
     "check_copy": "on",              # 照抄给她参考的原话（真人接法、想起来的事）：连续 10 字以上，或 6 字以上占原句八成
+    "self_clean": True,              # 38.4 聊天记录里她以前的话：八股、助手腔这些片段删掉再给模型看（标了八股 / 助手腔的低分句只留开头）
     "context_chunk": 15,             # 聊天记录每满这么多条才往后挪一次（实际带 30~44 条）：相邻几轮的开头不变，缓存能命中；0 = 每条都挪
     "speaker_call": True,            # 聊天记录每一行写“称呼（群名片）”：别把 A 的话安到 B 头上
     "check_stale_ask": "on",         # 23.2 大家在聊 A，她突然追问之前的事 B（“老大那文档发了没”）
@@ -423,6 +426,8 @@ KNOBS = {
     "see_images": ("看群里的图片", "bool", None, None, None, "会多花看图模型的调用次数"),
     "night_catch_up": ("半夜被叫早上补回", "bool", None, None, None, "免打扰时段被叫到先不回，醒了补一句"),
     "quality_check": ("发之前检查", "bool", None, None, None, "AI 腔、越界说法、和刚说过的太像的不发"),
+    "wenyan_cand": ("多一句文言转白话的说法", "bool", None, None, None, "38.4 先用文言写一遍意思，再按风格提示翻回白话，当第 4 句一起挑；多一次便宜模型调用（约 1~2 秒）"),
+    "wenyan_style": ("文言翻回白话的风格", "str", None, None, None, "几个字就够，比如“朋友群里随手打字，短，可以嘴硬”"),
     "candidates": ("多写几种说法挑一条", "int", 1, 3, 1, "38.3 默认 3：接内容 / 接梗或情绪 / 最短的，挑总分最好的；1 = 只写一种"),
     "typo_rate": ("打错字的概率", "float", 0, 0.2, 0.01, "偶尔打错一个字，有时补一句“*正确的字”"),
     "stickers": ("存表情包、偶尔发", "bool", None, None, None, "群里常用的表情包她会存下来"),
@@ -527,6 +532,7 @@ KNOBS = {
     "agent_verify_cites": ("核对引用", "bool", None, None, None, "简报里的来源必须是这次真搜到的"),
     "promise_ledger": ("答应了要给结果", "bool", None, None, None, "说了“我去看看 / 晚点告诉你”到点还没给，就再查一次补上；查不到就认一句"),
     "promise_minutes": ("答应了多久没给就补", "int", 3, 60, 1, "分钟"),
+    "self_clean": ("别跟着自己以前的腔调学", "bool", None, None, None, "38.4 聊天记录里她以前说的八股、助手腔片段删掉再给模型看；群友的话不动"),
     "context_chunk": ("聊天记录分块挪", "int", 0, 30, 5, "每满这么多条才往后挪一次，缓存命中更多；0 = 每条都挪"),
     "speaker_call": ("聊天记录写称呼", "bool", None, None, None, "每一行写“称呼（群名片）”，免得把 A 的话安到 B 头上"),
     "agent_filler_gen": ("先回一句用她自己的话", "bool", None, None, None, "要查一会儿时先短回一句，用她的口气现写"),

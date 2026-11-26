@@ -172,6 +172,38 @@ class PromptMixin:
             out[uid] = f"{call}（{name}）" if call and call != name and call not in name else name
         return out
 
+    def _tone_bad_ids(self, gid: int, rows) -> set[int]:
+        """38.4 18 点复核里打了 ≤2 分、标了八股 / 助手腔 / 交报告 / 说教的她的话（qq_human_score.msg_id）。"""
+        ids = [int(r["id"]) for r in rows if r["role"] == "assistant"]
+        if not ids:
+            return set()
+        from aigroup.memory.review import TONE_TAGS
+        try:
+            got = self.db.conn.execute(
+                f"SELECT msg_id, tags FROM qq_human_score WHERE src='claude-review' AND score<=2 AND msg_id IN "
+                f"({','.join('?' * len(ids))})", ids).fetchall()
+        except Exception:  # noqa: BLE001
+            return set()
+        return {int(r["msg_id"]) for r in got if any(t in str(r["tags"] or "") for t in TONE_TAGS)}
+
+    @staticmethod
+    def self_clean(text: str, tone_bad: bool = False) -> str:
+        """38.4 聊天记录里她自己以前的话怎么给模型看（南竹《用文言文打败鱼八股》：群聊的前几条就是例子，
+        一句“这话我记下了”留在记录里，下一句就跟着学）：
+        - 八股、助手腔这些风格规则命中的片段删掉，留下原来的意思（“行，十二点是你对，我认” → “行，十二点是你对”）
+        - 复核标了八股 / 助手腔 / 交报告 / 说教的低分句：规则没认出来的，只留第一小句（最多 15 字）加“……”
+        - 删完没剩什么：写“（你回了一句）”，知道自己回过，但看不到那个腔调
+        只改给模型看的这一份；数据库、编号对照、自检看到的都是原话。"""
+        from aigroup.chat.quality import clean_style
+        t = str(text or "")
+        out, hit = clean_style(t)
+        if hit:
+            return out or "（你回了一句）"
+        if tone_bad:
+            first = re.split(r"[。！？!?\n]|(?<=[，,])", t, maxsplit=1)[0].rstrip("，,")
+            return (first[:15] + "……") if first else "（你回了一句）"
+        return t
+
     def transcript(self, gid: int, n: int | None = None, numbered: bool = False, quoted: bool = True) -> str:
         """群聊记录。numbered：每条前面带编号 #1、#2……（编号 → 消息记在 self._tmap[gid]，大模型说“回 #3”时用）。
         quoted：群友的话用 ‹ › 包起来（Spotlighting），换行等伪造记录的手段在入库时已经洗掉，这里再洗一遍老数据。"""
@@ -180,6 +212,7 @@ class PromptMixin:
         chunk = int(self.gk(gid).get("context_chunk", 15) or 0) if main else 0
         rows = self._rows_chunked(gid, n, chunk) if chunk > 0 else self._rows(gid, n)
         label = self._speaker_labels(gid, rows)
+        tone_bad = self._tone_bad_ids(gid, rows) if main and self.gk(gid).get("self_clean", True) else None
         lines, prev, tmap = [], None, {}
         now_dt = datetime.fromtimestamp(time.time(), self.cfg.tz)
         for i, r in enumerate(rows, 1):
@@ -191,6 +224,8 @@ class PromptMixin:
             stamp = f"{t:%H:%M}" if t.date() == now_dt.date() else f"{t:%m-%d %H:%M}"   # 不是今天的带上日期
             if r["role"] == "assistant":
                 who, content = "你", r["content"]
+                if tone_bad is not None:
+                    content = self.self_clean(r["content"], int(r["id"]) in tone_bad)
             else:
                 from aigroup.core.safety import clean_name
                 who = label.get(int(r["user_id"] or 0)) or clean_name(r["name"])
@@ -594,6 +629,8 @@ class PromptMixin:
                     + (', ["再一种：接梗或者接情绪；或者最短的那种，几个字"]' if ncand >= 3 else '') + ']'
                     + f'（写 {ncand - 1} 种，和 say 的接法不一样；在答事实问题时每种都带上关键事实，只是说法、长短不同）')
                    if ncand > 1 else "")
+            wy = ('\n    "wy": "（act 是 say 时写）把你最想说的那句先用文言写一遍，只写意思，二十字以内，别管语气",'
+                  if self.gk(gid).get("wenyan_cand", False) else "")
             stk = (',\n    "sticker": "想跟一张表情包就写情绪（开心/大笑/无语……）；只是想笑一下、捧个场、接个情绪、没什么实话要说时，'
                    '像群友那样只回一张表情包就好（say 留空 []）；其他时候写 null"' if stick_on else "")
             fmt = f"""- 怎么输出：只输出一个 JSON 对象（json），不要别的：
@@ -602,7 +639,7 @@ class PromptMixin:
     "act": {'"say" 或 "skip" 或 "react"' if can_react else '"say" 或 "skip"'},
     "to": 你要接的那条消息的编号（数字，比如 12；不针对哪一条就写 null）,
     "len": "short" 或 "mid" 或 "long"（短：一句；中：两三句；长：认真说一段，很少用）,
-{'    "react": "react 时点的表情：开心/大笑/喜欢/惊讶/无语/哭/得意 之一",' + chr(10) if can_react else ""}    "say": ["要发的第一条", "第二条（可以没有）"]{alt}{stk},
+{'    "react": "react 时点的表情：开心/大笑/喜欢/惊讶/无语/哭/得意 之一",' + chr(10) if can_react else ""}{wy.lstrip(chr(10)) + chr(10) if wy else ""}    "say": ["要发的第一条", "第二条（可以没有）"]{alt}{stk},
     "next": null 或 {{"wait_for": 编号（等这条消息的人再开口时你再接）, "timeout": 秒数（数字）}},
     "hold": null 或 "一句你很想说、但现在时机不对的话（等聊到相关的、或者群里冷下来再说）",
     "move": "你这句的接法：接住/回答/追问/接梗/损/关心/分享/吐槽/自嘲 之一"{score}}}
@@ -917,6 +954,8 @@ class PromptMixin:
                          not in ("null", "none") else ""),
                 "partial": bool(d.get("_partial")), "score": _score(d.get("score")),
                 "move": str(d.get("move") or "").strip()[:4],
+                "wy": (str(d.get("wy")).strip()[:60] if d.get("wy") and str(d.get("wy")).strip().lower()
+                       not in ("null", "none") else ""),
                 "image": _image(d.get("image"))}
 
     def parse_plan(self, raw: str) -> dict | None:

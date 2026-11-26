@@ -778,6 +778,15 @@ class SpeakMixin:
                 bb = parse_group_reply("|||".join(c), b.persona.name, max(1, min(mb, max(cap, len(c)))))
                 if bb:
                     cands.append(bb)
+            if cands and plan.get("wy") and self.gk(gid).get("wenyan_cand", False) and hasattr(self, "wenyan_cand"):
+                # 38.4 多一句“文言 → 白话”的说法，和另外几句一起挑（挑不挑它由 choose 说了算）
+                t_y = time.time()
+                wtxt = await self.wenyan_cand(gid, plan["wy"], str((tgt or {}).get("content") or "") if tgt else "")
+                tm["wenyan"] = round(time.time() - t_y, 1)
+                wb = parse_group_reply(wtxt, b.persona.name, max(1, min(mb, max(cap, 1)))) if wtxt else []
+                if wb and wb not in cands:
+                    cands.append(wb)
+                    plan["wy_k"] = len(cands) - 1
             sticker = plan.get("sticker") or ""
             quote = None
             no_names = self.names_off(gid)
@@ -852,6 +861,8 @@ class SpeakMixin:
                          "，挑选说不说更好" if res.get("silence") else "")
                 i = -1
             self.choose_log(gid, res, gate_id, i, "重写" if rewrote else "")
+            if plan and plan.get("wy_k") is not None and not rewrote:
+                res["wy_k"], res["wy"] = plan["wy_k"], plan.get("wy", "")
             qtxt = self.choose_summary(res, i)
             if len(cands) > 1 or hits:
                 tlog.info("群 %s 挑句子：%s", gid, " ｜ ".join(
